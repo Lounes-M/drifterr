@@ -84,6 +84,8 @@ pub struct ConfigMeta {
     pub anthropic_upstream: String,
     /// Whether sessions are persisted to SQLite (vs in-memory only).
     pub persisted: bool,
+    /// Judge backend label ("disabled", a model id, or "stub").
+    pub judge: String,
 }
 
 /// Shared, cheaply-clonable application state.
@@ -93,11 +95,22 @@ pub struct AppState {
     pub client: reqwest::Client,
     pub core: Arc<Mutex<AppCore>>,
     pub meta: Arc<ConfigMeta>,
+    pub judge: Arc<drifterr_judge::Judge>,
 }
 
 impl AppState {
-    /// Build state with a config and an optional durable store.
+    /// Build state with a config and an optional durable store. The judge is
+    /// configured from the environment (disabled unless an API key is present).
     pub fn new(cfg: ProxyConfig, store: Option<drifterr_store::Store>) -> Self {
+        Self::with_judge(cfg, store, drifterr_judge::Judge::from_env())
+    }
+
+    /// Build state with an explicit judge (used by tests).
+    pub fn with_judge(
+        cfg: ProxyConfig,
+        store: Option<drifterr_store::Store>,
+        judge: drifterr_judge::Judge,
+    ) -> Self {
         // `.no_proxy()`: talk to providers directly. Any ambient HTTP(S)_PROXY
         // belongs to the surrounding shell, not to a localhost dev proxy.
         let client = reqwest::Client::builder()
@@ -109,12 +122,14 @@ impl AppState {
             openai_upstream: cfg.openai_upstream.clone(),
             anthropic_upstream: cfg.anthropic_upstream.clone(),
             persisted: store.is_some(),
+            judge: judge.label(),
         };
         Self {
             cfg: Arc::new(cfg),
             client,
             core: Arc::new(Mutex::new(AppCore::new(store))),
             meta: Arc::new(meta),
+            judge: Arc::new(judge),
         }
     }
 }
@@ -327,8 +342,38 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
             return; // nothing detectable in this response
         }
         let session_id = state::session_id_for(&parsed_req);
-        if let Ok(mut core) = app2.core.lock() {
+
+        // Base (deterministic + soft) signals — sync, under the lock.
+        let decisions = {
+            let Ok(mut core) = app2.core.lock() else {
+                return;
+            };
             core.record_turn(&session_id, &parsed_req, &parsed_resp);
+            core.decisions_for(&session_id)
+        };
+
+        // Judge phase — async, off the lock. Signal 3 (decision coherence).
+        if app2.judge.enabled() && !decisions.is_empty() && !parsed_resp.assistant_text.is_empty() {
+            let last = drifterr_engine::conversation::Turn {
+                index: parsed_req.turns.len(),
+                role: drifterr_engine::conversation::Role::Assistant,
+                content: parsed_resp.assistant_text.clone(),
+                tokens: parsed_resp.output_tokens.unwrap_or(0),
+                timestamp: 0,
+            };
+            let embedder = drifterr_embeddings::BagEmbedder::default();
+            if let Some(event) = drifterr_judge::decision::decision_coherence(
+                &last,
+                &decisions,
+                &embedder,
+                &app2.judge,
+            )
+            .await
+            {
+                if let Ok(mut core) = app2.core.lock() {
+                    core.apply_extra_events(&session_id, vec![event]);
+                }
+            }
         }
     });
 

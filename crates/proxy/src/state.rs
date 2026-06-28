@@ -86,6 +86,54 @@ impl AppCore {
         self.sessions.values().map(|s| s.status.clone()).collect()
     }
 
+    /// The decisions recorded for a session (clone), for the judge phase.
+    pub fn decisions_for(&self, session_id: &str) -> Vec<drifterr_engine::baseline::Decision> {
+        self.sessions
+            .get(session_id)
+            .map(|s| s.baseline.decisions.clone())
+            .unwrap_or_default()
+    }
+
+    /// Merge late, out-of-band signal events (e.g. the async judge's Signal 3)
+    /// into a session's status. These are AMBER support signals: they append to
+    /// the signal list, can lift a GREEN session to AMBER, and never downgrade a
+    /// committed state. (They bypass the saturation hysteresis by design — a
+    /// judge-confirmed finding is a confirmation, not a flickery threshold.)
+    pub fn apply_extra_events(&mut self, session_id: &str, events: Vec<SignalEvent>) {
+        let Some(session) = self.sessions.get_mut(session_id) else {
+            return;
+        };
+        if events.is_empty() {
+            return;
+        }
+        let worst_extra = events
+            .iter()
+            .map(|e| e.state)
+            .fold(State::Green, State::worst);
+
+        for e in &events {
+            session.status.signals.push(view_of(e));
+        }
+        // Lift GREEN → (worst soft, capped at AMBER); never lower a stronger state.
+        if session.status.state == State::Green && worst_extra != State::Green {
+            session.status.state = worst_extra;
+            if session.status.triggering.is_none() {
+                if let Some(top) = events.iter().max_by_key(|e| e.state) {
+                    session.status.triggering = Some(view_of(top));
+                }
+            }
+        }
+        session.status.updated_at = now_millis();
+
+        if let Some(store) = &self.store {
+            if let Ok(mut s) = store.lock() {
+                let _ = s.record_events(session_id, &events);
+                let _ = s.set_status(session_id, session.status.state);
+            }
+        }
+        self.last_updated = Some(session_id.to_string());
+    }
+
     /// Build the re-anchor intervention (snapshot + preamble) for a session.
     /// With no id, uses the most recently updated session. `None` if unknown.
     pub fn reanchor(&self, session_id: Option<&str>) -> Option<drifterr_intervention::Reanchor> {

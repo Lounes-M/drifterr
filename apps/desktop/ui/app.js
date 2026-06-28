@@ -171,6 +171,7 @@ function clampPct(n) {
 /// payload, or `null` when it couldn't be fetched.
 export function renderConfig(doc, cfg) {
   setText(doc, "cfg-upstream", cfg ? cfg.openaiUpstream : "—");
+  setText(doc, "cfg-judge", cfg ? cfg.judge : "—");
   setText(doc, "cfg-storage", cfg ? (cfg.persisted ? "SQLite (persisted)" : "In-memory") : "—");
   setText(doc, "cfg-version", cfg ? "v" + cfg.version : "—");
 }

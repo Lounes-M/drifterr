@@ -15,7 +15,10 @@
 //! code is unchanged.
 
 /// Anything that maps text to a fixed-length vector.
-pub trait Embedder {
+///
+/// `Send + Sync` so embedders can be held across `.await` in the async judge
+/// phase (and shared across tasks).
+pub trait Embedder: Send + Sync {
     /// Embed `text` into an L2-normalized vector. Empty/whitespace text yields a
     /// zero vector.
     fn embed(&self, text: &str) -> Vec<f32>;

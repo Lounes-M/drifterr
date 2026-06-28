@@ -181,6 +181,93 @@ async fn anthropic_streaming_detects_saturation_red() {
     assert_eq!(status["exact"], true);
 }
 
+/// Mock upstream whose reply reintroduces "bcrypt" (for the judge test).
+async fn mock_bcrypt(req: Request) -> Response {
+    if req
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        != Some(AUTH)
+    {
+        return Response::builder()
+            .status(401)
+            .body(Body::from("no auth"))
+            .unwrap();
+    }
+    let chunks = vec![
+        "data: {\"choices\":[{\"delta\":{\"content\":\"Sure, let's hash the passwords with bcrypt now.\"}}]}\n\n".to_string(),
+        "data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":60,\"completion_tokens\":9}}\n\n".to_string(),
+        "data: [DONE]\n\n".to_string(),
+    ];
+    let stream = futures_util::stream::iter(
+        chunks
+            .into_iter()
+            .map(|s| Ok::<_, std::convert::Infallible>(Bytes::from(s))),
+    );
+    Response::builder()
+        .status(200)
+        .header("content-type", "text/event-stream")
+        .body(Body::from_stream(stream))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn judge_flags_reintroduced_rejected_decision() {
+    use drifterr_judge::{Judge, StubJudge};
+
+    let mock = spawn(Router::new().fallback(mock_bcrypt)).await;
+    let base = format!("http://{mock}");
+    let cfg = ProxyConfig {
+        openai_upstream: base.clone(),
+        anthropic_upstream: base,
+    };
+    // Stub judge says "yes" when the context mentions bcrypt — no network.
+    let state = AppState::with_judge(cfg, None, Judge::Stub(StubJudge::new(&["bcrypt"])));
+    let proxy = spawn(proxy_router(state.clone())).await;
+    let control = spawn(control_router(state)).await;
+    let client = client();
+
+    // The user explicitly rejected bcrypt; the (mocked) reply reintroduces it.
+    client
+        .post(format!("http://{proxy}/v1/chat/completions"))
+        .header("authorization", AUTH)
+        .json(&serde_json::json!({
+            "model": "gpt-4o",
+            "stream": true,
+            "messages": [{"role": "user", "content": "Add password hashing. Please don't use bcrypt."}]
+        }))
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+
+    // Poll until the async judge phase attaches the decision-coherence signal.
+    let url = format!("http://{control}/status");
+    let mut found = None;
+    for _ in 0..150 {
+        let v: serde_json::Value = client.get(&url).send().await.unwrap().json().await.unwrap();
+        let cur = &v["current"];
+        if !cur.is_null() {
+            if let Some(sigs) = cur["signals"].as_array() {
+                if let Some(s) = sigs.iter().find(|s| s["signal"] == "decision_coherence") {
+                    found = Some((cur.clone(), s.clone()));
+                    break;
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let (cur, sig) = found.expect("decision-coherence signal should appear");
+    assert_eq!(
+        cur["state"], "amber",
+        "judge soft signal lifts green → amber"
+    );
+    assert_eq!(sig["state"], "amber");
+    assert!(sig["detail"].as_str().unwrap().contains("bcrypt"));
+}
+
 #[tokio::test]
 async fn reanchor_returns_snapshot_after_a_session_exists() {
     let (proxy, control) = bring_up().await;
