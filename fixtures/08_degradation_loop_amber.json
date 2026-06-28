@@ -1,0 +1,21 @@
+{
+  "name": "Assistant repeats itself (soft Signal 5, looping) — caps at AMBER",
+  "baseline": {
+    "goal": "Fix the failing login test",
+    "constraints": [],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "fx-08",
+    "model": "claude-opus-4-x",
+    "turns": [
+      { "index": 0, "role": "user", "content": "Fix the failing login test.", "tokens": 8, "timestamp": 1000 },
+      { "index": 1, "role": "assistant", "content": "Let me try adjusting the configuration now.", "tokens": 9, "timestamp": 1100 },
+      { "index": 2, "role": "assistant", "content": "Let me try adjusting the configuration now.", "tokens": 9, "timestamp": 1200 },
+      { "index": 3, "role": "assistant", "content": "Let me try adjusting the configuration now.", "tokens": 9, "timestamp": 1300 }
+    ],
+    "context": { "windowSize": 200000, "usedTokens": 4000, "exact": true, "toolCallCount": 0 },
+    "source": "proxy"
+  },
+  "expect": { "state": "amber", "triggeringSignal": "degradation" }
+}

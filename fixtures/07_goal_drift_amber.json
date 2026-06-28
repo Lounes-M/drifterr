@@ -1,0 +1,22 @@
+{
+  "name": "Replies drift away from the goal (soft Signal 2) — caps at AMBER",
+  "baseline": {
+    "goal": "Build a REST API in Rust with axum",
+    "constraints": [],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "fx-07",
+    "model": "claude-opus-4-x",
+    "turns": [
+      { "index": 0, "role": "user", "content": "Build a REST API in Rust with axum.", "tokens": 10, "timestamp": 1000 },
+      { "index": 1, "role": "assistant", "content": "Created the axum REST API router and rust handlers.", "tokens": 12, "timestamp": 1100 },
+      { "index": 2, "role": "assistant", "content": "Added the rust axum route modules and request handlers.", "tokens": 12, "timestamp": 1200 },
+      { "index": 3, "role": "assistant", "content": "Let me tell you about my favorite pizza toppings instead.", "tokens": 12, "timestamp": 1300 },
+      { "index": 4, "role": "assistant", "content": "Pineapple and mushrooms make a delicious summer pizza combo.", "tokens": 12, "timestamp": 1400 }
+    ],
+    "context": { "windowSize": 200000, "usedTokens": 6000, "exact": true, "toolCallCount": 0 },
+    "source": "proxy"
+  },
+  "expect": { "state": "amber", "triggeringSignal": "goal_alignment" }
+}

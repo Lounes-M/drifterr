@@ -30,7 +30,8 @@ panel renders the live state.
 | **M1** — engine: baseline, Signal 1 (constraints), Signal 4 (saturation), state machine | ✅ done |
 | **M2** — proxy channel (SSE passthrough + tee) + control API + menubar panel | ✅ done |
 | M3a — intervention (re-anchor snapshot + preamble) | ✅ done |
-| M3b/c — soft signals (2,3,5) + judge | ⬜ next |
+| M3b — soft signals: goal alignment (2) + degradation (5) + local embeddings | ✅ done |
+| M3c — decision coherence (3) + judge | ⬜ next |
 | M4 — file watcher + browser extension channels | ⬜ |
 | M5 — standing orders (the moat) + opt-in proxy auto-re-anchor | ⬜ |
 
@@ -60,6 +61,7 @@ Channels (proxy │ file │ browser)
 | [`crates/store`](crates/store) | Local SQLite persistence (load/persist a `Conversation`, baseline, signal events). |
 | [`crates/proxy`](crates/proxy) | The local API proxy channel: transparent SSE relay + tee, per-provider parsing, and the control/status API. |
 | [`crates/intervention`](crates/intervention) | Re-anchor: builds the paste-ready reset snapshot + in-thread preamble from the baseline (pure, no LLM). |
+| [`crates/embeddings`](crates/embeddings) | Pluggable local text embeddings (default: dependency-free feature-hashing) for the soft signals. |
 | [`crates/tokenizer`](crates/tokenizer) | Provider-pluggable token estimation + model→context-window map. |
 | `fixtures/` | Hand-annotated transcripts — the M1 validation set. |
 
@@ -125,6 +127,19 @@ can **name** the cause.
 - **Signal 4 — context saturation.** Occupancy + per-turn fill rate + tool
   volume. Exact via the proxy, estimated elsewhere (we never lie about
   precision — see `ContextState::exact`). The leading indicator.
+
+### Soft signals (support only — never RED alone)
+
+- **Signal 2 — goal alignment.** Tracks the *trend* of cosine similarity between
+  the goal and recent replies (local embeddings); fires AMBER when replies drift
+  away. Reports on decline, not an absolute score, and needs several turns.
+- **Signal 5 — degradation.** Cheap text stats: looping (near-duplicate
+  replies), verbosity blow-ups, hedging spikes.
+
+Both **cap at AMBER by construction**, so a soft signal can never drive RED on
+its own — verified by a guardrail test. Embeddings are local and deterministic
+(zero cost, zero network); a real ONNX model can slot in behind the `Embedder`
+trait later.
 
 The **state machine** applies the brief's two rules: hard constraint violations
 commit to RED immediately (they're facts), while threshold-based saturation

@@ -39,11 +39,16 @@ use state_machine::Verdict;
 
 pub use signals::{SignalEvent, SignalKind};
 
-/// Evaluate every hard signal for one turn of a conversation.
+/// Evaluate every signal for one turn of a conversation.
 ///
 /// Returns a [`Verdict`] carrying each signal's event and the instantaneous
 /// worst state. Feed the verdict to a [`state_machine::SessionMonitor`] to get
 /// the anti-flickered state shown to the user.
+///
+/// **Hard vs soft.** Hard signals (constraints, saturation) may reach RED. Soft
+/// signals (goal alignment, degradation) only ever emit AMBER, so a soft signal
+/// can never drive RED on its own — the verdict state is the worst across all
+/// events, and soft maxes out at AMBER by construction.
 pub fn evaluate(conv: &Conversation, baseline: &Baseline) -> Verdict {
     let mut events = Vec::new();
 
@@ -53,10 +58,85 @@ pub fn evaluate(conv: &Conversation, baseline: &Baseline) -> Verdict {
     // Signal 4 — saturation (hard, always one event).
     events.push(saturation::evaluate(conv));
 
+    // Soft signals (support only; AMBER ceiling). A local, deterministic
+    // embedder keeps these zero-cost and zero-network.
+    let embedder = drifterr_embeddings::BagEmbedder::default();
+    if let Some(e) = signals::goal::evaluate(baseline, conv, &embedder) {
+        events.push(e);
+    }
+    if let Some(e) = signals::degradation::evaluate(conv, &embedder) {
+        events.push(e);
+    }
+
     let state = events
         .iter()
         .map(|e| e.state)
         .fold(State::Green, State::worst);
 
     Verdict { state, events }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use baseline::Baseline;
+    use conversation::{ContextState, Conversation, Role, Source, Turn};
+
+    fn assistant(i: usize, content: &str) -> Turn {
+        Turn {
+            index: i,
+            role: Role::Assistant,
+            content: content.to_string(),
+            tokens: 0,
+            timestamp: 0,
+        }
+    }
+
+    /// The guardrail: soft signals — even several at once, with no hard signal —
+    /// must never push the verdict to RED. They cap at AMBER.
+    #[test]
+    fn soft_signals_never_drive_red() {
+        let baseline = Baseline {
+            goal: "build a rust web server with axum".into(),
+            constraints: vec![],
+            decisions: vec![],
+        };
+        // On-topic, then identical off-topic replies: trips BOTH goal-drift and
+        // the looping degradation symptom at once.
+        let conv = Conversation {
+            session_id: "s".into(),
+            model: "claude-opus-4-x".into(),
+            turns: vec![
+                assistant(0, "here is the axum rust web server code"),
+                assistant(1, "the rust server request handler is ready"),
+                assistant(2, "anyway here are some banana smoothie recipes for summer"),
+                assistant(3, "anyway here are some banana smoothie recipes for summer"),
+            ],
+            // Low occupancy ⇒ saturation GREEN (no hard signal in play).
+            context: ContextState {
+                window_size: 200_000,
+                used_tokens: 5_000,
+                exact: true,
+                tool_call_count: 0,
+            },
+            source: Source::Proxy,
+        };
+
+        let verdict = evaluate(&conv, &baseline);
+        let soft = verdict
+            .events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.signal,
+                    SignalKind::GoalAlignment
+                        | SignalKind::DecisionCoherence
+                        | SignalKind::Degradation
+                ) && e.state != State::Green
+            })
+            .count();
+        assert!(soft >= 1, "expected at least one soft signal to fire");
+        assert_ne!(verdict.state, State::Red, "soft signals must not reach RED");
+        assert_eq!(verdict.state, State::Amber);
+    }
 }
