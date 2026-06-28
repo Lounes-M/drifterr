@@ -1,29 +1,22 @@
-# Satoshi font — drop the files here
+# Fonts
 
-Upload the Satoshi font files into **this folder** (`apps/desktop/ui/public/fonts/`).
-The CSS (`apps/desktop/ui/styles.css`) is already wired to them via `@font-face`,
-and the proxy serves this folder at `/public/fonts/*`, so once the files are
-here they load in both the browser dashboard and the Tauri menubar — no other
-changes needed.
+Font files live in subfolders by family.
 
-## What the CSS uses (required)
+## Satoshi
 
-The stylesheet references the **variable** files, which cover every weight:
+Primary typeface, in [`satoshi/`](satoshi/). Already wired into the UI:
 
-- `Satoshi-Variable.woff2`  ← primary
-- `Satoshi-Variable.woff`   ← fallback
-- `Satoshi-VariableItalic.woff2`
-- `Satoshi-VariableItalic.woff`
+- `styles.css` references it via `@font-face`
+  (`public/fonts/satoshi/Satoshi-Variable.woff2` + `.woff`, plus the variable
+  italics).
+- The proxy serves this tree at `/public/fonts/*`, so it loads in both the
+  browser dashboard and the Tauri webview.
 
-## Also fine to upload (the full family, harmless if unused)
+Source: Indian Type Foundry — https://www.fontshare.com/fonts/satoshi.
+Licensed for use in this project; do not redistribute the files outside this
+repository.
 
-```
-Satoshi-Light.woff(2)        Satoshi-LightItalic.woff(2)
-Satoshi-Regular.woff(2)      Satoshi-Italic.woff(2)
-Satoshi-Medium.woff(2)       Satoshi-MediumItalic.woff(2)
-Satoshi-Bold.woff(2)         Satoshi-BoldItalic.woff(2)
-Satoshi-Black.woff(2)        Satoshi-BlackItalic.woff(2)
-```
+## Adding another family
 
-Until the files are present, the UI falls back to the system sans-serif — nothing
-breaks, it just won't be Satoshi yet.
+Drop its files in a new subfolder here and add a matching `@font-face` block in
+`styles.css`.

@@ -7,8 +7,8 @@
 @font-face {
   font-family: "Satoshi";
   src:
-    url("public/fonts/Satoshi-Variable.woff2") format("woff2-variations"),
-    url("public/fonts/Satoshi-Variable.woff") format("woff-variations");
+    url("public/fonts/satoshi/Satoshi-Variable.woff2") format("woff2-variations"),
+    url("public/fonts/satoshi/Satoshi-Variable.woff") format("woff-variations");
   font-weight: 300 900;
   font-style: normal;
   font-display: swap;
@@ -16,8 +16,8 @@
 @font-face {
   font-family: "Satoshi";
   src:
-    url("public/fonts/Satoshi-VariableItalic.woff2") format("woff2-variations"),
-    url("public/fonts/Satoshi-VariableItalic.woff") format("woff-variations");
+    url("public/fonts/satoshi/Satoshi-VariableItalic.woff2") format("woff2-variations"),
+    url("public/fonts/satoshi/Satoshi-VariableItalic.woff") format("woff-variations");
   font-weight: 300 900;
   font-style: italic;
   font-display: swap;
