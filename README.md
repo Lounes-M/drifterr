@@ -33,7 +33,7 @@ panel renders the live state.
 | M3b — soft signals: goal alignment (2) + degradation (5) + local embeddings | ✅ done |
 | M3c — decision coherence (3) + pluggable judge (OpenRouter) | ✅ done |
 | M4 — file watcher (Claude Code) + browser extension channels | ✅ done |
-| M5 — standing orders (the moat) | ✅ done · ⬜ opt-in proxy auto-re-anchor |
+| M5 — standing orders (the moat) + opt-in proxy auto-re-anchor | ✅ done |
 
 ![Drifting](docs/menubar-red.png) ![Aligned](docs/menubar-green.png) ![Re-anchor](docs/menubar-reanchor.png)
 
@@ -121,6 +121,11 @@ When a session drifts, `GET /reanchor` returns a **paste-ready reset snapshot**
 **in-thread preamble** that re-states the binding constraints. Both are pure
 functions of the baseline — no LLM, no network. The menubar's **Re-anchor**
 button renders and copies them.
+
+**Opt-in auto-re-anchor (M5).** With `DRIFTERR_AUTO_REANCHOR=1`, the proxy
+injects that preamble into the *next outgoing request* whenever the session is
+RED — closing the loop automatically. It's off by default (it modifies what you
+send), idempotent (never injected twice), and only fires on a hard RED.
 
 **The #1 hard point, handled.** The upstream byte stream is forwarded to the
 client unchanged while a cheap tee (refcounted `Bytes`) feeds a background task

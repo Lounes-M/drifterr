@@ -63,6 +63,9 @@ async fn main() {
     eprintln!("drifterr upstream → {}", cfg.openai_upstream);
 
     let state = AppState::new(cfg, store);
+    if state.auto_reanchor {
+        eprintln!("drifterr re-anchor → ON (injects the preamble into drifting requests)");
+    }
 
     // Optional file channel: watch a directory of Claude Code sessions and feed
     // the SAME engine via the normalized format. Held in `_watcher` so it lives

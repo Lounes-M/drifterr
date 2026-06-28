@@ -137,6 +137,35 @@ impl AppCore {
         self.last_updated = Some(session_id.to_string());
     }
 
+    /// The re-anchor preamble for a session **only when it is currently RED** —
+    /// used by opt-in auto-re-anchor to nudge the next request. Conservative:
+    /// AMBER/GREEN sessions get nothing, so we only ever touch a request when a
+    /// hard signal is actively firing.
+    pub fn auto_preamble(&self, session_id: &str) -> Option<String> {
+        let s = self.sessions.get(session_id)?;
+        if s.status.state != State::Red {
+            return None;
+        }
+        let trigger = s
+            .status
+            .triggering
+            .as_ref()
+            .map(|t| drifterr_intervention::Trigger {
+                signal: t.signal.clone(),
+                detail: t.detail.clone(),
+            });
+        Some(
+            drifterr_intervention::reanchor(
+                &s.baseline,
+                s.status.state,
+                s.status.saturation_pct,
+                s.status.exact,
+                trigger.as_ref(),
+            )
+            .preamble,
+        )
+    }
+
     /// Build the re-anchor intervention (snapshot + preamble) for a session.
     /// With no id, uses the most recently updated session. `None` if unknown.
     pub fn reanchor(&self, session_id: Option<&str>) -> Option<drifterr_intervention::Reanchor> {

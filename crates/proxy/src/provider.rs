@@ -259,6 +259,49 @@ fn usize_at(v: &Value, pointer: &str) -> Option<usize> {
         .map(|n| n as usize)
 }
 
+/// Marker so we never inject the re-anchor preamble twice into one request.
+pub const REANCHOR_MARKER: &str = "[Drifterr re-anchor]";
+
+/// Inject the re-anchor `preamble` into an outgoing request body (opt-in
+/// auto-re-anchor). For OpenAI it's prepended as a leading `system` message; for
+/// Anthropic it's prepended to the top-level `system`. Returns the modified body,
+/// or `None` if the body can't be parsed or the preamble is already present
+/// (idempotent). Best-effort — a `None` means "relay the original unchanged".
+pub fn inject_preamble(provider: Provider, body: &[u8], preamble: &str) -> Option<Vec<u8>> {
+    let mut v: Value = serde_json::from_slice(body).ok()?;
+    if !v.is_object() {
+        return None;
+    }
+    if body_contains_marker(&v) {
+        return None;
+    }
+    match provider {
+        Provider::OpenAI => {
+            let msgs = v.get_mut("messages")?.as_array_mut()?;
+            msgs.insert(
+                0,
+                serde_json::json!({ "role": "system", "content": preamble }),
+            );
+        }
+        Provider::Anthropic => match v.get_mut("system") {
+            Some(Value::String(s)) => *s = format!("{preamble}\n\n{s}"),
+            Some(Value::Array(arr)) => {
+                arr.insert(0, serde_json::json!({ "type": "text", "text": preamble }))
+            }
+            _ => {
+                v["system"] = Value::String(preamble.to_string());
+            }
+        },
+    }
+    serde_json::to_vec(&v).ok()
+}
+
+fn body_contains_marker(v: &Value) -> bool {
+    serde_json::to_string(v)
+        .map(|s| s.contains(REANCHOR_MARKER))
+        .unwrap_or(false)
+}
+
 /// Wall-clock milliseconds. Unlike workflow scripts, a real binary may read the
 /// clock; turns carry a true timestamp.
 fn now_millis() -> i64 {
@@ -272,6 +315,35 @@ fn now_millis() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inject_preamble_openai_and_idempotent() {
+        let body = br#"{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}"#;
+        let out =
+            inject_preamble(Provider::OpenAI, body, "[Drifterr re-anchor] keep to TS").unwrap();
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        let msgs = v["messages"].as_array().unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0]["role"], "system");
+        assert!(msgs[0]["content"].as_str().unwrap().contains("re-anchor"));
+        // Second injection is a no-op (marker already present).
+        assert!(inject_preamble(Provider::OpenAI, &out, "[Drifterr re-anchor] x").is_none());
+    }
+
+    #[test]
+    fn inject_preamble_anthropic_prepends_system() {
+        let body = br#"{"model":"claude-opus-4-x","system":"be nice","messages":[{"role":"user","content":"hi"}]}"#;
+        let out = inject_preamble(Provider::Anthropic, body, "[Drifterr re-anchor] no JS").unwrap();
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        let sys = v["system"].as_str().unwrap();
+        assert!(sys.starts_with("[Drifterr re-anchor]"));
+        assert!(sys.contains("be nice"));
+    }
+
+    #[test]
+    fn inject_preamble_handles_garbage() {
+        assert!(inject_preamble(Provider::OpenAI, b"not json", "x").is_none());
+    }
 
     #[test]
     fn openai_request_history_and_stream_flag() {
