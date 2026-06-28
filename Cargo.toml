@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/adapters",
     "crates/embeddings",
     "crates/engine",
     "crates/intervention",
@@ -29,6 +30,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 thiserror = "1"
 
 # Internal crates
+drifterr-adapters = { path = "crates/adapters" }
 drifterr-embeddings = { path = "crates/embeddings" }
 drifterr-engine = { path = "crates/engine" }
 drifterr-intervention = { path = "crates/intervention" }

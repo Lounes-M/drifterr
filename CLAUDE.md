@@ -65,6 +65,7 @@ crates/intervention re-anchor snapshot + preamble
 crates/store       local SQLite persistence
 crates/proxy       local API proxy channel + control API + dashboard
 crates/tokenizer   token estimation + context-window map
+crates/adapters    channel adapters (Claude Code file watcher)
 apps/desktop/ui    menubar panel (no build step) + Playwright tests
 apps/desktop/src-tauri  native tray shell (excluded from workspace)
 fixtures/          annotated transcripts (engine validation set)

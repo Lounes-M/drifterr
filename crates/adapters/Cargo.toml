@@ -1,0 +1,12 @@
+[package]
+name = "drifterr-adapters"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+notify = "6"
+drifterr-engine.workspace = true
+drifterr-tokenizer.workspace = true

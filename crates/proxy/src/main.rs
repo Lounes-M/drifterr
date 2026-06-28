@@ -64,9 +64,59 @@ async fn main() {
 
     let state = AppState::new(cfg, store);
 
+    // Optional file channel: watch a directory of Claude Code sessions and feed
+    // the SAME engine via the normalized format. Held in `_watcher` so it lives
+    // for the program's lifetime.
+    let _watcher: Option<drifterr_adapters::RecommendedWatcher> =
+        std::env::var("DRIFTERR_WATCH_DIR")
+            .ok()
+            .filter(|d| !d.is_empty())
+            .and_then(|dir| start_file_channel(&dir, state.clone()));
+
     if let Err(e) = serve(proxy_addr, control_addr, state).await {
         eprintln!("drifterr: server error: {e}");
         std::process::exit(1);
+    }
+}
+
+/// Start watching `dir` for Claude Code sessions, ingesting each into the shared
+/// engine state. Returns the live watcher (keep it alive).
+fn start_file_channel(dir: &str, state: AppState) -> Option<drifterr_adapters::RecommendedWatcher> {
+    use std::path::Path;
+    let path = Path::new(dir);
+
+    // Initial scan so existing sessions show up immediately.
+    for (_, conv) in drifterr_adapters::claude_code::scan_dir(path) {
+        if let Ok(mut core) = state.core.lock() {
+            core.record_conversation(&conv);
+        }
+    }
+
+    let ingest_state = state.clone();
+    let ingest = move |file: std::path::PathBuf| {
+        let Ok(content) = std::fs::read_to_string(&file) else {
+            return;
+        };
+        let stem = file
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("session");
+        if let Some(conv) = drifterr_adapters::claude_code::parse_session(&content, stem) {
+            if let Ok(mut core) = ingest_state.core.lock() {
+                core.record_conversation(&conv);
+            }
+        }
+    };
+
+    match drifterr_adapters::watch_dir(path, ingest) {
+        Ok(w) => {
+            eprintln!("drifterr files    → watching {dir}  (Claude Code sessions)");
+            Some(w)
+        }
+        Err(e) => {
+            eprintln!("drifterr: could not watch {dir}: {e}");
+            None
+        }
     }
 }
 
