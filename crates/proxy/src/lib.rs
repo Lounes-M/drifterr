@@ -86,6 +86,9 @@ pub struct ConfigMeta {
     pub persisted: bool,
     /// Judge backend label ("disabled", a model id, or "stub").
     pub judge: String,
+    /// Whether opt-in auto-re-anchor is active.
+    #[serde(rename = "autoReanchor")]
+    pub auto_reanchor: bool,
 }
 
 /// Shared, cheaply-clonable application state.
@@ -96,20 +99,42 @@ pub struct AppState {
     pub core: Arc<Mutex<AppCore>>,
     pub meta: Arc<ConfigMeta>,
     pub judge: Arc<drifterr_judge::Judge>,
+    /// Opt-in: inject the re-anchor preamble into outgoing requests when the
+    /// session is drifting (RED). Off by default — it modifies user requests.
+    pub auto_reanchor: bool,
 }
 
 impl AppState {
-    /// Build state with a config and an optional durable store. The judge is
-    /// configured from the environment (disabled unless an API key is present).
+    /// Build state with a config and an optional durable store. Judge and
+    /// auto-re-anchor are configured from the environment.
     pub fn new(cfg: ProxyConfig, store: Option<drifterr_store::Store>) -> Self {
-        Self::with_judge(cfg, store, drifterr_judge::Judge::from_env())
+        let auto = matches!(
+            std::env::var("DRIFTERR_AUTO_REANCHOR").as_deref(),
+            Ok("1") | Ok("true") | Ok("yes")
+        );
+        Self::build(cfg, store, drifterr_judge::Judge::from_env(), auto)
     }
 
-    /// Build state with an explicit judge (used by tests).
+    /// Build state with an explicit judge (used by tests). Auto-re-anchor off.
     pub fn with_judge(
         cfg: ProxyConfig,
         store: Option<drifterr_store::Store>,
         judge: drifterr_judge::Judge,
+    ) -> Self {
+        Self::build(cfg, store, judge, false)
+    }
+
+    /// Enable/disable auto-re-anchor (used by tests).
+    pub fn with_auto_reanchor(mut self, on: bool) -> Self {
+        self.auto_reanchor = on;
+        self
+    }
+
+    fn build(
+        cfg: ProxyConfig,
+        store: Option<drifterr_store::Store>,
+        judge: drifterr_judge::Judge,
+        auto_reanchor: bool,
     ) -> Self {
         // `.no_proxy()`: talk to providers directly. Any ambient HTTP(S)_PROXY
         // belongs to the surrounding shell, not to a localhost dev proxy.
@@ -123,6 +148,7 @@ impl AppState {
             anthropic_upstream: cfg.anthropic_upstream.clone(),
             persisted: store.is_some(),
             judge: judge.label(),
+            auto_reanchor,
         };
         Self {
             cfg: Arc::new(cfg),
@@ -130,6 +156,7 @@ impl AppState {
             core: Arc::new(Mutex::new(AppCore::new(store))),
             meta: Arc::new(meta),
             judge: Arc::new(judge),
+            auto_reanchor,
         }
     }
 }
@@ -421,12 +448,30 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
     let url = format!("{upstream_base}{path_and_query}");
     let parsed_req = provider::parse_request(provider, &body_bytes);
 
+    // Opt-in auto-re-anchor: if this session is currently drifting (RED), inject
+    // the re-anchor preamble into the outgoing request. Idempotent and best-
+    // effort — on any doubt we relay the original bytes unchanged.
+    let mut body_to_send = body_bytes.to_vec();
+    if app.auto_reanchor {
+        let session_id = state::session_id_for(&parsed_req);
+        let preamble = app
+            .core
+            .lock()
+            .ok()
+            .and_then(|core| core.auto_preamble(&session_id));
+        if let Some(preamble) = preamble {
+            if let Some(modified) = provider::inject_preamble(provider, &body_bytes, &preamble) {
+                body_to_send = modified;
+            }
+        }
+    }
+
     // Relay to the real provider.
     let upstream = app
         .client
         .request(parts.method.clone(), &url)
         .headers(forward_headers(&parts.headers))
-        .body(body_bytes.to_vec())
+        .body(body_to_send)
         .send()
         .await;
     let upstream = match upstream {

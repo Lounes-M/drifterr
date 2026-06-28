@@ -12,6 +12,7 @@ use axum::response::Response;
 use axum::Router;
 use drifterr_proxy::{control_router, proxy_router, AppState, ProxyConfig};
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
 
@@ -424,6 +425,99 @@ async fn standing_order_recurs_promotes_and_reappears() {
     let status = wait_for_status(&client, control).await;
     assert_eq!(status["state"], "red");
     assert_eq!(status["triggering"]["signal"], "constraint");
+}
+
+#[tokio::test]
+async fn auto_reanchor_injects_preamble_when_drifting() {
+    // Mock upstream that records every request body and always replies with a
+    // .js violation (to drive the session RED).
+    let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let cap = captured.clone();
+    let mock = spawn(Router::new().fallback(move |req: Request| {
+        let cap = cap.clone();
+        async move {
+            let (_p, body) = req.into_parts();
+            let bytes = axum::body::to_bytes(body, 1 << 20).await.unwrap_or_default();
+            cap.lock().unwrap().push(String::from_utf8_lossy(&bytes).to_string());
+            let chunks = vec![
+                "data: {\"choices\":[{\"delta\":{\"content\":\"Sure, creating auth.js\"}}]}\n\n".to_string(),
+                "data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":50,\"completion_tokens\":6}}\n\n".to_string(),
+                "data: [DONE]\n\n".to_string(),
+            ];
+            let stream = futures_util::stream::iter(
+                chunks.into_iter().map(|s| Ok::<_, std::convert::Infallible>(Bytes::from(s))),
+            );
+            Response::builder()
+                .status(200)
+                .header("content-type", "text/event-stream")
+                .body(Body::from_stream(stream))
+                .unwrap()
+        }
+    }))
+    .await;
+
+    let base = format!("http://{mock}");
+    let cfg = ProxyConfig {
+        openai_upstream: base.clone(),
+        anthropic_upstream: base,
+    };
+    let state =
+        AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled).with_auto_reanchor(true);
+    let proxy = spawn(proxy_router(state.clone())).await;
+    let control = spawn(control_router(state)).await;
+    let client = client();
+
+    let body = serde_json::json!({
+        "model": "gpt-4o",
+        "stream": true,
+        "messages": [{"role": "user", "content": "refactor in TS, no JS"}]
+    });
+
+    // Turn 1: session not yet known ⇒ no injection; the reply drives it RED.
+    client
+        .post(format!("http://{proxy}/v1/chat/completions"))
+        .header("authorization", AUTH)
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    let status = wait_for_status(&client, control).await;
+    assert_eq!(status["state"], "red");
+
+    // Turn 2: same session (same opening) ⇒ proxy injects the preamble.
+    let body2 = serde_json::json!({
+        "model": "gpt-4o",
+        "stream": true,
+        "messages": [
+            {"role": "user", "content": "refactor in TS, no JS"},
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "continue"}
+        ]
+    });
+    client
+        .post(format!("http://{proxy}/v1/chat/completions"))
+        .header("authorization", AUTH)
+        .json(&body2)
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+
+    let bodies = captured.lock().unwrap().clone();
+    assert_eq!(bodies.len(), 2);
+    assert!(
+        !bodies[0].contains("Drifterr re-anchor"),
+        "turn 1 relayed unchanged"
+    );
+    assert!(
+        bodies[1].contains("Drifterr re-anchor"),
+        "turn 2 should carry the injected re-anchor preamble"
+    );
 }
 
 #[tokio::test]
