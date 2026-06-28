@@ -5,3 +5,10 @@ Cargo.lock.orig
 *.sqlite-journal
 *.db
 .DS_Store
+
+# Node / Playwright
+node_modules/
+
+# Tauri build output
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/

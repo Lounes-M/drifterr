@@ -182,6 +182,38 @@ async fn anthropic_streaming_detects_saturation_red() {
 }
 
 #[tokio::test]
+async fn control_serves_dashboard_with_cors() {
+    let (_proxy, control) = bring_up().await;
+    let client = client();
+
+    let page = client
+        .get(format!("http://{control}/"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(page.status(), 200);
+    assert_eq!(
+        page.headers().get("access-control-allow-origin").unwrap(),
+        "*"
+    );
+    let html = page.text().await.unwrap();
+    assert!(html.contains("id=\"panel\""), "dashboard HTML served");
+
+    let js = client
+        .get(format!("http://{control}/app.js"))
+        .send()
+        .await
+        .unwrap();
+    assert!(js
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("javascript"));
+}
+
+#[tokio::test]
 async fn missing_auth_is_relayed_untouched() {
     // The proxy must not invent auth; a 401 from upstream reaches the client.
     let (proxy, _control) = bring_up().await;

@@ -6,6 +6,11 @@ members = [
     "crates/store",
     "crates/tokenizer",
 ]
+# The Tauri desktop shell is excluded from the workspace: it needs platform GUI
+# libraries (webkit2gtk etc.) that aren't present in headless CI, and it pulls a
+# large native dependency tree. Build it on a dev machine with `cargo tauri dev`
+# from apps/desktop/src-tauri.
+exclude = ["apps/desktop/src-tauri"]
 
 [workspace.package]
 version = "0.0.1"

@@ -21,12 +21,14 @@
 //! Keeping them on separate ports means the status contract can never collide
 //! with a proxied path.
 
+pub mod dashboard;
 pub mod provider;
 pub mod state;
 
 use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::http::StatusCode;
+use axum::http::{Method, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -99,13 +101,36 @@ pub fn proxy_router(state: AppState) -> Router {
     Router::new().fallback(proxy_handler).with_state(state)
 }
 
-/// The control API the UI reads.
+/// The control API the UI reads, plus the built-in dashboard that serves the
+/// menubar panel's assets. CORS is permissive: this listener is localhost-only,
+/// and the browser-extension channel and any web dashboard need to reach it
+/// cross-origin.
 pub fn control_router(state: AppState) -> Router {
     Router::new()
+        .route("/", get(dashboard::index))
+        .route("/index.html", get(dashboard::index))
+        .route("/styles.css", get(dashboard::styles))
+        .route("/app.js", get(dashboard::app_js))
         .route("/status", get(status_handler))
         .route("/sessions", get(sessions_handler))
         .route("/health", get(|| async { "ok" }))
+        .layer(middleware::from_fn(add_cors))
         .with_state(state)
+}
+
+/// Add permissive CORS headers and short-circuit preflight requests.
+async fn add_cors(req: Request, next: Next) -> Response {
+    let is_preflight = req.method() == Method::OPTIONS;
+    let mut res = if is_preflight {
+        Response::new(Body::empty())
+    } else {
+        next.run(req).await
+    };
+    let h = res.headers_mut();
+    h.insert("access-control-allow-origin", "*".parse().unwrap());
+    h.insert("access-control-allow-methods", "GET, OPTIONS".parse().unwrap());
+    h.insert("access-control-allow-headers", "*".parse().unwrap());
+    res
 }
 
 /// Run both listeners until shutdown. Convenience entry point for the binary.

@@ -18,19 +18,22 @@ See [`docs/BRIEF.md`](docs/BRIEF.md) for the full strategic & technical brief.
 
 ## Where this repo is
 
-This is the **foundation + hard-signal engine + proxy channel** — milestones
-**M0**, **M1**, and the proxy half of **M2**. The detection core is validated
-against hand-annotated fixtures, and the local API proxy now feeds it real
-sessions with **exact** saturation, with byte-for-byte streaming passthrough.
+This is the **foundation + hard-signal engine + proxy channel + menubar** —
+milestones **M0**, **M1**, and **M2**. The detection core is validated against
+hand-annotated fixtures, the local API proxy feeds it real sessions with
+**exact** saturation and byte-for-byte streaming passthrough, and the menubar
+panel renders the live state.
 
 | Milestone | Status |
 |---|---|
 | **M0** — monorepo, SQLite schema, normalized format, tokenizer | ✅ done |
 | **M1** — engine: baseline, Signal 1 (constraints), Signal 4 (saturation), state machine | ✅ done |
-| **M2** — proxy channel (SSE passthrough + tee) + control/status API | ✅ proxy done · ⬜ menubar UI |
-| M3 — soft signals (2,3,5) + intervention (re-anchor snapshot) | ⬜ |
+| **M2** — proxy channel (SSE passthrough + tee) + control API + menubar panel | ✅ done |
+| M3 — soft signals (2,3,5) + intervention (re-anchor snapshot) | ⬜ next |
 | M4 — file watcher + browser extension channels | ⬜ |
 | M5 — standing orders (the moat) + opt-in proxy auto-re-anchor | ⬜ |
+
+![Drifting](docs/menubar-red.png) ![Aligned](docs/menubar-green.png)
 
 ## Architecture (the non-negotiable principle)
 
@@ -58,8 +61,10 @@ Channels (proxy │ file │ browser)
 | [`crates/tokenizer`](crates/tokenizer) | Provider-pluggable token estimation + model→context-window map. |
 | `fixtures/` | Hand-annotated transcripts — the M1 validation set. |
 
-The remaining channels and the desktop app (`apps/desktop`, `apps/extension`,
-`crates/adapters`, `crates/intervention`) land in later milestones.
+| [`apps/desktop`](apps/desktop) | The menubar app: a shared no-build panel UI (`ui/`) + the Tauri 2 tray shell (`src-tauri/`). |
+
+The remaining channels (`apps/extension`, `crates/adapters`) and the
+intervention layer (`crates/intervention`) land in later milestones.
 
 ## The proxy channel (M2)
 
@@ -136,8 +141,9 @@ offending span: ".js"
 - **M1** — on annotated transcripts the engine correctly flags deterministic
   constraint violations and saturation thresholds, with no real channel
   (`crates/engine/tests/fixtures.rs`).
-- **M2 (proxy)** — a request relayed through the proxy streams back without
-  degradation (byte-exact), and the control API turns red when a constraint is
-  violated in a live session, with exact saturation
-  (`crates/proxy/tests/proxy_e2e.rs`). The menubar UI that consumes `/status`
-  is the remaining M2 piece.
+- **M2** — a request relayed through the proxy streams back without degradation
+  (byte-exact), and the control API turns red when a constraint is violated in a
+  live session, with exact saturation (`crates/proxy/tests/proxy_e2e.rs`). The
+  menubar panel renders that status correctly — state color, named triggering
+  signal, offending span, offline handling — verified in headless Chromium
+  (`apps/desktop/ui/tests/menubar.test.mjs`).

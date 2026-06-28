@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Drifterr</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main id="panel" class="panel">
+      <header class="head">
+        <span id="dot" class="dot unknown" aria-hidden="true"></span>
+        <div class="head-text">
+          <h1 id="state-label">Connecting…</h1>
+          <p id="blurb" class="blurb">Reading your session.</p>
+        </div>
+      </header>
+
+      <section id="trigger" class="trigger" hidden>
+        <div class="trigger-row">
+          <span class="trigger-tag" id="trigger-signal">Signal</span>
+          <span id="trigger-detail" class="trigger-detail"></span>
+        </div>
+        <code id="trigger-span" class="span-chip" hidden></code>
+      </section>
+
+      <section class="sat">
+        <div class="sat-head">
+          <span>Context</span>
+          <span id="sat-meta" class="sat-meta">—</span>
+        </div>
+        <div class="bar"><div id="sat-fill" class="bar-fill" style="width:0%"></div></div>
+      </section>
+
+      <section class="signals">
+        <h2 class="section-title">Signals</h2>
+        <ul id="signals" class="signal-list"></ul>
+      </section>
+
+      <section id="empty" class="empty" hidden>
+        <p>No active session yet.</p>
+        <p class="muted">Point your tool at the proxy (<code>localhost:8787</code>) and start chatting.</p>
+      </section>
+
+      <div id="error" class="error" hidden>Drifterr proxy not reachable.</div>
+
+      <footer class="foot">
+        <span id="meta" class="muted"></span>
+      </footer>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
