@@ -234,9 +234,6 @@ mod tests {
             ev(SignalKind::Saturation, State::Red),
             ev(SignalKind::Constraint, State::Red),
         ]);
-        assert_eq!(
-            verdict.triggering().unwrap().signal,
-            SignalKind::Constraint
-        );
+        assert_eq!(verdict.triggering().unwrap().signal, SignalKind::Constraint);
     }
 }

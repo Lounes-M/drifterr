@@ -129,6 +129,33 @@ async function main() {
   check((await page.locator("#dot").getAttribute("class")).includes("green"), "dot flips to green");
   check(!(await page.locator("#trigger").isVisible()), "trigger block hidden when aligned");
 
+  console.log("SETTINGS view:");
+  await page.route("**/config*", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        version: "0.0.1",
+        openaiUpstream: "https://openrouter.ai/api",
+        anthropicUpstream: "https://api.anthropic.com",
+        persisted: false,
+      }),
+    })
+  );
+  check(!(await page.locator("#settings").isVisible()), "settings hidden by default");
+  await page.locator("#gear").click();
+  await page.waitForFunction(() => !document.getElementById("settings").hidden);
+  check(await page.locator("#settings").isVisible(), "gear opens settings");
+  await page.waitForFunction(
+    () => document.getElementById("cfg-upstream").textContent.includes("openrouter")
+  );
+  check(
+    (await page.locator("#cfg-upstream").textContent()).includes("openrouter.ai"),
+    "settings shows OpenRouter upstream"
+  );
+  check((await page.locator("#cfg-storage").textContent()) === "In-memory", "settings shows storage mode");
+  await page.locator("#gear").click();
+  check(!(await page.locator("#settings").isVisible()), "gear closes settings again");
+
   console.log("OFFLINE scenario:");
   await page.unroute("**/status*");
   await page.route("**/status*", (route) => route.abort());

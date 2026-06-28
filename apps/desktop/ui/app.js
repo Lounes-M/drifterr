@@ -162,6 +162,48 @@ function clampPct(n) {
 
 // --- polling loop (browser only) -------------------------------------------
 
+// --- settings view ---------------------------------------------------------
+
+/// Render the effective config into the settings view. `cfg` is the `/config`
+/// payload, or `null` when it couldn't be fetched.
+export function renderConfig(doc, cfg) {
+  setText(doc, "cfg-upstream", cfg ? cfg.openaiUpstream : "—");
+  setText(doc, "cfg-storage", cfg ? (cfg.persisted ? "SQLite (persisted)" : "In-memory") : "—");
+  setText(doc, "cfg-version", cfg ? "v" + cfg.version : "—");
+}
+
+/// Show/hide the settings view. With no `show` arg, toggles. Returns the new
+/// visibility.
+export function toggleSettings(doc, show) {
+  const s = doc.getElementById("settings");
+  if (!s) return false;
+  const willShow = show === undefined ? s.hidden : show;
+  s.hidden = !willShow;
+  return willShow;
+}
+
+export async function loadConfig(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/config", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderConfig(doc, await res.json());
+  } catch (_e) {
+    renderConfig(doc, null);
+  }
+}
+
+function setupUi(doc) {
+  const gear = doc.getElementById("gear");
+  if (!gear) return;
+  gear.addEventListener("click", async () => {
+    const showing = toggleSettings(doc);
+    if (showing) await loadConfig(doc);
+  });
+}
+
+// --- polling loop (browser only) -------------------------------------------
+
 export async function poll(doc, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
@@ -174,6 +216,7 @@ export async function poll(doc, fetchImpl) {
 }
 
 if (typeof document !== "undefined" && typeof window !== "undefined" && !window.__DRIFTERR_NO_AUTOSTART) {
+  setupUi(document);
   poll(document);
   window.setInterval(() => poll(document), 1500);
 }

@@ -39,7 +39,11 @@ pub fn evaluate(conv: &Conversation) -> SignalEvent {
     };
 
     let pct = (ratio * 100.0).round() as u32;
-    let precision = if conv.context.exact { "exact" } else { "estimated" };
+    let precision = if conv.context.exact {
+        "exact"
+    } else {
+        "estimated"
+    };
     let mut detail = format!(
         "context {pct}% full ({precision}: {}/{} tokens)",
         conv.context.used_tokens, conv.context.window_size
@@ -139,6 +143,9 @@ mod tests {
             ..conv(3000, 10000, 10, 0)
         };
         assert!(evaluate(&estimated).evidence.detail.contains("estimated"));
-        assert!(evaluate(&conv(3000, 10000, 10, 0)).evidence.detail.contains("exact"));
+        assert!(evaluate(&conv(3000, 10000, 10, 0))
+            .evidence
+            .detail
+            .contains("exact"));
     }
 }

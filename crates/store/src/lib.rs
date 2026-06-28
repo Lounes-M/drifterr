@@ -62,7 +62,10 @@ impl Store {
             params![conv.session_id, conv.model, source_str(conv.source)],
         )?;
 
-        tx.execute("DELETE FROM turns WHERE session_id = ?1", params![conv.session_id])?;
+        tx.execute(
+            "DELETE FROM turns WHERE session_id = ?1",
+            params![conv.session_id],
+        )?;
         for t in &conv.turns {
             tx.execute(
                 "INSERT INTO turns (session_id, idx, role, content, tokens, ts)
@@ -152,7 +155,10 @@ impl Store {
             "UPDATE sessions SET goal = ?1 WHERE id = ?2",
             params![baseline.goal, session_id],
         )?;
-        tx.execute("DELETE FROM constraints WHERE session_id = ?1", params![session_id])?;
+        tx.execute(
+            "DELETE FROM constraints WHERE session_id = ?1",
+            params![session_id],
+        )?;
         for c in &baseline.constraints {
             let rule_json = match &c.rule {
                 Some(r) => Some(serde_json::to_string(r)?),
@@ -172,7 +178,10 @@ impl Store {
                 ],
             )?;
         }
-        tx.execute("DELETE FROM decisions WHERE session_id = ?1", params![session_id])?;
+        tx.execute(
+            "DELETE FROM decisions WHERE session_id = ?1",
+            params![session_id],
+        )?;
         for d in &baseline.decisions {
             tx.execute(
                 "INSERT INTO decisions (session_id, text, rejected) VALUES (?1, ?2, ?3)",

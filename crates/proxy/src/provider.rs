@@ -254,7 +254,9 @@ fn parse_sse(provider: Provider, body: &[u8]) -> ParsedResponse {
 }
 
 fn usize_at(v: &Value, pointer: &str) -> Option<usize> {
-    v.pointer(pointer).and_then(Value::as_u64).map(|n| n as usize)
+    v.pointer(pointer)
+        .and_then(Value::as_u64)
+        .map(|n| n as usize)
 }
 
 /// Wall-clock milliseconds. Unlike workflow scripts, a real binary may read the

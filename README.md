@@ -74,19 +74,27 @@ channel with *exact* saturation — it sees the real `messages` array and the
 provider's reported token usage.
 
 ```bash
-cargo run -p drifterr-proxy        # proxy on :8787, control/status on :8788
+cp .env.example .env               # optional: OpenRouter is already the default
+cargo run -p drifterr-proxy        # proxy :8787, control + dashboard :8788
 
-# OpenAI-style tools (Cline, OpenRouter, custom agents):
+# Point your tool at the proxy with your OpenRouter key:
 export OPENAI_BASE_URL=http://localhost:8787/v1
+export OPENAI_API_KEY=sk-or-...
 # Anthropic-style tools:
 export ANTHROPIC_BASE_URL=http://localhost:8787
 
-curl http://localhost:8788/status  # live drift status as JSON (the menubar's feed)
+open http://localhost:8788/        # the live menubar panel in any browser
+curl http://localhost:8788/status  # raw drift status as JSON
 ```
 
-Config via env: `DRIFTERR_PROXY_ADDR`, `DRIFTERR_CONTROL_ADDR`, `DRIFTERR_DB`
-(SQLite path; omit for in-memory), `OPENAI_UPSTREAM`, `ANTHROPIC_UPSTREAM` (point
-at OpenRouter or a local server for other backends).
+**Provider:** Drifterr standardizes on **OpenRouter** (OpenAI-compatible) — it's
+the default `OPENAI_UPSTREAM`, so every model routes through it. Override via
+`.env` / env vars for plain OpenAI or a local server.
+
+Config via env (a `.env` is auto-loaded): `OPENAI_UPSTREAM`,
+`ANTHROPIC_UPSTREAM`, `DRIFTERR_PROXY_ADDR`, `DRIFTERR_CONTROL_ADDR`,
+`DRIFTERR_DB` (SQLite path; omit for in-memory). The control API exposes
+`GET /config` with the effective settings.
 
 **The #1 hard point, handled.** The upstream byte stream is forwarded to the
 client unchanged while a cheap tee (refcounted `Bytes`) feeds a background task

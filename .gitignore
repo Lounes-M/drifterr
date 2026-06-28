@@ -6,6 +6,9 @@ Cargo.lock.orig
 *.db
 .DS_Store
 
+# Local env (secrets / machine config) — keep .env.example tracked
+.env
+
 # Node / Playwright
 node_modules/
 

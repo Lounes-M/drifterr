@@ -230,7 +230,12 @@ pub fn session_id_for(req: &ParsedRequest) -> String {
         .map(|t| t.content.as_str())
         .unwrap_or("default");
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in req.model.bytes().chain(b"\0".iter().copied()).chain(anchor.bytes()) {
+    for byte in req
+        .model
+        .bytes()
+        .chain(b"\0".iter().copied())
+        .chain(anchor.bytes())
+    {
         hash ^= byte as u64;
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
@@ -257,7 +262,9 @@ mod tests {
     #[test]
     fn constraint_violation_turns_red_with_exact_saturation() {
         let mut core = AppCore::new(None);
-        let r = req(br#"{"model":"gpt-4o","messages":[{"role":"user","content":"refactor in TS, no JS"}]}"#);
+        let r = req(
+            br#"{"model":"gpt-4o","messages":[{"role":"user","content":"refactor in TS, no JS"}]}"#,
+        );
         let id = session_id_for(&r);
         let resp = ParsedResponse {
             assistant_text: "Sure, let's create auth.js".into(),
@@ -292,7 +299,11 @@ mod tests {
         let mut core = AppCore::new(None);
         let r = req(br#"{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}"#);
         let id = session_id_for(&r);
-        let resp = parse_response(Provider::OpenAI, "application/json", b"{\"choices\":[{\"message\":{\"content\":\"hello\"}}]}");
+        let resp = parse_response(
+            Provider::OpenAI,
+            "application/json",
+            b"{\"choices\":[{\"message\":{\"content\":\"hello\"}}]}",
+        );
         core.record_turn(&id, &r, &resp);
         assert!(!core.current().unwrap().exact);
     }

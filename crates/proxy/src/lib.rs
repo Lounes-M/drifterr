@@ -71,12 +71,27 @@ impl ProxyConfig {
     }
 }
 
+/// Effective configuration, exposed read-only at `GET /config` for the UI's
+/// settings view and for diagnostics. (Editable judge/privacy settings arrive
+/// with the judge milestone; this is the foundation they'll extend.)
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfigMeta {
+    pub version: &'static str,
+    #[serde(rename = "openaiUpstream")]
+    pub openai_upstream: String,
+    #[serde(rename = "anthropicUpstream")]
+    pub anthropic_upstream: String,
+    /// Whether sessions are persisted to SQLite (vs in-memory only).
+    pub persisted: bool,
+}
+
 /// Shared, cheaply-clonable application state.
 #[derive(Clone)]
 pub struct AppState {
     pub cfg: Arc<ProxyConfig>,
     pub client: reqwest::Client,
     pub core: Arc<Mutex<AppCore>>,
+    pub meta: Arc<ConfigMeta>,
 }
 
 impl AppState {
@@ -88,10 +103,17 @@ impl AppState {
             .no_proxy()
             .build()
             .expect("reqwest client");
+        let meta = ConfigMeta {
+            version: env!("CARGO_PKG_VERSION"),
+            openai_upstream: cfg.openai_upstream.clone(),
+            anthropic_upstream: cfg.anthropic_upstream.clone(),
+            persisted: store.is_some(),
+        };
         Self {
             cfg: Arc::new(cfg),
             client,
             core: Arc::new(Mutex::new(AppCore::new(store))),
+            meta: Arc::new(meta),
         }
     }
 }
@@ -113,9 +135,14 @@ pub fn control_router(state: AppState) -> Router {
         .route("/app.js", get(dashboard::app_js))
         .route("/status", get(status_handler))
         .route("/sessions", get(sessions_handler))
+        .route("/config", get(config_handler))
         .route("/health", get(|| async { "ok" }))
         .layer(middleware::from_fn(add_cors))
         .with_state(state)
+}
+
+async fn config_handler(State(app): State<AppState>) -> Json<ConfigMeta> {
+    Json((*app.meta).clone())
 }
 
 /// Add permissive CORS headers and short-circuit preflight requests.
@@ -128,7 +155,10 @@ async fn add_cors(req: Request, next: Next) -> Response {
     };
     let h = res.headers_mut();
     h.insert("access-control-allow-origin", "*".parse().unwrap());
-    h.insert("access-control-allow-methods", "GET, OPTIONS".parse().unwrap());
+    h.insert(
+        "access-control-allow-methods",
+        "GET, OPTIONS".parse().unwrap(),
+    );
     h.insert("access-control-allow-headers", "*".parse().unwrap());
     res
 }
@@ -249,9 +279,9 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
         }
         builder = builder.header(name.as_str(), value.as_bytes());
     }
-    builder
-        .body(Body::from_stream(teed))
-        .unwrap_or_else(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "response build error"))
+    builder.body(Body::from_stream(teed)).unwrap_or_else(|_| {
+        error_response(StatusCode::INTERNAL_SERVER_ERROR, "response build error")
+    })
 }
 
 /// Copy request headers for forwarding, dropping hop-by-hop headers, `host`

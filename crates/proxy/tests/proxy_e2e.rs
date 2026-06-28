@@ -214,6 +214,27 @@ async fn control_serves_dashboard_with_cors() {
 }
 
 #[tokio::test]
+async fn control_exposes_effective_config() {
+    let (_proxy, control) = bring_up().await;
+    let client = client();
+    let cfg: serde_json::Value = client
+        .get(format!("http://{control}/config"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    // bring_up points both upstreams at the mock; persistence is off (None).
+    assert!(cfg["openaiUpstream"]
+        .as_str()
+        .unwrap()
+        .starts_with("http://"));
+    assert_eq!(cfg["persisted"], false);
+    assert!(!cfg["version"].as_str().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn missing_auth_is_relayed_untouched() {
     // The proxy must not invent auth; a 401 from upstream reaches the client.
     let (proxy, _control) = bring_up().await;

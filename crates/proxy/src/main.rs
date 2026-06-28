@@ -8,19 +8,30 @@
 //! curl http://localhost:8788/status          # live drift status (JSON)
 //! ```
 //!
-//! Configuration via environment:
+//! Configuration via environment (a `.env` file in the working directory is
+//! auto-loaded; see `.env.example`):
 //! * `DRIFTERR_PROXY_ADDR`     (default `127.0.0.1:8787`)
 //! * `DRIFTERR_CONTROL_ADDR`   (default `127.0.0.1:8788`)
 //! * `DRIFTERR_DB`             SQLite path (default: in-memory, not persisted)
-//! * `OPENAI_UPSTREAM`         (default `https://api.openai.com`)
+//! * `OPENAI_UPSTREAM`         (default `https://openrouter.ai/api` — OpenRouter)
 //! * `ANTHROPIC_UPSTREAM`      (default `https://api.anthropic.com`)
 
 use drifterr_proxy::{serve, AppState, ProxyConfig};
 use drifterr_store::Store;
 use std::net::SocketAddr;
 
+/// Default OpenAI-compatible upstream. Drifterr standardizes on OpenRouter for
+/// all agent calls; it speaks the OpenAI schema, so `/v1/chat/completions`
+/// relays straight through. Override with `OPENAI_UPSTREAM` for plain OpenAI or
+/// a local server.
+const DEFAULT_OPENAI_UPSTREAM: &str = "https://openrouter.ai/api";
+const DEFAULT_ANTHROPIC_UPSTREAM: &str = "https://api.anthropic.com";
+
 #[tokio::main]
 async fn main() {
+    // Load a local .env if present (no-op otherwise), so config persists.
+    dotenvy::dotenv().ok();
+
     let proxy_addr: SocketAddr = env_or("DRIFTERR_PROXY_ADDR", "127.0.0.1:8787")
         .parse()
         .expect("invalid DRIFTERR_PROXY_ADDR");
@@ -29,8 +40,8 @@ async fn main() {
         .expect("invalid DRIFTERR_CONTROL_ADDR");
 
     let cfg = ProxyConfig {
-        openai_upstream: env_or("OPENAI_UPSTREAM", "https://api.openai.com"),
-        anthropic_upstream: env_or("ANTHROPIC_UPSTREAM", "https://api.anthropic.com"),
+        openai_upstream: env_or("OPENAI_UPSTREAM", DEFAULT_OPENAI_UPSTREAM),
+        anthropic_upstream: env_or("ANTHROPIC_UPSTREAM", DEFAULT_ANTHROPIC_UPSTREAM),
     };
 
     let store = match std::env::var("DRIFTERR_DB") {
@@ -47,10 +58,11 @@ async fn main() {
         _ => None,
     };
 
-    let state = AppState::new(cfg, store);
+    eprintln!("drifterr proxy    → {proxy_addr}  (point your tool here)");
+    eprintln!("drifterr control  → http://{control_addr}/  (dashboard + /status)");
+    eprintln!("drifterr upstream → {}", cfg.openai_upstream);
 
-    eprintln!("drifterr proxy   → {proxy_addr}  (point your tool here)");
-    eprintln!("drifterr control → http://{control_addr}/status");
+    let state = AppState::new(cfg, store);
 
     if let Err(e) = serve(proxy_addr, control_addr, state).await {
         eprintln!("drifterr: server error: {e}");
