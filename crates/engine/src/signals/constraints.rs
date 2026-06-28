@@ -53,7 +53,7 @@ pub fn evaluate(baseline: &Baseline, last_assistant: Option<&Turn>) -> Vec<Signa
 /// risk a false positive, because a deterministic signal that cries wolf is
 /// worse than one that stays quiet.
 fn check(c: &Constraint, content: &str) -> Option<Option<String>> {
-    let rule = c.rule.clone().or_else(|| infer_rule(&c.text));
+    let rule = c.rule.clone().or_else(|| crate::infer::infer_rule(&c.text));
     let rule = rule?;
     apply_rule(&rule, content)
 }
@@ -130,35 +130,6 @@ fn code_blocks(content: &str) -> Vec<&str> {
         }
     }
     blocks
-}
-
-/// Infer a deterministic rule from common constraint phrasings.
-///
-/// This is deliberately small and high-precision. It covers the phrasings that
-/// recur in real sessions; anything it does not recognize falls through to
-/// "no rule" (constraint treated as satisfied by Signal 1, and ideally routed
-/// to the judge path in a later milestone).
-fn infer_rule(text: &str) -> Option<Rule> {
-    let t = text.to_ascii_lowercase();
-
-    // "TypeScript only, no JS" / "no .js" — forbid JavaScript file extensions.
-    if (t.contains("typescript") && (t.contains("no js") || t.contains("not js") || t.contains("pas de js")))
-        || t.contains("no .js")
-        || t.contains("pas de .js")
-    {
-        return Some(Rule::ForbidPattern {
-            pattern: r"\.js\b".to_string(),
-        });
-    }
-
-    // "No comments in code" — forbid comment syntax inside code blocks.
-    if t.contains("no comment") || t.contains("aucun commentaire") || t.contains("pas de commentaire") {
-        return Some(Rule::ForbidInCode {
-            pattern: r"(//|/\*|^\s*#|<!--)".to_string(),
-        });
-    }
-
-    None
 }
 
 #[cfg(test)]

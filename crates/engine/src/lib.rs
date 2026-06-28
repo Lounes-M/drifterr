@@ -28,6 +28,7 @@
 
 pub mod baseline;
 pub mod conversation;
+pub mod infer;
 pub mod signals;
 pub mod state_machine;
 

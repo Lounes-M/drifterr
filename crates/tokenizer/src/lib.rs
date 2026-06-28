@@ -63,6 +63,37 @@ impl Provider {
     }
 }
 
+/// Context-window size (in tokens) for a model identifier.
+///
+/// Saturation (Signal 4) needs the denominator. This is a small, conservative
+/// lookup over the model families we target; unknown models get a safe default.
+/// It is matching-by-substring so it survives versioned ids (`gpt-4o-2024-…`,
+/// `claude-opus-4-x`). Values err toward the *documented base* window rather
+/// than the largest available variant, so we never under-report saturation.
+pub fn context_window(model: &str) -> usize {
+    let m = model.to_ascii_lowercase();
+    if m.contains("claude") {
+        200_000
+    } else if m.contains("gpt-4.1") {
+        1_000_000
+    } else if m.contains("gpt-4o")
+        || m.contains("gpt-4-turbo")
+        || m.starts_with("o1")
+        || m.starts_with("o3")
+        || m.contains("-o1")
+        || m.contains("-o3")
+    {
+        128_000
+    } else if m.contains("gpt-4") {
+        8_192
+    } else if m.contains("gpt-3.5") {
+        16_385
+    } else {
+        // Unknown model: assume a modern mid-size window.
+        128_000
+    }
+}
+
 /// Heuristic tokenizer: estimates from text length and a per-provider ratio.
 ///
 /// This is the fallback used by non-proxy channels. It is intentionally cheap
@@ -119,6 +150,14 @@ mod tests {
         assert_eq!(Provider::from_model("o1-preview"), Provider::OpenAI);
         assert_eq!(Provider::from_model("claude-opus-4-x"), Provider::Anthropic);
         assert_eq!(Provider::from_model("llama-3-70b"), Provider::Generic);
+    }
+
+    #[test]
+    fn windows_known_and_default() {
+        assert_eq!(context_window("claude-opus-4-x"), 200_000);
+        assert_eq!(context_window("gpt-4o-2024-08-06"), 128_000);
+        assert_eq!(context_window("gpt-4"), 8_192);
+        assert_eq!(context_window("some-future-model"), 128_000);
     }
 
     #[test]

@@ -112,4 +112,106 @@ impl Baseline {
             .iter()
             .filter(|c| c.active && c.checkable == Checkable::Deterministic)
     }
+
+    /// Extract a baseline from a conversation's turns without an LLM.
+    ///
+    /// Used by channels that have no externally-supplied baseline (the proxy):
+    /// the goal is the first user message, and constraints are the deterministic
+    /// rules inferred from the user's own messages. This keeps M2 detection free
+    /// and verifiable; richer judge-based extraction is a later milestone.
+    pub fn extract(turns: &[crate::conversation::Turn]) -> Baseline {
+        use crate::conversation::Role;
+
+        let goal = turns
+            .iter()
+            .find(|t| t.role == Role::User)
+            .map(|t| t.content.clone())
+            .unwrap_or_default();
+
+        let mut baseline = Baseline {
+            goal,
+            constraints: Vec::new(),
+            decisions: Vec::new(),
+        };
+        baseline.absorb(turns);
+        baseline
+    }
+
+    /// Merge any newly-stated deterministic constraints from `turns` into this
+    /// baseline, preserving existing constraint ids.
+    ///
+    /// Constraints can be posed mid-session, not just at the start, so the proxy
+    /// re-runs this each turn. Rules already present (compared structurally) are
+    /// skipped, so ids — and therefore the evidence trail — stay stable.
+    pub fn absorb(&mut self, turns: &[crate::conversation::Turn]) {
+        use crate::conversation::Role;
+        use crate::infer::{describe, infer_rules};
+
+        if self.goal.is_empty() {
+            if let Some(t) = turns.iter().find(|t| t.role == Role::User) {
+                self.goal = t.content.clone();
+            }
+        }
+
+        for turn in turns.iter().filter(|t| t.role == Role::User) {
+            for rule in infer_rules(&turn.content) {
+                if self.constraints.iter().any(|c| c.rule.as_ref() == Some(&rule)) {
+                    continue;
+                }
+                let (text, kind) = describe(&rule);
+                let id = format!("c{}", self.constraints.len() + 1);
+                self.constraints.push(Constraint {
+                    id,
+                    text: text.to_string(),
+                    kind,
+                    checkable: Checkable::Deterministic,
+                    active: true,
+                    rule: Some(rule),
+                });
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::conversation::{Role, Turn};
+
+    fn user(content: &str) -> Turn {
+        Turn {
+            index: 0,
+            role: Role::User,
+            content: content.to_string(),
+            tokens: 0,
+            timestamp: 0,
+        }
+    }
+
+    #[test]
+    fn extract_sets_goal_and_constraints() {
+        let turns = vec![user("Refactor auth in strict TypeScript, no JS, no comments")];
+        let b = Baseline::extract(&turns);
+        assert!(b.goal.starts_with("Refactor auth"));
+        assert_eq!(b.constraints.len(), 2);
+        assert!(b.constraints.iter().all(|c| c.checkable == Checkable::Deterministic));
+    }
+
+    #[test]
+    fn absorb_is_idempotent_and_stable() {
+        let turns = vec![user("TypeScript only, no JS")];
+        let mut b = Baseline::extract(&turns);
+        let first_id = b.constraints[0].id.clone();
+        b.absorb(&turns); // same input again
+        assert_eq!(b.constraints.len(), 1, "no duplicate constraint");
+        assert_eq!(b.constraints[0].id, first_id, "id preserved");
+    }
+
+    #[test]
+    fn absorb_picks_up_mid_session_constraint() {
+        let mut b = Baseline::extract(&[user("TypeScript only, no JS")]);
+        assert_eq!(b.constraints.len(), 1);
+        b.absorb(&[user("also no comments in code")]);
+        assert_eq!(b.constraints.len(), 2);
+    }
 }

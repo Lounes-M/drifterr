@@ -1,0 +1,30 @@
+[package]
+name = "drifterr-proxy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "drifterr-proxy"
+path = "src/main.rs"
+
+[lib]
+name = "drifterr_proxy"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
+axum = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "rustls-tls", "http2"] }
+futures-util = "0.3"
+bytes = "1"
+serde.workspace = true
+serde_json.workspace = true
+drifterr-engine.workspace = true
+drifterr-store.workspace = true
+drifterr-tokenizer.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "rustls-tls"] }
+futures-util = "0.3"

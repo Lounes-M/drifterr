@@ -18,17 +18,16 @@ See [`docs/BRIEF.md`](docs/BRIEF.md) for the full strategic & technical brief.
 
 ## Where this repo is
 
-This is the **foundation + hard-signal engine** — milestones **M0** and **M1**
-from the build plan, the product's go/no-go. The detection core is implemented
-and validated against hand-annotated fixtures, with **no real channel
-attached** yet. If detection isn't convincing here, nothing downstream matters;
-it is, so the channels (proxy, file watcher, browser) can be built on top.
+This is the **foundation + hard-signal engine + proxy channel** — milestones
+**M0**, **M1**, and the proxy half of **M2**. The detection core is validated
+against hand-annotated fixtures, and the local API proxy now feeds it real
+sessions with **exact** saturation, with byte-for-byte streaming passthrough.
 
 | Milestone | Status |
 |---|---|
 | **M0** — monorepo, SQLite schema, normalized format, tokenizer | ✅ done |
 | **M1** — engine: baseline, Signal 1 (constraints), Signal 4 (saturation), state machine | ✅ done |
-| M2 — proxy channel + menubar UI | ⬜ next |
+| **M2** — proxy channel (SSE passthrough + tee) + control/status API | ✅ proxy done · ⬜ menubar UI |
 | M3 — soft signals (2,3,5) + intervention (re-anchor snapshot) | ⬜ |
 | M4 — file watcher + browser extension channels | ⬜ |
 | M5 — standing orders (the moat) + opt-in proxy auto-re-anchor | ⬜ |
@@ -55,11 +54,41 @@ Channels (proxy │ file │ browser)
 |---|---|
 | [`crates/engine`](crates/engine) | The channel-agnostic core: normalized format, baseline, signals, state machine. |
 | [`crates/store`](crates/store) | Local SQLite persistence (load/persist a `Conversation`, baseline, signal events). |
-| [`crates/tokenizer`](crates/tokenizer) | Provider-pluggable token estimation for the non-proxy channels. |
+| [`crates/proxy`](crates/proxy) | The local API proxy channel: transparent SSE relay + tee, per-provider parsing, and the control/status API. |
+| [`crates/tokenizer`](crates/tokenizer) | Provider-pluggable token estimation + model→context-window map. |
 | `fixtures/` | Hand-annotated transcripts — the M1 validation set. |
 
-Channels and the desktop app (`apps/desktop`, `apps/extension`, `crates/proxy`,
+The remaining channels and the desktop app (`apps/desktop`, `apps/extension`,
 `crates/adapters`, `crates/intervention`) land in later milestones.
+
+## The proxy channel (M2)
+
+Point your tool at the proxy; it relays every request to the real provider
+**transparently** and runs detection off the response path. This is the only
+channel with *exact* saturation — it sees the real `messages` array and the
+provider's reported token usage.
+
+```bash
+cargo run -p drifterr-proxy        # proxy on :8787, control/status on :8788
+
+# OpenAI-style tools (Cline, OpenRouter, custom agents):
+export OPENAI_BASE_URL=http://localhost:8787/v1
+# Anthropic-style tools:
+export ANTHROPIC_BASE_URL=http://localhost:8787
+
+curl http://localhost:8788/status  # live drift status as JSON (the menubar's feed)
+```
+
+Config via env: `DRIFTERR_PROXY_ADDR`, `DRIFTERR_CONTROL_ADDR`, `DRIFTERR_DB`
+(SQLite path; omit for in-memory), `OPENAI_UPSTREAM`, `ANTHROPIC_UPSTREAM` (point
+at OpenRouter or a local server for other backends).
+
+**The #1 hard point, handled.** The upstream byte stream is forwarded to the
+client unchanged while a cheap tee (refcounted `Bytes`) feeds a background task
+that reconstructs the assistant turn and runs the engine. Added client latency
+≈ 0. The e2e test asserts the relayed body is **byte-for-byte identical** to the
+upstream's, for both OpenAI and Anthropic SSE — see
+[`crates/proxy/tests/proxy_e2e.rs`](crates/proxy/tests/proxy_e2e.rs).
 
 ## The hard signals (what's implemented)
 
@@ -107,3 +136,8 @@ offending span: ".js"
 - **M1** — on annotated transcripts the engine correctly flags deterministic
   constraint violations and saturation thresholds, with no real channel
   (`crates/engine/tests/fixtures.rs`).
+- **M2 (proxy)** — a request relayed through the proxy streams back without
+  degradation (byte-exact), and the control API turns red when a constraint is
+  violated in a live session, with exact saturation
+  (`crates/proxy/tests/proxy_e2e.rs`). The menubar UI that consumes `/status`
+  is the remaining M2 piece.

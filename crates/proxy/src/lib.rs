@@ -1,0 +1,274 @@
+//! # Drifterr proxy channel
+//!
+//! A local API proxy: the user points their tool at it, it relays every request
+//! to the real provider **transparently**, and — off the response path — it
+//! reconstructs each assistant turn and runs the engine. This is the only
+//! channel that yields *exact* saturation, because it sees the real `messages`
+//! array and the provider's reported token usage.
+//!
+//! ## The non-negotiable rule
+//!
+//! Never buffer the response before relaying it — that would break SSE
+//! streaming, the product's #1 hard point. Instead the upstream byte stream is
+//! forwarded to the client **unchanged**, while a cheap [`tee`](proxy_handler)
+//! (cloned reference-counted `Bytes`) feeds a background task that does the
+//! parsing and detection after the stream ends. Client-added latency ≈ 0.
+//!
+//! Two listeners run side by side:
+//! * the **proxy** (catch-all) — the transparent relay;
+//! * the **control API** — `GET /status` etc., consumed by the future menubar.
+//!
+//! Keeping them on separate ports means the status contract can never collide
+//! with a proxied path.
+
+pub mod provider;
+pub mod state;
+
+use axum::body::Body;
+use axum::extract::{Request, State};
+use axum::http::StatusCode;
+use axum::response::Response;
+use axum::routing::get;
+use axum::{Json, Router};
+use bytes::Bytes;
+use futures_util::StreamExt;
+use provider::Provider;
+use serde::Serialize;
+use state::{AppCore, SessionStatus};
+use std::future::IntoFuture;
+use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
+use tokio::net::TcpListener;
+
+/// Largest request body we will read into memory before relaying (64 MiB).
+const MAX_BODY: usize = 64 * 1024 * 1024;
+
+/// Where to relay each provider's traffic. Defaults to the public endpoints;
+/// override (e.g. to OpenRouter or a local server) for other backends.
+#[derive(Debug, Clone)]
+pub struct ProxyConfig {
+    pub openai_upstream: String,
+    pub anthropic_upstream: String,
+}
+
+impl Default for ProxyConfig {
+    fn default() -> Self {
+        Self {
+            openai_upstream: "https://api.openai.com".to_string(),
+            anthropic_upstream: "https://api.anthropic.com".to_string(),
+        }
+    }
+}
+
+impl ProxyConfig {
+    fn upstream_for(&self, provider: Provider) -> &str {
+        match provider {
+            Provider::OpenAI => &self.openai_upstream,
+            Provider::Anthropic => &self.anthropic_upstream,
+        }
+    }
+}
+
+/// Shared, cheaply-clonable application state.
+#[derive(Clone)]
+pub struct AppState {
+    pub cfg: Arc<ProxyConfig>,
+    pub client: reqwest::Client,
+    pub core: Arc<Mutex<AppCore>>,
+}
+
+impl AppState {
+    /// Build state with a config and an optional durable store.
+    pub fn new(cfg: ProxyConfig, store: Option<drifterr_store::Store>) -> Self {
+        // `.no_proxy()`: talk to providers directly. Any ambient HTTP(S)_PROXY
+        // belongs to the surrounding shell, not to a localhost dev proxy.
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("reqwest client");
+        Self {
+            cfg: Arc::new(cfg),
+            client,
+            core: Arc::new(Mutex::new(AppCore::new(store))),
+        }
+    }
+}
+
+/// The transparent relay: a catch-all over every path and method.
+pub fn proxy_router(state: AppState) -> Router {
+    Router::new().fallback(proxy_handler).with_state(state)
+}
+
+/// The control API the UI reads.
+pub fn control_router(state: AppState) -> Router {
+    Router::new()
+        .route("/status", get(status_handler))
+        .route("/sessions", get(sessions_handler))
+        .route("/health", get(|| async { "ok" }))
+        .with_state(state)
+}
+
+/// Run both listeners until shutdown. Convenience entry point for the binary.
+pub async fn serve(
+    proxy_addr: SocketAddr,
+    control_addr: SocketAddr,
+    state: AppState,
+) -> std::io::Result<()> {
+    let proxy = TcpListener::bind(proxy_addr).await?;
+    let control = TcpListener::bind(control_addr).await?;
+    let proxy_app = proxy_router(state.clone());
+    let control_app = control_router(state);
+    tokio::try_join!(
+        axum::serve(proxy, proxy_app).into_future(),
+        axum::serve(control, control_app).into_future(),
+    )?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct StatusResponse {
+    current: Option<SessionStatus>,
+    sessions: Vec<SessionStatus>,
+}
+
+async fn status_handler(State(app): State<AppState>) -> Json<StatusResponse> {
+    let (current, sessions) = match app.core.lock() {
+        Ok(core) => (core.current(), core.all()),
+        Err(_) => (None, Vec::new()),
+    };
+    Json(StatusResponse { current, sessions })
+}
+
+async fn sessions_handler(State(app): State<AppState>) -> Json<Vec<SessionStatus>> {
+    let sessions = app.core.lock().map(|c| c.all()).unwrap_or_default();
+    Json(sessions)
+}
+
+/// The transparent relay handler with the streaming tee.
+async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
+    let (parts, body) = req.into_parts();
+    let path_and_query = parts
+        .uri
+        .path_and_query()
+        .map(|pq| pq.as_str().to_string())
+        .unwrap_or_else(|| "/".to_string());
+
+    // We must read the whole *request* body — both to relay it and to recover
+    // the conversation. (Requests are not the streaming concern; responses are.)
+    let body_bytes = match axum::body::to_bytes(body, MAX_BODY).await {
+        Ok(b) => b,
+        Err(_) => return error_response(StatusCode::BAD_REQUEST, "request body too large"),
+    };
+
+    let provider = Provider::from_path(&path_and_query);
+    let upstream_base = app.cfg.upstream_for(provider).trim_end_matches('/');
+    let url = format!("{upstream_base}{path_and_query}");
+    let parsed_req = provider::parse_request(provider, &body_bytes);
+
+    // Relay to the real provider.
+    let upstream = app
+        .client
+        .request(parts.method.clone(), &url)
+        .headers(forward_headers(&parts.headers))
+        .body(body_bytes.to_vec())
+        .send()
+        .await;
+    let upstream = match upstream {
+        Ok(r) => r,
+        Err(e) => return error_response(StatusCode::BAD_GATEWAY, &format!("upstream error: {e}")),
+    };
+
+    let status = upstream.status();
+    let resp_headers = upstream.headers().clone();
+    let content_type = resp_headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
+    // The tee: each chunk is cloned (a refcount bump on `Bytes`) into a channel,
+    // then yielded onward to the client untouched.
+    let (tee_tx, mut tee_rx) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
+    let teed = upstream.bytes_stream().map(move |chunk| {
+        if let Ok(bytes) = &chunk {
+            let _ = tee_tx.send(bytes.clone());
+        }
+        chunk
+    });
+
+    // Detection runs entirely off the response path. When the client finishes
+    // (or disconnects) the stream drops, closing the channel, and this task
+    // finalizes with whatever was received.
+    let app2 = app.clone();
+    tokio::spawn(async move {
+        let mut buf = Vec::new();
+        while let Some(b) = tee_rx.recv().await {
+            buf.extend_from_slice(&b);
+        }
+        let parsed_resp = provider::parse_response(provider, &content_type, &buf);
+        if parsed_resp.assistant_text.is_empty() && !parsed_resp.has_exact_usage() {
+            return; // nothing detectable in this response
+        }
+        let session_id = state::session_id_for(&parsed_req);
+        if let Ok(mut core) = app2.core.lock() {
+            core.record_turn(&session_id, &parsed_req, &parsed_resp);
+        }
+    });
+
+    // Relay status + headers + the streaming body.
+    let mut builder = Response::builder().status(status.as_u16());
+    for (name, value) in resp_headers.iter() {
+        let n = name.as_str();
+        if is_hop_by_hop(n) || n == "content-length" {
+            continue; // length is unknown for a stream; let the server frame it
+        }
+        builder = builder.header(name.as_str(), value.as_bytes());
+    }
+    builder
+        .body(Body::from_stream(teed))
+        .unwrap_or_else(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "response build error"))
+}
+
+/// Copy request headers for forwarding, dropping hop-by-hop headers, `host`
+/// (reqwest sets it for the upstream), `content-length` (reqwest recomputes it),
+/// and `accept-encoding` (so the upstream returns identity bytes we can parse —
+/// the client still receives whatever the upstream sends).
+fn forward_headers(src: &axum::http::HeaderMap) -> reqwest::header::HeaderMap {
+    let mut out = reqwest::header::HeaderMap::new();
+    for (name, value) in src.iter() {
+        let n = name.as_str();
+        if is_hop_by_hop(n) || n == "host" || n == "content-length" || n == "accept-encoding" {
+            continue;
+        }
+        if let (Ok(hn), Ok(hv)) = (
+            reqwest::header::HeaderName::from_bytes(n.as_bytes()),
+            reqwest::header::HeaderValue::from_bytes(value.as_bytes()),
+        ) {
+            out.insert(hn, hv);
+        }
+    }
+    out
+}
+
+/// RFC 7230 hop-by-hop headers (must not be forwarded by a proxy).
+fn is_hop_by_hop(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailers"
+            | "transfer-encoding"
+            | "upgrade"
+    )
+}
+
+fn error_response(code: StatusCode, msg: &str) -> Response {
+    Response::builder()
+        .status(code)
+        .header("content-type", "text/plain")
+        .body(Body::from(format!("drifterr proxy: {msg}")))
+        .expect("error response")
+}
