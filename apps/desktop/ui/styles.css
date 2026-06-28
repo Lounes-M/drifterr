@@ -105,6 +105,33 @@ html, body {
   color: #ffd9d6;
 }
 
+.reanchor-btn {
+  align-self: flex-start;
+  margin-top: 2px;
+  background: var(--fg);
+  color: var(--bg);
+  border: none; border-radius: 7px;
+  padding: 6px 11px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.reanchor-btn:hover { opacity: 0.9; }
+
+.reanchor { display: flex; flex-direction: column; gap: 8px; }
+.reanchor-head { display: flex; align-items: center; justify-content: space-between; }
+.reanchor-actions { display: flex; gap: 6px; }
+.mini-btn {
+  background: var(--bg-chip); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 3px 9px; font-size: 11px; cursor: pointer;
+}
+.mini-btn:hover { background: var(--border); }
+.reanchor-text {
+  margin: 0; max-height: 220px; overflow: auto;
+  background: var(--bg-chip); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; line-height: 1.5; white-space: pre-wrap; color: #cdd3df;
+}
+
 .sat-head {
   display: flex; justify-content: space-between;
   font-size: 11px; color: var(--muted); margin-bottom: 6px;

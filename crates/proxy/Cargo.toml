@@ -22,6 +22,7 @@ dotenvy = "0.15"
 serde.workspace = true
 serde_json.workspace = true
 drifterr-engine.workspace = true
+drifterr-intervention.workspace = true
 drifterr-store.workspace = true
 drifterr-tokenizer.workspace = true
 

@@ -26,15 +26,16 @@ pub mod provider;
 pub mod state;
 
 use axum::body::Body;
-use axum::extract::{Request, State};
+use axum::extract::{Query, Request, State};
 use axum::http::{Method, StatusCode};
 use axum::middleware::{self, Next};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use bytes::Bytes;
 use futures_util::StreamExt;
 use provider::Provider;
+use serde::Deserialize;
 use serde::Serialize;
 use state::{AppCore, SessionStatus};
 use std::future::IntoFuture;
@@ -136,6 +137,7 @@ pub fn control_router(state: AppState) -> Router {
         .route("/status", get(status_handler))
         .route("/sessions", get(sessions_handler))
         .route("/config", get(config_handler))
+        .route("/reanchor", get(reanchor_handler))
         .route("/health", get(|| async { "ok" }))
         .layer(middleware::from_fn(add_cors))
         .with_state(state)
@@ -143,6 +145,25 @@ pub fn control_router(state: AppState) -> Router {
 
 async fn config_handler(State(app): State<AppState>) -> Json<ConfigMeta> {
     Json((*app.meta).clone())
+}
+
+#[derive(Deserialize)]
+struct ReanchorQuery {
+    /// Optional session id; defaults to the most recently updated session.
+    session: Option<String>,
+}
+
+/// Generate the re-anchor intervention (snapshot + preamble) for a session.
+async fn reanchor_handler(State(app): State<AppState>, Query(q): Query<ReanchorQuery>) -> Response {
+    let out = app
+        .core
+        .lock()
+        .ok()
+        .and_then(|core| core.reanchor(q.session.as_deref()));
+    match out {
+        Some(r) => Json(r).into_response(),
+        None => (StatusCode::NOT_FOUND, "no active session to re-anchor").into_response(),
+    }
 }
 
 /// Add permissive CORS headers and short-circuit preflight requests.

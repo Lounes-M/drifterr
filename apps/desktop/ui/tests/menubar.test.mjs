@@ -97,7 +97,8 @@ async function main() {
     ? { executablePath: process.env.CHROMIUM_PATH }
     : {};
   const browser = await chromium.launch(launchOpts);
-  const page = await browser.newPage();
+  const context = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
+  const page = await context.newPage();
 
   // The route handler returns whatever `scenario` currently points at, so we
   // can flip server state between polls.
@@ -120,6 +121,32 @@ async function main() {
   check((await page.locator("#trigger-span").textContent()) === ".js", "offending span shown as a chip");
   check((await page.locator("#sat-meta").textContent()).includes("exact"), "saturation marked exact");
   check((await page.locator("#signals .signal-row").count()) === 2, "both signals listed");
+
+  console.log("RE-ANCHOR flow:");
+  await page.route("**/reanchor*", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        snapshot: "# Re-anchor\n\n## Goal\nRefactor auth in strict TypeScript\n\n## Active constraints\n- [tech] TypeScript only, no JS files\n",
+        preamble: "[Drifterr re-anchor] Binding constraints...",
+      }),
+    })
+  );
+  check(!(await page.locator("#reanchor").isVisible()), "re-anchor hidden by default");
+  await page.locator("#reanchor-btn").click();
+  await page.waitForFunction(() => !document.getElementById("reanchor").hidden);
+  check(await page.locator("#reanchor").isVisible(), "re-anchor button reveals the snapshot");
+  check(
+    (await page.locator("#reanchor-text").textContent()).includes("TypeScript only, no JS files"),
+    "snapshot shows the constraint"
+  );
+  await page.locator("#reanchor-copy").click();
+  await page.waitForFunction(() => document.getElementById("reanchor-copy").textContent === "Copied!");
+  check(true, "copy button copies to clipboard");
+  const clip = await page.evaluate(() => navigator.clipboard.readText());
+  check(clip.includes("# Re-anchor"), "clipboard holds the snapshot");
+  await page.locator("#reanchor-close").click();
+  check(!(await page.locator("#reanchor").isVisible()), "close hides the snapshot");
 
   console.log("GREEN scenario (flip + wait for poll):");
   scenario = GREEN;
