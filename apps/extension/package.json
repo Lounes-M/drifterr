@@ -1,0 +1,13 @@
+{
+  "name": "drifterr-extension",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Drifterr browser channel (MV3) — content script + DOM parser.",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/parse.test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

@@ -30,7 +30,7 @@ use axum::extract::{Path as AxPath, Query, Request, State};
 use axum::http::{header, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use bytes::Bytes;
 use futures_util::StreamExt;
@@ -153,10 +153,82 @@ pub fn control_router(state: AppState) -> Router {
         .route("/sessions", get(sessions_handler))
         .route("/config", get(config_handler))
         .route("/reanchor", get(reanchor_handler))
+        .route("/ingest", post(ingest_handler))
         .route("/public/{*path}", get(public_handler))
         .route("/health", get(|| async { "ok" }))
         .layer(middleware::from_fn(add_cors))
         .with_state(state)
+}
+
+/// A conversation turn scraped from a page by the browser extension.
+#[derive(Deserialize)]
+struct IngestTurn {
+    role: String,
+    content: String,
+}
+
+/// The browser-extension channel payload (`POST /ingest`).
+#[derive(Deserialize)]
+struct IngestBody {
+    #[serde(default, rename = "sessionId")]
+    session_id: String,
+    #[serde(default)]
+    model: String,
+    turns: Vec<IngestTurn>,
+}
+
+/// Ingest a conversation scraped by the browser extension and run detection —
+/// the same engine path as the proxy and file channels.
+async fn ingest_handler(State(app): State<AppState>, Json(body): Json<IngestBody>) -> Response {
+    if body.turns.is_empty() {
+        return (StatusCode::BAD_REQUEST, "no turns").into_response();
+    }
+    let model = if body.model.is_empty() {
+        "unknown".to_string()
+    } else {
+        body.model
+    };
+    let turns: Vec<(drifterr_engine::conversation::Role, String)> = body
+        .turns
+        .into_iter()
+        .map(|t| {
+            use drifterr_engine::conversation::Role;
+            let role = match t.role.as_str() {
+                "assistant" => Role::Assistant,
+                "tool" | "function" => Role::Tool,
+                _ => Role::User,
+            };
+            (role, t.content)
+        })
+        .collect();
+
+    let session_id = if body.session_id.is_empty() {
+        // Stable id from the first user turn when the page gives us none.
+        let anchor = turns
+            .iter()
+            .find(|(r, _)| *r == drifterr_engine::conversation::Role::User)
+            .map(|(_, c)| c.as_str())
+            .unwrap_or("default");
+        format!("browser-{:016x}", fnv1a(anchor))
+    } else {
+        format!("browser-{}", body.session_id)
+    };
+
+    let conv = state::browser_conversation(session_id, model, turns);
+    if let Ok(mut core) = app.core.lock() {
+        core.record_conversation(&conv);
+        return Json(core.current()).into_response();
+    }
+    (StatusCode::INTERNAL_SERVER_ERROR, "busy").into_response()
+}
+
+fn fnv1a(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
 }
 
 /// Directory the UI assets live in, used to serve `/public/*` (fonts, etc.).
@@ -234,7 +306,7 @@ async fn add_cors(req: Request, next: Next) -> Response {
     h.insert("access-control-allow-origin", "*".parse().unwrap());
     h.insert(
         "access-control-allow-methods",
-        "GET, OPTIONS".parse().unwrap(),
+        "GET, POST, OPTIONS".parse().unwrap(),
     );
     h.insert("access-control-allow-headers", "*".parse().unwrap());
     res

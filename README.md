@@ -32,7 +32,7 @@ panel renders the live state.
 | M3a — intervention (re-anchor snapshot + preamble) | ✅ done |
 | M3b — soft signals: goal alignment (2) + degradation (5) + local embeddings | ✅ done |
 | M3c — decision coherence (3) + pluggable judge (OpenRouter) | ✅ done |
-| M4 — file watcher (Claude Code) channel | ✅ done · ⬜ browser extension |
+| M4 — file watcher (Claude Code) + browser extension channels | ✅ done |
 | M5 — standing orders (the moat) + opt-in proxy auto-re-anchor | ⬜ |
 
 ![Drifting](docs/menubar-red.png) ![Aligned](docs/menubar-green.png) ![Re-anchor](docs/menubar-reanchor.png)
@@ -69,8 +69,11 @@ Channels (proxy │ file │ browser)
 
 | [`apps/desktop`](apps/desktop) | The menubar app: a shared no-build panel UI (`ui/`) + the Tauri 2 tray shell (`src-tauri/`). |
 
-The remaining channels (`apps/extension`, `crates/adapters`) and the
-intervention layer (`crates/intervention`) land in later milestones.
+| [`apps/extension`](apps/extension) | The browser channel (MV3): reads the chat DOM on claude.ai/ChatGPT/Gemini and posts it to the proxy's `/ingest`. |
+
+All three channels (proxy, file watcher, browser extension) feed the **same**
+engine via the normalized format — `POST /ingest` (browser) and the file watcher
+both end at the proxy's single `ingest` path.
 
 ## The proxy channel (M2)
 

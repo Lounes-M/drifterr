@@ -68,5 +68,6 @@ crates/tokenizer   token estimation + context-window map
 crates/adapters    channel adapters (Claude Code file watcher)
 apps/desktop/ui    menubar panel (no build step) + Playwright tests
 apps/desktop/src-tauri  native tray shell (excluded from workspace)
+apps/extension     browser channel (MV3) — DOM scraper → /ingest
 fixtures/          annotated transcripts (engine validation set)
 ```
