@@ -343,6 +343,90 @@ async fn reanchor_404_when_no_session() {
 }
 
 #[tokio::test]
+async fn standing_order_recurs_promotes_and_reappears() {
+    // A store-backed control API (standing orders are durable). No upstream
+    // needed — /ingest doesn't relay.
+    let state = AppState::new(
+        ProxyConfig::default(),
+        Some(drifterr_store::Store::open_in_memory().unwrap()),
+    );
+    let control = spawn(control_router(state)).await;
+    let client = client();
+
+    async fn ingest(
+        client: &reqwest::Client,
+        control: SocketAddr,
+        session: &str,
+        user: &str,
+        reply: &str,
+    ) {
+        client
+            .post(format!("http://{control}/ingest"))
+            .json(&serde_json::json!({
+                "sessionId": session,
+                "model": "claude-opus-4-x",
+                "turns": [{"role":"user","content":user},{"role":"assistant","content":reply}]
+            }))
+            .send()
+            .await
+            .unwrap();
+    }
+
+    // The same constraint stated in three separate sessions.
+    for s in ["s1", "s2", "s3"] {
+        ingest(
+            &client,
+            control,
+            s,
+            "Refactor in TS, no JS",
+            "creating app.ts",
+        )
+        .await;
+    }
+
+    // It should now be a promotion candidate.
+    let orders: serde_json::Value = client
+        .get(format!("http://{control}/standing-orders"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let cand = orders
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["candidate"] == true)
+        .expect("a candidate after 3 occurrences");
+    assert!(cand["occurrences"].as_i64().unwrap() >= 3);
+    let id = cand["id"].as_i64().unwrap();
+
+    // Accept it.
+    let promoted = client
+        .post(format!("http://{control}/standing-orders/promote"))
+        .json(&serde_json::json!({ "id": id }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(promoted.status(), 200);
+
+    // A brand-new session that NEVER states the rule still gets it applied:
+    // an app.js reply now violates the remembered constraint.
+    ingest(
+        &client,
+        control,
+        "s-fresh",
+        "do something unrelated",
+        "creating app.js",
+    )
+    .await;
+    let status = wait_for_status(&client, control).await;
+    assert_eq!(status["state"], "red");
+    assert_eq!(status["triggering"]["signal"], "constraint");
+}
+
+#[tokio::test]
 async fn browser_ingest_feeds_the_engine() {
     let (_proxy, control) = bring_up().await;
     let client = client();

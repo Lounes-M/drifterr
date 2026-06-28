@@ -54,6 +54,9 @@ pub struct SessionState {
     pub baseline: Baseline,
     pub monitor: SessionMonitor,
     pub status: SessionStatus,
+    /// Constraint texts already counted toward standing orders this session, so
+    /// a recurring constraint counts once per session, not once per turn.
+    bumped: std::collections::HashSet<String>,
 }
 
 /// The proxy's shared core: every live session plus an optional durable store.
@@ -188,9 +191,19 @@ impl AppCore {
     /// `conv.session_id`.
     fn ingest(&mut self, conv: Conversation) -> State {
         let session_id = conv.session_id.clone();
+
+        // On a brand-new session, seed it with the user's promoted standing
+        // orders (the moat): rules they've accepted reappear automatically.
+        let injected = if self.sessions.contains_key(&session_id) {
+            Vec::new()
+        } else {
+            self.promoted_constraints()
+        };
+
         let entry = self.sessions.entry(session_id.clone());
         let session = entry.or_insert_with(|| {
-            let baseline = Baseline::extract(&conv.turns);
+            let mut baseline = Baseline::extract(&conv.turns);
+            baseline.constraints.extend(injected);
             SessionState {
                 baseline,
                 monitor: SessionMonitor::default(),
@@ -204,12 +217,26 @@ impl AppCore {
                     signals: Vec::new(),
                     updated_at: 0,
                 },
+                bumped: std::collections::HashSet::new(),
             }
         });
 
         // Constraints / rejected decisions may be stated mid-session; keep the
         // baseline current.
         session.baseline.absorb(&conv.turns);
+
+        // Count user-stated constraints toward standing orders — once per session
+        // each, and never the injected (`so…`) ones.
+        let to_bump: Vec<String> = session
+            .baseline
+            .constraints
+            .iter()
+            .filter(|c| c.active && !c.id.starts_with("so") && !session.bumped.contains(&c.text))
+            .map(|c| c.text.clone())
+            .collect();
+        for t in &to_bump {
+            session.bumped.insert(t.clone());
+        }
 
         let verdict = evaluate(&conv, &session.baseline);
         let committed = session.monitor.observe(&verdict);
@@ -232,11 +259,68 @@ impl AppCore {
                 let _ = s.save_baseline(&session_id, &session.baseline);
                 let _ = s.record_events(&session_id, &verdict.events);
                 let _ = s.set_status(&session_id, committed);
+                // Track recurring constraints across sessions.
+                use drifterr_embeddings::{BagEmbedder, Embedder};
+                let embedder = BagEmbedder::default();
+                for text in &to_bump {
+                    let _ = s.bump_standing_order(text, &embedder.embed(text));
+                }
             }
         }
 
         self.last_updated = Some(session_id);
         committed
+    }
+
+    /// Promoted standing orders rendered as constraints to seed a new session.
+    fn promoted_constraints(&self) -> Vec<drifterr_engine::baseline::Constraint> {
+        use drifterr_engine::baseline::{Checkable, Constraint, ConstraintType};
+        let Some(store) = &self.store else {
+            return Vec::new();
+        };
+        let Ok(s) = store.lock() else {
+            return Vec::new();
+        };
+        let orders = s.promoted_standing_orders().unwrap_or_default();
+        orders
+            .into_iter()
+            .map(|o| {
+                let rule = drifterr_engine::infer::infer_rule(&o.text);
+                let (kind, checkable) = match &rule {
+                    Some(r) => (
+                        drifterr_engine::infer::describe(r).1,
+                        Checkable::Deterministic,
+                    ),
+                    None => (ConstraintType::Other, Checkable::Judge),
+                };
+                Constraint {
+                    id: format!("so{}", o.id),
+                    text: o.text,
+                    kind,
+                    checkable,
+                    active: true,
+                    rule,
+                }
+            })
+            .collect()
+    }
+
+    /// All standing orders (for the control API).
+    pub fn standing_orders(&self) -> Vec<drifterr_store::StandingOrder> {
+        self.store
+            .as_ref()
+            .and_then(|s| s.lock().ok())
+            .and_then(|s| s.list_standing_orders().ok())
+            .unwrap_or_default()
+    }
+
+    /// Promote a standing order by id. Returns whether it succeeded.
+    pub fn promote_standing_order(&self, id: i64) -> bool {
+        self.store
+            .as_ref()
+            .and_then(|s| s.lock().ok())
+            .map(|mut s| s.promote_standing_order(id).is_ok())
+            .unwrap_or(false)
     }
 }
 

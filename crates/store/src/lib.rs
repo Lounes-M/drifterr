@@ -309,6 +309,138 @@ impl Store {
         )?;
         Ok(())
     }
+
+    // --- standing orders (the moat) ---------------------------------------
+
+    /// Record one occurrence of a recurring constraint/correction. Deduplicates
+    /// against existing orders by embedding cosine similarity (≥ [`SO_DEDUP_SIM`])
+    /// so re-phrasings count as the same order. Returns the resulting order
+    /// (with its updated occurrence count).
+    pub fn bump_standing_order(&mut self, text: &str, embedding: &[f32]) -> Result<StandingOrder> {
+        // Find the closest existing order.
+        let mut best: Option<(i64, f32)> = None;
+        {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, embedding FROM standing_orders")?;
+            let rows = stmt.query_map([], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, Option<Vec<u8>>>(1)?))
+            })?;
+            for row in rows {
+                let (id, blob) = row?;
+                let sim = blob
+                    .map(|b| drifterr_embeddings::cosine(embedding, &bytes_to_vec(&b)))
+                    .unwrap_or(0.0);
+                if sim >= SO_DEDUP_SIM && best.map(|(_, s)| sim > s).unwrap_or(true) {
+                    best = Some((id, sim));
+                }
+            }
+        }
+
+        if let Some((id, _)) = best {
+            self.conn.execute(
+                "UPDATE standing_orders SET occurrences = occurrences + 1 WHERE id = ?1",
+                params![id],
+            )?;
+            return self.standing_order(id);
+        }
+
+        self.conn.execute(
+            "INSERT INTO standing_orders (text, embedding, occurrences, promoted)
+             VALUES (?1, ?2, 1, 0)",
+            params![text, vec_to_bytes(embedding)],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        self.standing_order(id)
+    }
+
+    fn standing_order(&self, id: i64) -> Result<StandingOrder> {
+        Ok(self.conn.query_row(
+            "SELECT id, text, occurrences, promoted FROM standing_orders WHERE id = ?1",
+            params![id],
+            |r| {
+                Ok(StandingOrder {
+                    id: r.get(0)?,
+                    text: r.get(1)?,
+                    occurrences: r.get(2)?,
+                    promoted: r.get::<_, i64>(3)? != 0,
+                })
+            },
+        )?)
+    }
+
+    /// All standing orders, most-recurring first.
+    pub fn list_standing_orders(&self) -> Result<Vec<StandingOrder>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, text, occurrences, promoted FROM standing_orders
+             ORDER BY occurrences DESC, id ASC",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(StandingOrder {
+                    id: r.get(0)?,
+                    text: r.get(1)?,
+                    occurrences: r.get(2)?,
+                    promoted: r.get::<_, i64>(3)? != 0,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Mark a standing order as promoted (an accepted persistent rule).
+    pub fn promote_standing_order(&mut self, id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE standing_orders SET promoted = 1 WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Promoted standing orders — the ones to auto-apply to new sessions.
+    pub fn promoted_standing_orders(&self) -> Result<Vec<StandingOrder>> {
+        Ok(self
+            .list_standing_orders()?
+            .into_iter()
+            .filter(|s| s.promoted)
+            .collect())
+    }
+}
+
+/// Occurrences at/above which a standing order is a promotion candidate.
+pub const SO_PROMOTE_THRESHOLD: i64 = 3;
+/// Embedding cosine at/above which two corrections are "the same" standing order.
+pub const SO_DEDUP_SIM: f32 = 0.55;
+
+/// A recurring correction tracked across sessions — the seed of the personal
+/// "standing orders" layer (the moat).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StandingOrder {
+    pub id: i64,
+    pub text: String,
+    pub occurrences: i64,
+    pub promoted: bool,
+}
+
+impl StandingOrder {
+    /// Recurring enough to propose as a persistent rule, not yet promoted.
+    pub fn is_candidate(&self) -> bool {
+        !self.promoted && self.occurrences >= SO_PROMOTE_THRESHOLD
+    }
+}
+
+fn vec_to_bytes(v: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(v.len() * 4);
+    for x in v {
+        out.extend_from_slice(&x.to_le_bytes());
+    }
+    out
+}
+
+fn bytes_to_vec(b: &[u8]) -> Vec<f32> {
+    b.chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
 }
 
 #[cfg(test)]
@@ -344,6 +476,36 @@ mod tests {
             },
             source: Source::Proxy,
         }
+    }
+
+    #[test]
+    fn standing_orders_dedup_threshold_and_promote() {
+        use drifterr_embeddings::{BagEmbedder, Embedder};
+        let mut store = Store::open_in_memory().unwrap();
+        let e = BagEmbedder::default();
+
+        let text = "TypeScript only, no JS files";
+        let emb = e.embed(text);
+        // Same correction across three sessions → one order, occurrences = 3.
+        let s1 = store.bump_standing_order(text, &emb).unwrap();
+        assert_eq!(s1.occurrences, 1);
+        assert!(!s1.is_candidate());
+        store.bump_standing_order(text, &emb).unwrap();
+        let s3 = store.bump_standing_order(text, &emb).unwrap();
+        assert_eq!(s3.occurrences, 3);
+        assert!(s3.is_candidate(), "3 occurrences ⇒ promotion candidate");
+
+        // A clearly different correction is tracked separately.
+        let other = "Never use console.log in committed code";
+        store.bump_standing_order(other, &e.embed(other)).unwrap();
+        assert_eq!(store.list_standing_orders().unwrap().len(), 2);
+
+        // Promote it → no longer a candidate, and shows up in promoted list.
+        store.promote_standing_order(s3.id).unwrap();
+        let promoted = store.promoted_standing_orders().unwrap();
+        assert_eq!(promoted.len(), 1);
+        assert_eq!(promoted[0].text, text);
+        assert!(!promoted[0].is_candidate());
     }
 
     #[test]

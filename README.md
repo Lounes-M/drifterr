@@ -33,7 +33,7 @@ panel renders the live state.
 | M3b — soft signals: goal alignment (2) + degradation (5) + local embeddings | ✅ done |
 | M3c — decision coherence (3) + pluggable judge (OpenRouter) | ✅ done |
 | M4 — file watcher (Claude Code) + browser extension channels | ✅ done |
-| M5 — standing orders (the moat) + opt-in proxy auto-re-anchor | ⬜ |
+| M5 — standing orders (the moat) | ✅ done · ⬜ opt-in proxy auto-re-anchor |
 
 ![Drifting](docs/menubar-red.png) ![Aligned](docs/menubar-green.png) ![Re-anchor](docs/menubar-reanchor.png)
 
@@ -160,6 +160,16 @@ All three **cap at AMBER by construction**, so a soft/judge signal can never
 drive RED on its own — verified by a guardrail test. Embeddings are local and
 deterministic (zero cost, zero network); a real ONNX model can slot in behind
 the `Embedder` trait later.
+
+### Standing orders — the moat (M5)
+
+Constraints the user repeats across sessions are tracked (deduped by embedding
+similarity) in the local store. At **≥3 occurrences** a constraint becomes a
+**promotion candidate** (`GET /standing-orders`). Once **promoted**
+(`POST /standing-orders/promote`), it's auto-applied as a constraint to every
+**new** session's baseline — so an accepted rule reappears without the user
+restating it. The whole loop (recur → candidate → promote → reappears) is
+covered by an e2e test.
 
 ### The judge
 
