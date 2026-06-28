@@ -29,9 +29,10 @@ webview loads the same files.
 
 ## Look & fonts
 
-The panel is **glassmorphism** (translucent + backdrop blur, layered) on the
-**Ocean Blue Serenity** palette, with subtle entrance/reveal/pulse animations
-(disabled under `prefers-reduced-motion`).
+The panel is a light **"liquid glass"** material (iOS-26-like): frosted,
+near-neutral translucency with a soft top sheen — **blue is reserved for
+buttons/accents only** (Ocean Blue Serenity). Smooth, dynamic, simple, with
+entrance/reveal/pulse animations disabled under `prefers-reduced-motion`.
 
 Typeface is **Satoshi**. Drop the font files into
 [`ui/public/fonts/`](ui/public/fonts) (see the README there for the exact

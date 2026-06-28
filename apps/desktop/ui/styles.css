@@ -1,5 +1,6 @@
-/* Drifterr menubar panel — glassmorphism, Ocean Blue Serenity palette, Satoshi.
-   Designed to read as a modern, Apple-vibrancy menubar dropdown. */
+/* Drifterr menubar panel — light "liquid glass" (iOS-26-like): frosted,
+   near-neutral translucency; blue is reserved for buttons/accents only.
+   Smooth, dynamic, simple. Typeface: Satoshi. */
 
 /* --- Satoshi (drop files into public/fonts; see that folder's README) ------ */
 @font-face {
@@ -22,66 +23,76 @@
 }
 
 :root {
-  /* Ocean Blue Serenity */
-  --twilight: #03045e;
-  --french: #023e8a;
-  --teal: #0077b6;
-  --bluegreen: #0096c7;
-  --turquoise: #00b4d8;
-  --sky: #48cae4;
-  --frost: #90e0ef;
-  --frost2: #ade8f4;
-  --cyan: #caf0f8;
+  /* Ink (text) */
+  --ink: #0c1722;
+  --ink-soft: #5a6b7b;
+  --ink-faint: #8a98a6;
 
-  /* Semantic state colors (kept distinct for a readable traffic light). */
-  --green: #2ce6a8;
-  --amber: #ffc24b;
-  --red: #ff5d6c;
-  --unknown: #7f93b0;
+  /* Glass materials — translucent neutral, NOT colored */
+  --glass: rgba(255, 255, 255, 0.55);
+  --glass-strong: rgba(255, 255, 255, 0.72);
+  --glass-sub: rgba(255, 255, 255, 0.5);
+  --edge: rgba(255, 255, 255, 0.8);
+  --hairline: rgba(12, 23, 34, 0.08);
 
-  /* Glass tokens */
-  --fg: #eaf7fb;
-  --muted: rgba(173, 232, 244, 0.62);
-  --glass-border: rgba(173, 232, 244, 0.18);
-  --glass-fill: linear-gradient(160deg, rgba(202, 240, 248, 0.12), rgba(3, 4, 94, 0.16));
-  --chip: rgba(2, 62, 138, 0.35);
+  /* Blue — buttons / accents ONLY (Ocean Blue Serenity) */
+  --blue: #0096c7;
+  --blue-bright: #00b4d8;
+  --blue-deep: #0077b6;
 
-  --radius: 18px;
+  /* Semantic state (traffic light) */
+  --green: #10b981;
+  --amber: #f59e0b;
+  --red: #ef4444;
+  --unknown: #94a3b8;
+
+  --radius: 22px;
+  --spring: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 * { box-sizing: border-box; }
 
 html, body {
   margin: 0;
-  /* Ocean backdrop the glass blurs against (and what shows in the browser
-     dashboard / screenshots). In a Tauri vibrancy window this sits behind the
-     native blur. */
+  /* Soft, near-neutral light backdrop (a whisper of cool, not blue). In a Tauri
+     vibrancy window the panel's blur sits over the desktop instead. */
   background:
-    radial-gradient(120% 80% at 0% 0%, rgba(72, 202, 228, 0.25), transparent 60%),
-    radial-gradient(120% 90% at 100% 100%, rgba(0, 180, 216, 0.22), transparent 55%),
-    linear-gradient(160deg, var(--twilight) 0%, var(--french) 48%, var(--teal) 100%);
-  color: var(--fg);
+    radial-gradient(120% 70% at 50% -10%, rgba(0, 150, 199, 0.08), transparent 60%),
+    linear-gradient(180deg, #e9eef3 0%, #f1f4f7 55%, #f6f8fa 100%);
+  color: var(--ink);
   font-family: "Satoshi", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
 .panel {
+  position: relative;
   width: 340px;
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  overflow: hidden;
 
-  background: var(--glass-fill);
-  backdrop-filter: blur(34px) saturate(185%);
-  -webkit-backdrop-filter: blur(34px) saturate(185%);
-  border: 1px solid var(--glass-border);
+  background: linear-gradient(155deg, var(--glass-strong), var(--glass));
+  backdrop-filter: blur(40px) saturate(165%) brightness(1.04);
+  -webkit-backdrop-filter: blur(40px) saturate(165%) brightness(1.04);
+  border: 1px solid var(--edge);
   border-radius: var(--radius);
   box-shadow:
-    0 24px 64px rgba(0, 8, 40, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.02);
-  animation: panel-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    0 18px 50px rgba(15, 40, 70, 0.16),
+    0 2px 8px rgba(15, 40, 70, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  animation: panel-in 0.45s var(--spring) both;
+}
+
+/* Liquid-glass top sheen. */
+.panel::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 44%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent);
+  pointer-events: none;
 }
 
 @keyframes panel-in {
@@ -90,14 +101,12 @@ html, body {
 }
 
 /* --- header --------------------------------------------------------------- */
-.head { display: flex; align-items: center; gap: 12px; }
-.head-text h1 {
-  margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em;
-}
-.blurb { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+.head { display: flex; align-items: center; gap: 12px; position: relative; }
+.head-text h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.blurb { margin: 2px 0 0; color: var(--ink-soft); font-size: 12px; }
 
 .dot {
-  width: 14px; height: 14px; border-radius: 50%; flex: 0 0 auto;
+  width: 13px; height: 13px; border-radius: 50%; flex: 0 0 auto;
   animation: breathe 2.6s ease-in-out infinite;
 }
 .dot.green { background: var(--green); color: var(--green); }
@@ -106,130 +115,122 @@ html, body {
 .dot.unknown { background: var(--unknown); color: var(--unknown); animation: none; }
 
 @keyframes breathe {
-  0%, 100% { filter: drop-shadow(0 0 2px currentColor); }
-  50% { filter: drop-shadow(0 0 9px currentColor); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent); }
+  70% { box-shadow: 0 0 0 7px transparent; }
 }
 
 .gear {
   margin-left: auto;
-  background: none; border: none; cursor: pointer;
-  color: var(--muted); font-size: 16px; line-height: 1; padding: 5px;
-  border-radius: 8px;
-  transition: transform 0.25s ease, color 0.2s ease, background 0.2s ease;
+  display: grid; place-items: center;
+  width: 30px; height: 30px;
+  background: var(--glass-sub); border: 1px solid var(--edge); cursor: pointer;
+  color: var(--ink-soft); font-size: 14px; border-radius: 50%;
+  transition: transform 0.35s var(--spring), color 0.2s ease, background 0.2s ease;
 }
-.gear:hover { color: var(--fg); background: rgba(255, 255, 255, 0.08); transform: rotate(40deg); }
+.gear:hover { color: var(--ink); background: var(--glass-strong); transform: rotate(50deg); }
 
-/* --- shared bits ---------------------------------------------------------- */
+/* --- shared --------------------------------------------------------------- */
 .section-title {
-  margin: 0 0 8px; font-size: 10.5px; text-transform: uppercase;
-  letter-spacing: 0.08em; color: var(--muted); font-weight: 700;
+  margin: 0 0 8px; font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.09em; color: var(--ink-faint); font-weight: 700;
 }
-.muted { color: var(--muted); font-size: 11px; }
+.muted { color: var(--ink-soft); font-size: 11px; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 [hidden] { display: none !important; }
 
-/* Sections that toggle in get a soft reveal each time they appear. */
 .trigger:not([hidden]),
 .reanchor:not([hidden]),
 .settings:not([hidden]) {
-  animation: reveal 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: reveal 0.3s var(--spring);
 }
 @keyframes reveal {
-  from { opacity: 0; transform: translateY(-5px); }
+  from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: none; }
+}
+
+/* Frosted sub-card base. */
+.trigger, .reanchor-text, .env-line {
+  background: var(--glass-sub);
+  border: 1px solid var(--edge);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 /* --- trigger -------------------------------------------------------------- */
 .trigger {
   display: flex; flex-direction: column; gap: 9px;
-  padding: 12px;
-  border-radius: 13px;
-  background: linear-gradient(160deg, rgba(255, 93, 108, 0.16), rgba(255, 93, 108, 0.05));
-  border: 1px solid rgba(255, 93, 108, 0.34);
+  padding: 12px; border-radius: 15px;
+  border-left: 3px solid var(--red);
 }
-.trigger.amber {
-  background: linear-gradient(160deg, rgba(255, 194, 75, 0.15), rgba(255, 194, 75, 0.05));
-  border-color: rgba(255, 194, 75, 0.34);
-}
+.trigger.amber { border-left-color: var(--amber); }
 .trigger-row { display: flex; align-items: baseline; gap: 8px; }
 .trigger-tag {
   text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.05em;
-  font-weight: 800; color: var(--muted); flex: 0 0 auto;
+  font-weight: 800; color: var(--ink-faint); flex: 0 0 auto;
 }
-.trigger-detail { font-size: 12.5px; line-height: 1.4; }
+.trigger-detail { font-size: 12.5px; line-height: 1.4; color: var(--ink); }
 .span-chip {
   align-self: flex-start;
-  background: var(--chip); border: 1px solid var(--glass-border);
+  background: rgba(12, 23, 34, 0.05); border: 1px solid var(--hairline);
   border-radius: 7px; padding: 2px 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px; color: #ffe0e3;
+  font-size: 11.5px; color: #b3261e;
 }
 
+/* Primary action — the one place blue lives. */
 .reanchor-btn {
   align-self: flex-start; margin-top: 1px;
-  background: linear-gradient(135deg, var(--turquoise), var(--teal));
-  color: #00121f;
-  border: none; border-radius: 9px;
-  padding: 7px 13px; font-size: 12px; font-weight: 700; cursor: pointer;
-  box-shadow: 0 6px 18px rgba(0, 180, 216, 0.35);
-  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  background: linear-gradient(135deg, var(--blue-bright), var(--blue-deep));
+  color: #fff;
+  border: none; border-radius: 999px;
+  padding: 9px 16px; font-size: 12px; font-weight: 700; cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0, 119, 182, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: transform 0.18s var(--spring), box-shadow 0.2s ease, filter 0.2s ease;
 }
-.reanchor-btn:hover { transform: translateY(-1px); filter: brightness(1.06); }
-.reanchor-btn:active { transform: translateY(0); }
+.reanchor-btn:hover { transform: translateY(-1px); filter: brightness(1.05); box-shadow: 0 11px 26px rgba(0, 119, 182, 0.4); }
+.reanchor-btn:active { transform: translateY(0) scale(0.99); }
 
 /* --- re-anchor snapshot --------------------------------------------------- */
 .reanchor { display: flex; flex-direction: column; gap: 9px; }
 .reanchor-head { display: flex; align-items: center; justify-content: space-between; }
 .reanchor-actions { display: flex; gap: 6px; }
 .mini-btn {
-  background: rgba(255, 255, 255, 0.07); color: var(--fg);
-  border: 1px solid var(--glass-border); border-radius: 8px;
-  padding: 4px 10px; font-size: 11px; cursor: pointer; font-weight: 600;
-  transition: background 0.18s ease, transform 0.15s ease;
+  background: var(--glass-sub); color: var(--ink);
+  border: 1px solid var(--edge); border-radius: 9px;
+  padding: 4px 11px; font-size: 11px; cursor: pointer; font-weight: 600;
+  transition: background 0.18s ease, transform 0.15s var(--spring);
 }
-.mini-btn:hover { background: rgba(255, 255, 255, 0.14); }
-.mini-btn:active { transform: scale(0.97); }
+.mini-btn:hover { background: var(--glass-strong); }
+.mini-btn:active { transform: scale(0.96); }
 .reanchor-text {
   margin: 0; max-height: 220px; overflow: auto;
-  background: rgba(3, 4, 94, 0.28); border: 1px solid var(--glass-border);
-  border-radius: 11px; padding: 11px;
+  border-radius: 13px; padding: 11px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px; line-height: 1.55; white-space: pre-wrap; color: var(--frost2);
+  font-size: 11px; line-height: 1.55; white-space: pre-wrap; color: var(--ink);
 }
 
 /* --- saturation ----------------------------------------------------------- */
 .sat-head {
   display: flex; justify-content: space-between;
-  font-size: 11px; color: var(--muted); margin-bottom: 7px;
+  font-size: 11px; color: var(--ink-soft); margin-bottom: 7px;
 }
 .bar {
   position: relative; height: 7px; border-radius: 99px; overflow: hidden;
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(12, 23, 34, 0.08);
 }
 .bar-fill {
-  position: relative; height: 100%; border-radius: 99px;
-  background: linear-gradient(90deg, var(--turquoise), var(--sky));
-  transition: width 0.45s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.4s ease;
+  height: 100%; border-radius: 99px;
+  background: linear-gradient(90deg, #34d399, var(--green));
+  transition: width 0.5s var(--spring), background 0.4s ease;
 }
-.bar-fill.amber { background: linear-gradient(90deg, #f59e0b, var(--amber)); }
-.bar-fill.red { background: linear-gradient(90deg, #ff3b5c, var(--red)); }
-.bar-fill::after {
-  content: ""; position: absolute; inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
-  transform: translateX(-100%);
-  animation: shimmer 2.6s ease-in-out infinite;
-}
-@keyframes shimmer {
-  0% { transform: translateX(-100%); }
-  60%, 100% { transform: translateX(100%); }
-}
+.bar-fill.amber { background: linear-gradient(90deg, #fbbf24, var(--amber)); }
+.bar-fill.red { background: linear-gradient(90deg, #f87171, var(--red)); }
 
 /* --- signal list ---------------------------------------------------------- */
 .signal-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
 .signal-row { display: flex; gap: 10px; align-items: flex-start; }
 .signal-body { display: flex; flex-direction: column; }
-.signal-name { font-size: 12.5px; font-weight: 600; }
-.signal-detail { font-size: 11.5px; color: var(--muted); }
+.signal-name { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.signal-detail { font-size: 11.5px; color: var(--ink-soft); }
 .mini { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; margin-top: 4px; }
 .mini.green { background: var(--green); }
 .mini.amber { background: var(--amber); }
@@ -239,32 +240,26 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 /* --- settings ------------------------------------------------------------- */
 .settings { display: flex; flex-direction: column; gap: 6px; }
 .env-line {
-  display: block;
-  background: rgba(3, 4, 94, 0.28); border: 1px solid var(--glass-border);
-  border-radius: 8px; padding: 7px 9px; font-size: 11px;
-  color: var(--frost2); overflow-x: auto; white-space: nowrap;
+  display: block; border-radius: 9px; padding: 7px 9px; font-size: 11px;
+  color: var(--ink); overflow-x: auto; white-space: nowrap;
 }
 .cfg-row { display: flex; justify-content: space-between; font-size: 12px; }
-.cfg-row span:last-child {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
-}
+.cfg-row span:last-child { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
 
 /* --- empty / error / footer ---------------------------------------------- */
 .empty { text-align: center; padding: 8px 0; }
 .empty p { margin: 4px 0; }
 .error {
-  background: linear-gradient(160deg, rgba(255, 93, 108, 0.18), rgba(255, 93, 108, 0.06));
-  border: 1px solid rgba(255, 93, 108, 0.4);
-  border-radius: 10px; padding: 9px 11px; font-size: 12px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 12px; padding: 9px 11px; font-size: 12px; color: #b3261e;
 }
-.foot { border-top: 1px solid var(--glass-border); padding-top: 11px; }
+.foot { border-top: 1px solid var(--hairline); padding-top: 11px; }
 
 /* --- scrollbars ----------------------------------------------------------- */
 .reanchor-text::-webkit-scrollbar { width: 8px; }
-.reanchor-text::-webkit-scrollbar-thumb {
-  background: rgba(173, 232, 244, 0.25); border-radius: 8px;
-}
+.reanchor-text::-webkit-scrollbar-thumb { background: rgba(12, 23, 34, 0.18); border-radius: 8px; }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::after { animation: none !important; transition: none !important; }
+  *, *::after, *::before { animation: none !important; transition: none !important; }
 }
