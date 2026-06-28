@@ -240,6 +240,46 @@ impl AppCore {
     }
 }
 
+/// Build a normalized conversation from a browser-extension payload: turns
+/// scraped from the page DOM, with **estimated** tokens (no wire payload, so
+/// `exact = false`), `source = Browser`.
+pub fn browser_conversation(
+    session_id: String,
+    model: String,
+    turns: Vec<(Role, String)>,
+) -> Conversation {
+    use drifterr_tokenizer::{context_window, HeuristicTokenizer, Tokenizer};
+    let tok = HeuristicTokenizer::for_model(&model);
+    let mut used = 0usize;
+    let built: Vec<Turn> = turns
+        .into_iter()
+        .enumerate()
+        .map(|(index, (role, content))| {
+            let tokens = tok.count(&content);
+            used += tokens;
+            Turn {
+                index,
+                role,
+                content,
+                tokens,
+                timestamp: now_millis(),
+            }
+        })
+        .collect();
+    Conversation {
+        context: ContextState {
+            window_size: context_window(&model),
+            used_tokens: used,
+            exact: false,
+            tool_call_count: 0,
+        },
+        session_id,
+        model,
+        turns: built,
+        source: Source::Browser,
+    }
+}
+
 /// Build the normalized conversation from the request history plus the new
 /// assistant turn, using exact provider usage for saturation when available.
 fn build_conversation(

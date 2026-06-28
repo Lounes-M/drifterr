@@ -343,6 +343,36 @@ async fn reanchor_404_when_no_session() {
 }
 
 #[tokio::test]
+async fn browser_ingest_feeds_the_engine() {
+    let (_proxy, control) = bring_up().await;
+    let client = client();
+
+    // The extension posts scraped turns; a .js reply violates the TS-only intent.
+    let resp = client
+        .post(format!("http://{control}/ingest"))
+        .json(&serde_json::json!({
+            "sessionId": "chat-1",
+            "model": "claude-opus-4-x",
+            "turns": [
+                {"role": "user", "content": "Refactor in TS, no JS"},
+                {"role": "assistant", "content": "Sure, creating auth.js"}
+            ]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let status = wait_for_status(&client, control).await;
+    assert_eq!(status["state"], "red");
+    assert_eq!(status["triggering"]["signal"], "constraint");
+    assert_eq!(
+        status["exact"], false,
+        "browser channel saturation is estimated"
+    );
+}
+
+#[tokio::test]
 async fn control_serves_dashboard_with_cors() {
     let (_proxy, control) = bring_up().await;
     let client = client();
