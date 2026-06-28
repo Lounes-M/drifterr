@@ -86,6 +86,31 @@ impl AppCore {
         self.sessions.values().map(|s| s.status.clone()).collect()
     }
 
+    /// Build the re-anchor intervention (snapshot + preamble) for a session.
+    /// With no id, uses the most recently updated session. `None` if unknown.
+    pub fn reanchor(&self, session_id: Option<&str>) -> Option<drifterr_intervention::Reanchor> {
+        let id = match session_id {
+            Some(s) => s.to_string(),
+            None => self.last_updated.clone()?,
+        };
+        let session = self.sessions.get(&id)?;
+        let trigger = session
+            .status
+            .triggering
+            .as_ref()
+            .map(|t| drifterr_intervention::Trigger {
+                signal: t.signal.clone(),
+                detail: t.detail.clone(),
+            });
+        Some(drifterr_intervention::reanchor(
+            &session.baseline,
+            session.status.state,
+            session.status.saturation_pct,
+            session.status.exact,
+            trigger.as_ref(),
+        ))
+    }
+
     /// Run detection for one completed turn and update session state.
     ///
     /// This is the whole detection pipeline behind the proxy: recover the

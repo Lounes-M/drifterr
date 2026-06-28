@@ -182,6 +182,80 @@ async fn anthropic_streaming_detects_saturation_red() {
 }
 
 #[tokio::test]
+async fn reanchor_returns_snapshot_after_a_session_exists() {
+    let (proxy, control) = bring_up().await;
+    let client = client();
+
+    // Drive one turn so a session + baseline exist.
+    client
+        .post(format!("http://{proxy}/v1/chat/completions"))
+        .header("authorization", AUTH)
+        .json(&serde_json::json!({
+            "model": "gpt-4o",
+            "stream": true,
+            "messages": [{"role": "user", "content": "refactor auth in TS, no JS"}]
+        }))
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    wait_for_status(&client, control).await;
+
+    let r: serde_json::Value = client
+        .get(format!("http://{control}/reanchor"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let snapshot = r["snapshot"].as_str().unwrap();
+    assert!(snapshot.contains("# Re-anchor"));
+    assert!(snapshot.contains("TypeScript only, no JS files"));
+    assert!(r["preamble"]
+        .as_str()
+        .unwrap()
+        .contains("Binding constraints"));
+}
+
+#[tokio::test]
+async fn public_serves_ui_assets_and_blocks_traversal() {
+    let (_proxy, control) = bring_up().await;
+    let client = client();
+
+    // The fonts folder's README exists in-repo, so /public/fonts/README.md
+    // resolves through the static handler (default ui_dir = repo path in tests).
+    let ok = client
+        .get(format!("http://{control}/public/fonts/README.md"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), 200);
+
+    // Path traversal is rejected.
+    let bad = client
+        .get(format!("http://{control}/public/../Cargo.toml"))
+        .send()
+        .await
+        .unwrap();
+    assert!(bad.status() == 400 || bad.status() == 404);
+}
+
+#[tokio::test]
+async fn reanchor_404_when_no_session() {
+    let (_proxy, control) = bring_up().await;
+    let client = client();
+    let resp = client
+        .get(format!("http://{control}/reanchor"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
+#[tokio::test]
 async fn control_serves_dashboard_with_cors() {
     let (_proxy, control) = bring_up().await;
     let client = client();

@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/engine",
+    "crates/intervention",
     "crates/proxy",
     "crates/store",
     "crates/tokenizer",
@@ -27,6 +28,7 @@ thiserror = "1"
 
 # Internal crates
 drifterr-engine = { path = "crates/engine" }
+drifterr-intervention = { path = "crates/intervention" }
 drifterr-store = { path = "crates/store" }
 drifterr-tokenizer = { path = "crates/tokenizer" }
 

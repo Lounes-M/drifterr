@@ -29,11 +29,12 @@ panel renders the live state.
 | **M0** — monorepo, SQLite schema, normalized format, tokenizer | ✅ done |
 | **M1** — engine: baseline, Signal 1 (constraints), Signal 4 (saturation), state machine | ✅ done |
 | **M2** — proxy channel (SSE passthrough + tee) + control API + menubar panel | ✅ done |
-| M3 — soft signals (2,3,5) + intervention (re-anchor snapshot) | ⬜ next |
+| M3a — intervention (re-anchor snapshot + preamble) | ✅ done |
+| M3b/c — soft signals (2,3,5) + judge | ⬜ next |
 | M4 — file watcher + browser extension channels | ⬜ |
 | M5 — standing orders (the moat) + opt-in proxy auto-re-anchor | ⬜ |
 
-![Drifting](docs/menubar-red.png) ![Aligned](docs/menubar-green.png)
+![Drifting](docs/menubar-red.png) ![Aligned](docs/menubar-green.png) ![Re-anchor](docs/menubar-reanchor.png)
 
 ## Architecture (the non-negotiable principle)
 
@@ -58,6 +59,7 @@ Channels (proxy │ file │ browser)
 | [`crates/engine`](crates/engine) | The channel-agnostic core: normalized format, baseline, signals, state machine. |
 | [`crates/store`](crates/store) | Local SQLite persistence (load/persist a `Conversation`, baseline, signal events). |
 | [`crates/proxy`](crates/proxy) | The local API proxy channel: transparent SSE relay + tee, per-provider parsing, and the control/status API. |
+| [`crates/intervention`](crates/intervention) | Re-anchor: builds the paste-ready reset snapshot + in-thread preamble from the baseline (pure, no LLM). |
 | [`crates/tokenizer`](crates/tokenizer) | Provider-pluggable token estimation + model→context-window map. |
 | `fixtures/` | Hand-annotated transcripts — the M1 validation set. |
 
@@ -95,6 +97,14 @@ Config via env (a `.env` is auto-loaded): `OPENAI_UPSTREAM`,
 `ANTHROPIC_UPSTREAM`, `DRIFTERR_PROXY_ADDR`, `DRIFTERR_CONTROL_ADDR`,
 `DRIFTERR_DB` (SQLite path; omit for in-memory). The control API exposes
 `GET /config` with the effective settings.
+
+### Re-anchor (M3a)
+
+When a session drifts, `GET /reanchor` returns a **paste-ready reset snapshot**
+(goal + active constraints + held/rejected decisions + state) and a short
+**in-thread preamble** that re-states the binding constraints. Both are pure
+functions of the baseline — no LLM, no network. The menubar's **Re-anchor**
+button renders and copies them.
 
 **The #1 hard point, handled.** The upstream byte stream is forwarded to the
 client unchanged while a cheap tee (refcounted `Bytes`) feeds a background task

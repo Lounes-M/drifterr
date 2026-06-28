@@ -88,6 +88,9 @@ export function render(doc, data) {
     }
   } else {
     trigger.hidden = true;
+    // No active trigger ⇒ drop any stale re-anchor snapshot.
+    const re = doc.getElementById("reanchor");
+    if (re) re.hidden = true;
   }
 
   // Saturation bar.
@@ -193,13 +196,68 @@ export async function loadConfig(doc, fetchImpl) {
   }
 }
 
+// --- re-anchor intervention ------------------------------------------------
+
+/// The snapshot currently displayed, so "Copy" knows what to copy.
+let currentReanchor = null;
+
+/// Fetch the re-anchor snapshot/preamble and show it. Returns the payload (or
+/// null on failure), which also makes it unit-testable.
+export async function loadReanchor(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  const section = doc.getElementById("reanchor");
+  const textEl = doc.getElementById("reanchor-text");
+  try {
+    const res = await f(apiBase() + "/reanchor", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    currentReanchor = data;
+    if (textEl) textEl.textContent = data.snapshot || "";
+    if (section) section.hidden = false;
+    return data;
+  } catch (_e) {
+    if (textEl) textEl.textContent = "Could not generate a re-anchor (is a session active?).";
+    if (section) section.hidden = false;
+    currentReanchor = null;
+    return null;
+  }
+}
+
 function setupUi(doc) {
   const gear = doc.getElementById("gear");
-  if (!gear) return;
-  gear.addEventListener("click", async () => {
-    const showing = toggleSettings(doc);
-    if (showing) await loadConfig(doc);
-  });
+  if (gear) {
+    gear.addEventListener("click", async () => {
+      const showing = toggleSettings(doc);
+      if (showing) await loadConfig(doc);
+    });
+  }
+
+  const reanchorBtn = doc.getElementById("reanchor-btn");
+  if (reanchorBtn) {
+    reanchorBtn.addEventListener("click", () => loadReanchor(doc));
+  }
+
+  const closeBtn = doc.getElementById("reanchor-close");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => {
+      const s = doc.getElementById("reanchor");
+      if (s) s.hidden = true;
+    });
+  }
+
+  const copyBtn = doc.getElementById("reanchor-copy");
+  if (copyBtn) {
+    copyBtn.addEventListener("click", async () => {
+      const text = currentReanchor ? currentReanchor.snapshot : "";
+      try {
+        await navigator.clipboard.writeText(text);
+        copyBtn.textContent = "Copied!";
+      } catch (_e) {
+        copyBtn.textContent = "Copy failed";
+      }
+      setTimeout(() => (copyBtn.textContent = "Copy"), 1500);
+    });
+  }
 }
 
 // --- polling loop (browser only) -------------------------------------------

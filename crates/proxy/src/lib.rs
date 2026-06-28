@@ -26,15 +26,16 @@ pub mod provider;
 pub mod state;
 
 use axum::body::Body;
-use axum::extract::{Request, State};
-use axum::http::{Method, StatusCode};
+use axum::extract::{Path as AxPath, Query, Request, State};
+use axum::http::{header, Method, StatusCode};
 use axum::middleware::{self, Next};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use bytes::Bytes;
 use futures_util::StreamExt;
 use provider::Provider;
+use serde::Deserialize;
 use serde::Serialize;
 use state::{AppCore, SessionStatus};
 use std::future::IntoFuture;
@@ -136,13 +137,74 @@ pub fn control_router(state: AppState) -> Router {
         .route("/status", get(status_handler))
         .route("/sessions", get(sessions_handler))
         .route("/config", get(config_handler))
+        .route("/reanchor", get(reanchor_handler))
+        .route("/public/{*path}", get(public_handler))
         .route("/health", get(|| async { "ok" }))
         .layer(middleware::from_fn(add_cors))
         .with_state(state)
 }
 
+/// Directory the UI assets live in, used to serve `/public/*` (fonts, etc.).
+/// Defaults to the in-repo path for dev; override with `DRIFTERR_UI_DIR`. In a
+/// packaged Tauri build the webview serves these directly, so this is mainly for
+/// the browser dashboard.
+fn ui_dir() -> std::path::PathBuf {
+    if let Ok(d) = std::env::var("DRIFTERR_UI_DIR") {
+        return std::path::PathBuf::from(d);
+    }
+    std::path::PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../apps/desktop/ui"
+    ))
+}
+
+fn content_type_for(path: &str) -> &'static str {
+    match path.rsplit('.').next().unwrap_or("") {
+        "woff2" => "font/woff2",
+        "woff" => "font/woff",
+        "ttf" => "font/ttf",
+        "css" => "text/css; charset=utf-8",
+        "js" => "text/javascript; charset=utf-8",
+        "png" => "image/png",
+        "svg" => "image/svg+xml",
+        "json" => "application/json",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Serve a file from `<ui_dir>/public/`. Read-only, with a path-traversal guard.
+async fn public_handler(AxPath(path): AxPath<String>) -> Response {
+    if path.contains("..") {
+        return (StatusCode::BAD_REQUEST, "bad path").into_response();
+    }
+    let full = ui_dir().join("public").join(&path);
+    match tokio::fs::read(&full).await {
+        Ok(bytes) => ([(header::CONTENT_TYPE, content_type_for(&path))], bytes).into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "not found").into_response(),
+    }
+}
+
 async fn config_handler(State(app): State<AppState>) -> Json<ConfigMeta> {
     Json((*app.meta).clone())
+}
+
+#[derive(Deserialize)]
+struct ReanchorQuery {
+    /// Optional session id; defaults to the most recently updated session.
+    session: Option<String>,
+}
+
+/// Generate the re-anchor intervention (snapshot + preamble) for a session.
+async fn reanchor_handler(State(app): State<AppState>, Query(q): Query<ReanchorQuery>) -> Response {
+    let out = app
+        .core
+        .lock()
+        .ok()
+        .and_then(|core| core.reanchor(q.session.as_deref()));
+    match out {
+        Some(r) => Json(r).into_response(),
+        None => (StatusCode::NOT_FOUND, "no active session to re-anchor").into_response(),
+    }
 }
 
 /// Add permissive CORS headers and short-circuit preflight requests.
