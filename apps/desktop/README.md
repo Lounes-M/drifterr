@@ -29,10 +29,16 @@ webview loads the same files.
 
 ## Look & fonts
 
-The panel is a light **"liquid glass"** material (iOS-26-like): frosted,
-near-neutral translucency with a soft top sheen — **blue is reserved for
-buttons/accents only** (Ocean Blue Serenity). Smooth, dynamic, simple, with
-entrance/reveal/pulse animations disabled under `prefers-reduced-motion`.
+The panel is a real **"liquid glass"** material (iOS-26-like): strongly
+translucent frosted glass that floats over an ambient backdrop and refracts it
+(in the Tauri menubar that's the desktop wallpaper; the browser dashboard shows
+a soft drifting ambient that stands in for it). A specular highlight sweeps the
+surface; cards and buttons are frosted with bright rim light. **Blue is reserved
+for buttons/accents only.** Smooth and animated (drifting backdrop, sheen sweep,
+spring reveals, button shine) — all disabled under `prefers-reduced-motion`.
+
+For full desktop vibrancy in the packaged app, the Tauri window is transparent;
+the ambient backdrop is the dashboard/preview stand-in.
 
 Typeface is **Satoshi**. Drop the font files into
 [`ui/public/fonts/`](ui/public/fonts) (see the README there for the exact
