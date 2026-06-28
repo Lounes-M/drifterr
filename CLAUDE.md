@@ -59,6 +59,8 @@ upstream to OpenRouter; see `.env.example`.
 
 ```
 crates/engine      channel-agnostic detection core
+crates/embeddings  local text embeddings (pluggable) for the soft signals
+crates/intervention re-anchor snapshot + preamble
 crates/store       local SQLite persistence
 crates/proxy       local API proxy channel + control API + dashboard
 crates/tokenizer   token estimation + context-window map

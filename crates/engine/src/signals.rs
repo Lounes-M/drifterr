@@ -90,4 +90,6 @@ impl SignalEvent {
 }
 
 pub mod constraints;
+pub mod degradation;
+pub mod goal;
 pub mod saturation;

@@ -9,5 +9,6 @@ serde.workspace = true
 serde_json.workspace = true
 regex.workspace = true
 drifterr-tokenizer.workspace = true
+drifterr-embeddings.workspace = true
 
 [dev-dependencies]
