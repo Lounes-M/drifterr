@@ -165,6 +165,7 @@ async function main() {
         openaiUpstream: "https://openrouter.ai/api",
         anthropicUpstream: "https://api.anthropic.com",
         persisted: false,
+        judge: "openai/gpt-4o-mini",
       }),
     })
   );
@@ -180,6 +181,7 @@ async function main() {
     "settings shows OpenRouter upstream"
   );
   check((await page.locator("#cfg-storage").textContent()) === "In-memory", "settings shows storage mode");
+  check((await page.locator("#cfg-judge").textContent()).includes("gpt-4o-mini"), "settings shows judge model");
   await page.locator("#gear").click();
   check(!(await page.locator("#settings").isVisible()), "gear closes settings again");
 

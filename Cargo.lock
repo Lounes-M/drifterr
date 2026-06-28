@@ -168,14 +168,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "drifterr-judge"
+version = "0.0.1"
+dependencies = [
+ "drifterr-embeddings",
+ "drifterr-engine",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "drifterr-proxy"
 version = "0.0.1"
 dependencies = [
  "axum",
  "bytes",
  "dotenvy",
+ "drifterr-embeddings",
  "drifterr-engine",
  "drifterr-intervention",
+ "drifterr-judge",
  "drifterr-store",
  "drifterr-tokenizer",
  "futures-util",

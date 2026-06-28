@@ -31,7 +31,7 @@ panel renders the live state.
 | **M2** — proxy channel (SSE passthrough + tee) + control API + menubar panel | ✅ done |
 | M3a — intervention (re-anchor snapshot + preamble) | ✅ done |
 | M3b — soft signals: goal alignment (2) + degradation (5) + local embeddings | ✅ done |
-| M3c — decision coherence (3) + judge | ⬜ next |
+| M3c — decision coherence (3) + pluggable judge (OpenRouter) | ✅ done |
 | M4 — file watcher + browser extension channels | ⬜ |
 | M5 — standing orders (the moat) + opt-in proxy auto-re-anchor | ⬜ |
 
@@ -61,6 +61,7 @@ Channels (proxy │ file │ browser)
 | [`crates/store`](crates/store) | Local SQLite persistence (load/persist a `Conversation`, baseline, signal events). |
 | [`crates/proxy`](crates/proxy) | The local API proxy channel: transparent SSE relay + tee, per-provider parsing, and the control/status API. |
 | [`crates/intervention`](crates/intervention) | Re-anchor: builds the paste-ready reset snapshot + in-thread preamble from the baseline (pure, no LLM). |
+| [`crates/judge`](crates/judge) | Pluggable, fail-safe binary judge (OpenRouter / Stub / Disabled) + decision-coherence (Signal 3). |
 | [`crates/embeddings`](crates/embeddings) | Pluggable local text embeddings (default: dependency-free feature-hashing) for the soft signals. |
 | [`crates/tokenizer`](crates/tokenizer) | Provider-pluggable token estimation + model→context-window map. |
 | `fixtures/` | Hand-annotated transcripts — the M1 validation set. |
@@ -136,10 +137,24 @@ can **name** the cause.
 - **Signal 5 — degradation.** Cheap text stats: looping (near-duplicate
   replies), verbosity blow-ups, hedging spikes.
 
-Both **cap at AMBER by construction**, so a soft signal can never drive RED on
-its own — verified by a guardrail test. Embeddings are local and deterministic
-(zero cost, zero network); a real ONNX model can slot in behind the `Embedder`
-trait later.
+- **Signal 3 — decision coherence (judge-backed).** Catches the assistant
+  reintroducing a decision the user explicitly *rejected*. Rejected decisions are
+  captured deterministically ("don't use X"); retrieval is local (embedding
+  cosine) and the final yes/no is the **judge's**, on the single best candidate —
+  at most one model call per turn, only when something looks close.
+
+All three **cap at AMBER by construction**, so a soft/judge signal can never
+drive RED on its own — verified by a guardrail test. Embeddings are local and
+deterministic (zero cost, zero network); a real ONNX model can slot in behind
+the `Embedder` trait later.
+
+### The judge
+
+Fuzzy checks go through a pluggable, **fail-safe** judge (`crates/judge`): any
+error or unparseable reply yields *no violation*, and with no API key the judge
+is simply disabled (everything else still works). It uses the user's own
+provider — **OpenRouter** by default (`OPENROUTER_API_KEY`,
+`DRIFTERR_JUDGE_MODEL`). Tests use a `Stub` judge, so CI never hits the network.
 
 The **state machine** applies the brief's two rules: hard constraint violations
 commit to RED immediately (they're facts), while threshold-based saturation

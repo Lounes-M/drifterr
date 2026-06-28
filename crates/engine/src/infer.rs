@@ -64,6 +64,40 @@ pub fn infer_rule(text: &str) -> Option<Rule> {
     infer_rules(text).into_iter().next()
 }
 
+/// "don't use X", "do not use X", "stop using X", "avoid X", "no longer use X",
+/// "pas de X" — but NOT the JS/comments constraints (handled as rules above).
+fn rejected_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?:don'?t use|do not use|stop using|no longer use|avoid|n'utilise pas|pas de)\s+([a-z0-9][a-z0-9._+\-]{1,38})",
+        )
+        .unwrap()
+    })
+}
+
+/// Extract decisions the user explicitly rejected, as short normalized phrases
+/// (e.g. "use bcrypt"). High-precision by design — it only matches clear
+/// "don't use X" style statements, so it rarely fires on prose.
+pub fn infer_rejected_decisions(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for caps in rejected_re().captures_iter(text) {
+        if let Some(obj) = caps.get(1) {
+            let object = obj.as_str().trim().trim_end_matches(['.', ',', ';']).trim();
+            // Drop phrasings that the JS/comments constraint rules already cover.
+            let lc = object.to_ascii_lowercase();
+            if lc == "js" || lc.starts_with("comment") {
+                continue;
+            }
+            let phrase = format!("use {object}");
+            if !out.contains(&phrase) {
+                out.push(phrase);
+            }
+        }
+    }
+    out
+}
+
 /// A stable human label and category for an inferred rule, used when the
 /// extractor synthesizes a [`crate::baseline::Constraint`] from a bare rule.
 pub fn describe(rule: &Rule) -> (&'static str, crate::baseline::ConstraintType) {
@@ -89,6 +123,20 @@ mod tests {
     #[test]
     fn nothing_inferred_from_plain_text() {
         assert!(infer_rules("please make it fast and elegant").is_empty());
+    }
+
+    #[test]
+    fn rejected_decisions_high_precision() {
+        assert_eq!(
+            infer_rejected_decisions("Please don't use bcrypt for hashing"),
+            vec!["use bcrypt".to_string()]
+        );
+        assert_eq!(
+            infer_rejected_decisions("avoid redux and stop using moment"),
+            vec!["use redux".to_string(), "use moment".to_string()]
+        );
+        // Plain prose with no rejection phrasing → nothing.
+        assert!(infer_rejected_decisions("we should ship this feature soon").is_empty());
     }
 
     #[test]

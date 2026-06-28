@@ -4,6 +4,7 @@ members = [
     "crates/embeddings",
     "crates/engine",
     "crates/intervention",
+    "crates/judge",
     "crates/proxy",
     "crates/store",
     "crates/tokenizer",
@@ -31,6 +32,7 @@ thiserror = "1"
 drifterr-embeddings = { path = "crates/embeddings" }
 drifterr-engine = { path = "crates/engine" }
 drifterr-intervention = { path = "crates/intervention" }
+drifterr-judge = { path = "crates/judge" }
 drifterr-store = { path = "crates/store" }
 drifterr-tokenizer = { path = "crates/tokenizer" }
 

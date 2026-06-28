@@ -173,6 +173,19 @@ impl Baseline {
                     rule: Some(rule),
                 });
             }
+
+            // Capture explicitly *rejected* decisions ("don't use X", "no X",
+            // "avoid X", "pas de X"). These feed Signal 3 (decision coherence):
+            // if a later reply reintroduces one, the judge can flag it.
+            for text in crate::infer::infer_rejected_decisions(&turn.content) {
+                if self.decisions.iter().any(|d| d.text == text) {
+                    continue;
+                }
+                self.decisions.push(Decision {
+                    text,
+                    rejected: true,
+                });
+            }
         }
     }
 }
