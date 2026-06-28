@@ -128,7 +128,10 @@ async fn add_cors(req: Request, next: Next) -> Response {
     };
     let h = res.headers_mut();
     h.insert("access-control-allow-origin", "*".parse().unwrap());
-    h.insert("access-control-allow-methods", "GET, OPTIONS".parse().unwrap());
+    h.insert(
+        "access-control-allow-methods",
+        "GET, OPTIONS".parse().unwrap(),
+    );
     h.insert("access-control-allow-headers", "*".parse().unwrap());
     res
 }
@@ -249,9 +252,9 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
         }
         builder = builder.header(name.as_str(), value.as_bytes());
     }
-    builder
-        .body(Body::from_stream(teed))
-        .unwrap_or_else(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "response build error"))
+    builder.body(Body::from_stream(teed)).unwrap_or_else(|_| {
+        error_response(StatusCode::INTERNAL_SERVER_ERROR, "response build error")
+    })
 }
 
 /// Copy request headers for forwarding, dropping hop-by-hop headers, `host`

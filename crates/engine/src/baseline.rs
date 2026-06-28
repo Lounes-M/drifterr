@@ -155,7 +155,11 @@ impl Baseline {
 
         for turn in turns.iter().filter(|t| t.role == Role::User) {
             for rule in infer_rules(&turn.content) {
-                if self.constraints.iter().any(|c| c.rule.as_ref() == Some(&rule)) {
+                if self
+                    .constraints
+                    .iter()
+                    .any(|c| c.rule.as_ref() == Some(&rule))
+                {
                     continue;
                 }
                 let (text, kind) = describe(&rule);
@@ -190,11 +194,16 @@ mod tests {
 
     #[test]
     fn extract_sets_goal_and_constraints() {
-        let turns = vec![user("Refactor auth in strict TypeScript, no JS, no comments")];
+        let turns = vec![user(
+            "Refactor auth in strict TypeScript, no JS, no comments",
+        )];
         let b = Baseline::extract(&turns);
         assert!(b.goal.starts_with("Refactor auth"));
         assert_eq!(b.constraints.len(), 2);
-        assert!(b.constraints.iter().all(|c| c.checkable == Checkable::Deterministic));
+        assert!(b
+            .constraints
+            .iter()
+            .all(|c| c.checkable == Checkable::Deterministic));
     }
 
     #[test]

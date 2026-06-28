@@ -26,10 +26,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         session_id: "demo".into(),
         model: "claude-opus-4-x".into(),
         turns: vec![
-            Turn { index: 0, role: Role::User, content: "Refactor auth in strict TS.".into(), tokens: 10, timestamp: 1 },
-            Turn { index: 1, role: Role::Assistant, content: "Let's create auth.js first.".into(), tokens: 9, timestamp: 2 },
+            Turn {
+                index: 0,
+                role: Role::User,
+                content: "Refactor auth in strict TS.".into(),
+                tokens: 10,
+                timestamp: 1,
+            },
+            Turn {
+                index: 1,
+                role: Role::Assistant,
+                content: "Let's create auth.js first.".into(),
+                tokens: 9,
+                timestamp: 2,
+            },
         ],
-        context: ContextState { window_size: 200_000, used_tokens: 12_000, exact: true, tool_call_count: 0 },
+        context: ContextState {
+            window_size: 200_000,
+            used_tokens: 12_000,
+            exact: true,
+            tool_call_count: 0,
+        },
         source: Source::Proxy,
     };
 

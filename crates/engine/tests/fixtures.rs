@@ -62,8 +62,8 @@ fn all_fixtures_match_expectations() {
             continue;
         }
         let raw = fs::read_to_string(&path).unwrap();
-        let fx: Fixture = serde_json::from_str(&raw)
-            .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
+        let fx: Fixture =
+            serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
 
         let verdict = drifterr_engine::evaluate(&fx.conversation, &fx.baseline);
 
