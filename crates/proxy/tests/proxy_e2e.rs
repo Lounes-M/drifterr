@@ -221,6 +221,29 @@ async fn reanchor_returns_snapshot_after_a_session_exists() {
 }
 
 #[tokio::test]
+async fn public_serves_ui_assets_and_blocks_traversal() {
+    let (_proxy, control) = bring_up().await;
+    let client = client();
+
+    // The fonts folder's README exists in-repo, so /public/fonts/README.md
+    // resolves through the static handler (default ui_dir = repo path in tests).
+    let ok = client
+        .get(format!("http://{control}/public/fonts/README.md"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), 200);
+
+    // Path traversal is rejected.
+    let bad = client
+        .get(format!("http://{control}/public/../Cargo.toml"))
+        .send()
+        .await
+        .unwrap();
+    assert!(bad.status() == 400 || bad.status() == 404);
+}
+
+#[tokio::test]
 async fn reanchor_404_when_no_session() {
     let (_proxy, control) = bring_up().await;
     let client = client();

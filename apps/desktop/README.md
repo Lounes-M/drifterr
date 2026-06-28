@@ -27,6 +27,18 @@ the same contract the Rust e2e tests assert. The UI assets are shared: the proxy
 serves them at `http://<control-addr>/` for instant browser use, and the Tauri
 webview loads the same files.
 
+## Look & fonts
+
+The panel is **glassmorphism** (translucent + backdrop blur, layered) on the
+**Ocean Blue Serenity** palette, with subtle entrance/reveal/pulse animations
+(disabled under `prefers-reduced-motion`).
+
+Typeface is **Satoshi**. Drop the font files into
+[`ui/public/fonts/`](ui/public/fonts) (see the README there for the exact
+filenames) — the CSS `@font-face` is already wired and the proxy serves
+`/public/fonts/*`, so they load in both the browser dashboard and the Tauri
+webview. Until then it falls back to the system sans-serif.
+
 ## Run it
 
 **As a browser panel (no Tauri needed)** — start the proxy and open the
