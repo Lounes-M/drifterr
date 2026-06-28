@@ -153,6 +153,8 @@ pub fn control_router(state: AppState) -> Router {
         .route("/sessions", get(sessions_handler))
         .route("/config", get(config_handler))
         .route("/reanchor", get(reanchor_handler))
+        .route("/standing-orders", get(standing_orders_handler))
+        .route("/standing-orders/promote", post(promote_handler))
         .route("/ingest", post(ingest_handler))
         .route("/public/{*path}", get(public_handler))
         .route("/health", get(|| async { "ok" }))
@@ -273,6 +275,56 @@ async fn public_handler(AxPath(path): AxPath<String>) -> Response {
 
 async fn config_handler(State(app): State<AppState>) -> Json<ConfigMeta> {
     Json((*app.meta).clone())
+}
+
+/// A standing order (recurring correction) for the control API.
+#[derive(Serialize)]
+struct StandingOrderView {
+    id: i64,
+    text: String,
+    occurrences: i64,
+    promoted: bool,
+    /// Recurring enough to propose, not yet promoted.
+    candidate: bool,
+}
+
+async fn standing_orders_handler(State(app): State<AppState>) -> Json<Vec<StandingOrderView>> {
+    let orders = app
+        .core
+        .lock()
+        .map(|c| c.standing_orders())
+        .unwrap_or_default();
+    Json(
+        orders
+            .into_iter()
+            .map(|o| StandingOrderView {
+                candidate: o.is_candidate(),
+                id: o.id,
+                text: o.text,
+                occurrences: o.occurrences,
+                promoted: o.promoted,
+            })
+            .collect(),
+    )
+}
+
+#[derive(Deserialize)]
+struct PromoteBody {
+    id: i64,
+}
+
+/// Promote a standing order into a persistent rule (the user accepting it).
+async fn promote_handler(State(app): State<AppState>, Json(body): Json<PromoteBody>) -> Response {
+    let ok = app
+        .core
+        .lock()
+        .map(|c| c.promote_standing_order(body.id))
+        .unwrap_or(false);
+    if ok {
+        (StatusCode::OK, "promoted").into_response()
+    } else {
+        (StatusCode::NOT_FOUND, "unknown standing order").into_response()
+    }
 }
 
 #[derive(Deserialize)]
