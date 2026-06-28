@@ -1,0 +1,28 @@
+{
+  "name": "Context occupancy critical (estimated, via file channel)",
+  "baseline": {
+    "goal": "Marathon agent run",
+    "constraints": [],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "fx-06",
+    "model": "claude-opus-4-x",
+    "turns": [
+      { "index": 0, "role": "user", "content": "continue", "tokens": 3, "timestamp": 1000 },
+      { "index": 1, "role": "assistant", "content": "working on it", "tokens": 4, "timestamp": 1100 },
+      { "index": 2, "role": "assistant", "content": "still working", "tokens": 4, "timestamp": 1200 },
+      { "index": 3, "role": "assistant", "content": "almost", "tokens": 3, "timestamp": 1300 },
+      { "index": 4, "role": "assistant", "content": "more", "tokens": 2, "timestamp": 1400 },
+      { "index": 5, "role": "assistant", "content": "more", "tokens": 2, "timestamp": 1500 },
+      { "index": 6, "role": "assistant", "content": "more", "tokens": 2, "timestamp": 1600 },
+      { "index": 7, "role": "assistant", "content": "more", "tokens": 2, "timestamp": 1700 },
+      { "index": 8, "role": "assistant", "content": "more", "tokens": 2, "timestamp": 1800 },
+      { "index": 9, "role": "assistant", "content": "more", "tokens": 2, "timestamp": 1900 },
+      { "index": 10, "role": "assistant", "content": "more", "tokens": 2, "timestamp": 2000 }
+    ],
+    "context": { "windowSize": 200000, "usedTokens": 170000, "exact": false, "toolCallCount": 12 },
+    "source": "file"
+  },
+  "expect": { "state": "red", "triggeringSignal": "saturation" }
+}

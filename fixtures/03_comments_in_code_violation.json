@@ -1,0 +1,21 @@
+{
+  "name": "Comment appears inside a code block, violating the no-comments constraint",
+  "baseline": {
+    "goal": "Ship the helper without comments",
+    "constraints": [
+      { "id": "c2", "text": "No comments in code", "type": "format", "checkable": "deterministic" }
+    ],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "fx-03",
+    "model": "gpt-4o",
+    "turns": [
+      { "index": 0, "role": "user", "content": "Write the slugify helper, no comments.", "tokens": 10, "timestamp": 1000 },
+      { "index": 1, "role": "assistant", "content": "```ts\nexport const slug = (s: string) =>\n  s.toLowerCase() // normalize first\n```", "tokens": 28, "timestamp": 2000 }
+    ],
+    "context": { "windowSize": 128000, "usedTokens": 5000, "exact": true, "toolCallCount": 0 },
+    "source": "proxy"
+  },
+  "expect": { "state": "red", "triggeringSignal": "constraint", "triggeringConstraint": "c2" }
+}

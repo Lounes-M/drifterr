@@ -1,0 +1,21 @@
+{
+  "name": "Comment-like token appears only in prose (a URL), must NOT fire — false-positive guard",
+  "baseline": {
+    "goal": "Document the deployment URL",
+    "constraints": [
+      { "id": "c2", "text": "No comments in code", "type": "format", "checkable": "deterministic" }
+    ],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "fx-04",
+    "model": "claude-opus-4-x",
+    "turns": [
+      { "index": 0, "role": "user", "content": "Where do we deploy?", "tokens": 6, "timestamp": 1000 },
+      { "index": 1, "role": "assistant", "content": "Deploy to https://example.com/app then verify the // path segment is correct.", "tokens": 18, "timestamp": 2000 }
+    ],
+    "context": { "windowSize": 200000, "usedTokens": 9000, "exact": true, "toolCallCount": 0 },
+    "source": "proxy"
+  },
+  "expect": { "state": "green", "triggeringSignal": null }
+}

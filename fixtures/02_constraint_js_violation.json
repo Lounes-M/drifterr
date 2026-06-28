@@ -1,0 +1,21 @@
+{
+  "name": "Assistant introduces a .js file, violating the TS-only constraint",
+  "baseline": {
+    "goal": "Refactor the auth module in strict TypeScript",
+    "constraints": [
+      { "id": "c1", "text": "TypeScript only, no JS", "type": "tech", "checkable": "deterministic" }
+    ],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "fx-02",
+    "model": "claude-opus-4-x",
+    "turns": [
+      { "index": 0, "role": "user", "content": "Refactor auth in strict TS.", "tokens": 10, "timestamp": 1000 },
+      { "index": 1, "role": "assistant", "content": "Sure. Let's start by creating auth.js with the helpers.", "tokens": 16, "timestamp": 2000 }
+    ],
+    "context": { "windowSize": 200000, "usedTokens": 12000, "exact": true, "toolCallCount": 0 },
+    "source": "proxy"
+  },
+  "expect": { "state": "red", "triggeringSignal": "constraint", "triggeringConstraint": "c1" }
+}

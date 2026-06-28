@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/engine",
+    "crates/store",
+    "crates/tokenizer",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/lounes-m/drifterr"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+thiserror = "1"
+
+# Internal crates
+drifterr-engine = { path = "crates/engine" }
+drifterr-store = { path = "crates/store" }
+drifterr-tokenizer = { path = "crates/tokenizer" }
+
+[profile.release]
+lto = true
+codegen-units = 1

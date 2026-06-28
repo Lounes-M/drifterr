@@ -1,0 +1,22 @@
+{
+  "name": "Clean aligned session, low saturation",
+  "baseline": {
+    "goal": "Refactor the auth module in strict TypeScript",
+    "constraints": [
+      { "id": "c1", "text": "TypeScript only, no JS", "type": "tech", "checkable": "deterministic" },
+      { "id": "c2", "text": "No comments in code", "type": "format", "checkable": "deterministic" }
+    ],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "fx-01",
+    "model": "claude-opus-4-x",
+    "turns": [
+      { "index": 0, "role": "user", "content": "Refactor auth in strict TS, no comments.", "tokens": 12, "timestamp": 1000 },
+      { "index": 1, "role": "assistant", "content": "```ts\nexport function login(u: string) {\n  return verify(u)\n}\n```", "tokens": 30, "timestamp": 2000 }
+    ],
+    "context": { "windowSize": 200000, "usedTokens": 8000, "exact": true, "toolCallCount": 0 },
+    "source": "proxy"
+  },
+  "expect": { "state": "green", "triggeringSignal": null }
+}

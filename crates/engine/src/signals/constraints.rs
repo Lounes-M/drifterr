@@ -1,0 +1,269 @@
+//! Signal 1 — constraint adherence (deterministic).
+//!
+//! This is the credibility backbone: deterministic constraints are checked with
+//! rules/regex, so a violation is a fact, not a guess — 0 false positives, 0
+//! cost, and it is allowed to drive RED on its own.
+//!
+//! Each active deterministic constraint is checked against the latest assistant
+//! turn (the delta). A violation produces a [`SignalEvent`] carrying the
+//! constraint id, the turn index, and the offending span as evidence.
+//!
+//! Judge-checkable constraints are intentionally *not* handled here — they
+//! require a model call and ship in a later milestone. They are skipped so the
+//! hard signal stays free and exact.
+
+use crate::baseline::{Baseline, Constraint, Rule};
+use crate::conversation::Turn;
+use crate::signals::{Evidence, SignalEvent, SignalKind, State};
+use regex::Regex;
+
+/// Evaluate Signal 1 against the most recent assistant turn.
+///
+/// Returns one event per violated deterministic constraint. An empty result
+/// means every checked constraint held.
+pub fn evaluate(baseline: &Baseline, last_assistant: Option<&Turn>) -> Vec<SignalEvent> {
+    let Some(turn) = last_assistant else {
+        return Vec::new();
+    };
+
+    let mut events = Vec::new();
+    for c in baseline.deterministic_constraints() {
+        if let Some(span) = check(c, &turn.content) {
+            events.push(SignalEvent::new(
+                SignalKind::Constraint,
+                State::Red,
+                Evidence {
+                    detail: format!("constraint {} violated: \"{}\"", c.id, c.text),
+                    turn_index: Some(turn.index),
+                    constraint_id: Some(c.id.clone()),
+                    span,
+                },
+            ));
+        }
+    }
+    events
+}
+
+/// Check one constraint against text. Returns the offending span (or an empty
+/// span marker) on violation, `None` when satisfied.
+///
+/// If the constraint carries an explicit [`Rule`] we honor it; otherwise we
+/// infer a rule from common phrasings. Inference is conservative — if we cannot
+/// confidently derive a deterministic check we report "satisfied" rather than
+/// risk a false positive, because a deterministic signal that cries wolf is
+/// worse than one that stays quiet.
+fn check(c: &Constraint, content: &str) -> Option<Option<String>> {
+    let rule = c.rule.clone().or_else(|| infer_rule(&c.text));
+    let rule = rule?;
+    apply_rule(&rule, content)
+}
+
+/// Apply a concrete rule. Outer `Option`: was it violated? Inner `Option`: the
+/// span, when the rule could isolate one.
+fn apply_rule(rule: &Rule, content: &str) -> Option<Option<String>> {
+    match rule {
+        Rule::ForbidPattern { pattern } => {
+            let re = compile(pattern)?;
+            re.find(content).map(|m| Some(m.as_str().to_string()))
+        }
+        Rule::RequirePattern { pattern } => {
+            let re = compile(pattern)?;
+            if re.is_match(content) {
+                None
+            } else {
+                // Violation is the *absence* of a match — no span to point at.
+                Some(None)
+            }
+        }
+        Rule::ForbidInCode { pattern } => {
+            let re = compile(pattern)?;
+            for block in code_blocks(content) {
+                if let Some(m) = re.find(block) {
+                    return Some(Some(m.as_str().to_string()));
+                }
+            }
+            None
+        }
+        Rule::MaxWords { max } => {
+            let count = content.split_whitespace().count();
+            if count > *max {
+                Some(Some(format!("{count} words (limit {max})")))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Compile a regex, returning `None` (treated as "cannot check ⇒ no violation")
+/// if the pattern is malformed. A bad rule must never crash the engine or
+/// manufacture a violation.
+fn compile(pattern: &str) -> Option<Regex> {
+    Regex::new(pattern).ok()
+}
+
+/// Extract the contents of fenced code blocks (```...```), so code-scoped rules
+/// ignore prose.
+///
+/// If no fences are present we return nothing rather than treating the whole
+/// message as code. Guessing "this prose is actually code" is exactly how a
+/// deterministic signal cries wolf (a `//` in a URL, a `#` in a sentence), and
+/// a hard signal that produces false positives is worse than one that stays
+/// quiet. Channels that emit bare code should wrap it in a fence.
+fn code_blocks(content: &str) -> Vec<&str> {
+    if !content.contains("```") {
+        return Vec::new();
+    }
+    let mut blocks = Vec::new();
+    let mut rest = content;
+    while let Some(start) = rest.find("```") {
+        // Skip the opening fence and its optional language tag line.
+        let after = &rest[start + 3..];
+        let body_start = after.find('\n').map(|n| n + 1).unwrap_or(after.len());
+        let body = &after[body_start..];
+        if let Some(end) = body.find("```") {
+            blocks.push(&body[..end]);
+            rest = &body[end + 3..];
+        } else {
+            blocks.push(body);
+            break;
+        }
+    }
+    blocks
+}
+
+/// Infer a deterministic rule from common constraint phrasings.
+///
+/// This is deliberately small and high-precision. It covers the phrasings that
+/// recur in real sessions; anything it does not recognize falls through to
+/// "no rule" (constraint treated as satisfied by Signal 1, and ideally routed
+/// to the judge path in a later milestone).
+fn infer_rule(text: &str) -> Option<Rule> {
+    let t = text.to_ascii_lowercase();
+
+    // "TypeScript only, no JS" / "no .js" — forbid JavaScript file extensions.
+    if (t.contains("typescript") && (t.contains("no js") || t.contains("not js") || t.contains("pas de js")))
+        || t.contains("no .js")
+        || t.contains("pas de .js")
+    {
+        return Some(Rule::ForbidPattern {
+            pattern: r"\.js\b".to_string(),
+        });
+    }
+
+    // "No comments in code" — forbid comment syntax inside code blocks.
+    if t.contains("no comment") || t.contains("aucun commentaire") || t.contains("pas de commentaire") {
+        return Some(Rule::ForbidInCode {
+            pattern: r"(//|/\*|^\s*#|<!--)".to_string(),
+        });
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::baseline::{Checkable, ConstraintType};
+    use crate::conversation::Role;
+
+    fn turn(content: &str) -> Turn {
+        Turn {
+            index: 3,
+            role: Role::Assistant,
+            content: content.to_string(),
+            tokens: 0,
+            timestamp: 0,
+        }
+    }
+
+    fn det(id: &str, text: &str, rule: Option<Rule>) -> Constraint {
+        Constraint {
+            id: id.to_string(),
+            text: text.to_string(),
+            kind: ConstraintType::Tech,
+            checkable: Checkable::Deterministic,
+            active: true,
+            rule,
+        }
+    }
+
+    #[test]
+    fn forbid_pattern_violation_has_span() {
+        let c = det("c1", "TypeScript only, no JS", None);
+        let out = check(&c, "create app.js then build").unwrap();
+        assert_eq!(out, Some(".js".to_string()));
+    }
+
+    #[test]
+    fn forbid_pattern_satisfied() {
+        let c = det("c1", "TypeScript only, no JS", None);
+        assert!(check(&c, "create app.ts then build").is_none());
+    }
+
+    #[test]
+    fn no_comments_only_in_code() {
+        let c = det("c2", "No comments in code", None);
+        // A // inside prose must NOT count; only inside a fence.
+        let prose = "Use the path a//b in the URL description.";
+        assert!(check(&c, prose).is_none());
+        let code = "```ts\nconst x = 1; // oops\n```";
+        assert!(check(&c, code).unwrap().is_some());
+    }
+
+    #[test]
+    fn max_words_rule() {
+        let c = det("c3", "Concise", Some(Rule::MaxWords { max: 3 }));
+        assert!(check(&c, "one two three").is_none());
+        assert!(check(&c, "one two three four").unwrap().is_some());
+    }
+
+    #[test]
+    fn require_pattern_violation_when_absent() {
+        let c = det(
+            "c4",
+            "Must export default",
+            Some(Rule::RequirePattern {
+                pattern: r"export default".to_string(),
+            }),
+        );
+        assert_eq!(check(&c, "const x = 1").unwrap(), None); // violated, no span
+        assert!(check(&c, "export default x").is_none()); // satisfied
+    }
+
+    #[test]
+    fn evaluate_skips_judge_and_inactive() {
+        let mut b = Baseline {
+            goal: "g".into(),
+            constraints: vec![
+                det("c1", "no .js", None),
+                Constraint {
+                    checkable: Checkable::Judge,
+                    ..det("c2", "concise tone", None)
+                },
+                Constraint {
+                    active: false,
+                    ..det("c3", "no .js", None)
+                },
+            ],
+            decisions: vec![],
+        };
+        b.constraints[0].active = true;
+        let events = evaluate(&b, Some(&turn("here is app.js")));
+        // Only c1 fires: judge-checkable and inactive are skipped.
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].evidence.constraint_id.as_deref(), Some("c1"));
+    }
+
+    #[test]
+    fn malformed_regex_never_violates() {
+        let c = det(
+            "c5",
+            "bad",
+            Some(Rule::ForbidPattern {
+                pattern: r"(".to_string(),
+            }),
+        );
+        assert!(check(&c, "anything (").is_none());
+    }
+}
