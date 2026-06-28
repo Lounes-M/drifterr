@@ -21,6 +21,7 @@ bytes = "1"
 dotenvy = "0.15"
 serde.workspace = true
 serde_json.workspace = true
+drifterr-adapters.workspace = true
 drifterr-engine.workspace = true
 drifterr-embeddings.workspace = true
 drifterr-intervention.workspace = true

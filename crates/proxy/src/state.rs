@@ -171,17 +171,31 @@ impl AppCore {
         req: &ParsedRequest,
         resp: &ParsedResponse,
     ) -> State {
-        let conv = build_conversation(session_id, req, resp);
+        self.ingest(build_conversation(session_id, req, resp))
+    }
 
-        // Get or create the live session, extracting a baseline on first sight.
-        let entry = self.sessions.entry(session_id.to_string());
+    /// Ingest a fully-formed normalized [`Conversation`] from *any* channel
+    /// (proxy or file watcher) and run detection. This is the single point where
+    /// the engine meets a channel — proof that channels are interchangeable: the
+    /// file watcher and the proxy both end here, no channel-specific branch.
+    pub fn record_conversation(&mut self, conv: &Conversation) -> State {
+        self.ingest(conv.clone())
+    }
+
+    /// The shared detection pipeline: get/create the session (extracting a
+    /// baseline on first sight), keep the baseline current, evaluate, run the
+    /// anti-flicker monitor, persist, and store the status. Keyed on
+    /// `conv.session_id`.
+    fn ingest(&mut self, conv: Conversation) -> State {
+        let session_id = conv.session_id.clone();
+        let entry = self.sessions.entry(session_id.clone());
         let session = entry.or_insert_with(|| {
             let baseline = Baseline::extract(&conv.turns);
             SessionState {
                 baseline,
                 monitor: SessionMonitor::default(),
                 status: SessionStatus {
-                    session_id: session_id.to_string(),
+                    session_id: session_id.clone(),
                     model: conv.model.clone(),
                     state: State::Green,
                     saturation_pct: 0,
@@ -193,14 +207,15 @@ impl AppCore {
             }
         });
 
-        // Constraints may be stated mid-session; keep the baseline current.
+        // Constraints / rejected decisions may be stated mid-session; keep the
+        // baseline current.
         session.baseline.absorb(&conv.turns);
 
         let verdict = evaluate(&conv, &session.baseline);
         let committed = session.monitor.observe(&verdict);
 
         session.status = SessionStatus {
-            session_id: session_id.to_string(),
+            session_id: session_id.clone(),
             model: conv.model.clone(),
             state: committed,
             saturation_pct: (conv.saturation_ratio() * 100.0).round() as u32,
@@ -210,17 +225,17 @@ impl AppCore {
             updated_at: now_millis(),
         };
 
-        // Durable record (best-effort: persistence must never break the proxy).
+        // Durable record (best-effort: persistence must never break ingestion).
         if let Some(store) = &self.store {
             if let Ok(mut s) = store.lock() {
                 let _ = s.save_conversation(&conv);
-                let _ = s.save_baseline(session_id, &session.baseline);
-                let _ = s.record_events(session_id, &verdict.events);
-                let _ = s.set_status(session_id, committed);
+                let _ = s.save_baseline(&session_id, &session.baseline);
+                let _ = s.record_events(&session_id, &verdict.events);
+                let _ = s.set_status(&session_id, committed);
             }
         }
 
-        self.last_updated = Some(session_id.to_string());
+        self.last_updated = Some(session_id);
         committed
     }
 }
@@ -330,6 +345,24 @@ mod tests {
 
     fn req(body: &[u8]) -> ParsedRequest {
         parse_request(Provider::OpenAI, body)
+    }
+
+    #[test]
+    fn file_channel_feeds_the_same_engine() {
+        // A Claude Code session (file channel) that violates a constraint must
+        // light up exactly like the proxy channel would — via the same ingest.
+        let jsonl = concat!(
+            r#"{"type":"user","sessionId":"file-x","message":{"role":"user","content":"Refactor in TS, no JS"}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"role":"assistant","model":"claude-opus-4-x","content":[{"type":"text","text":"Sure, creating auth.js now"}]}}"#,
+        );
+        let conv = drifterr_adapters::claude_code::parse_session(jsonl, "x").unwrap();
+        let mut core = AppCore::new(None);
+        let state = core.record_conversation(&conv);
+        assert_eq!(state, State::Red);
+        let status = core.current().unwrap();
+        assert!(!status.exact, "file channel saturation is estimated");
+        assert_eq!(status.triggering.unwrap().signal, "constraint");
     }
 
     #[test]

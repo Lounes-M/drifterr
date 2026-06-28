@@ -32,7 +32,7 @@ panel renders the live state.
 | M3a — intervention (re-anchor snapshot + preamble) | ✅ done |
 | M3b — soft signals: goal alignment (2) + degradation (5) + local embeddings | ✅ done |
 | M3c — decision coherence (3) + pluggable judge (OpenRouter) | ✅ done |
-| M4 — file watcher + browser extension channels | ⬜ |
+| M4 — file watcher (Claude Code) channel | ✅ done · ⬜ browser extension |
 | M5 — standing orders (the moat) + opt-in proxy auto-re-anchor | ⬜ |
 
 ![Drifting](docs/menubar-red.png) ![Aligned](docs/menubar-green.png) ![Re-anchor](docs/menubar-reanchor.png)
@@ -62,6 +62,7 @@ Channels (proxy │ file │ browser)
 | [`crates/proxy`](crates/proxy) | The local API proxy channel: transparent SSE relay + tee, per-provider parsing, and the control/status API. |
 | [`crates/intervention`](crates/intervention) | Re-anchor: builds the paste-ready reset snapshot + in-thread preamble from the baseline (pure, no LLM). |
 | [`crates/judge`](crates/judge) | Pluggable, fail-safe binary judge (OpenRouter / Stub / Disabled) + decision-coherence (Signal 3). |
+| [`crates/adapters`](crates/adapters) | Channel adapters that emit the normalized format — the Claude Code file watcher (M4). |
 | [`crates/embeddings`](crates/embeddings) | Pluggable local text embeddings (default: dependency-free feature-hashing) for the soft signals. |
 | [`crates/tokenizer`](crates/tokenizer) | Provider-pluggable token estimation + model→context-window map. |
 | `fixtures/` | Hand-annotated transcripts — the M1 validation set. |
@@ -100,6 +101,15 @@ Config via env (a `.env` is auto-loaded): `OPENAI_UPSTREAM`,
 `ANTHROPIC_UPSTREAM`, `DRIFTERR_PROXY_ADDR`, `DRIFTERR_CONTROL_ADDR`,
 `DRIFTERR_DB` (SQLite path; omit for in-memory). The control API exposes
 `GET /config` with the effective settings.
+
+### File channel (M4) — Claude Code sessions
+
+Set `DRIFTERR_WATCH_DIR` to a directory of Claude Code `*.jsonl` sessions (e.g.
+`~/.claude/projects/<project>`) and the proxy watches them live, reconstructing
+the conversation and feeding **the same engine** via the normalized format — no
+channel-specific branch. Saturation is `estimated` here (the file has no wire
+payload). Both channels end at one `ingest` path, so a file session and a proxied
+request light up the menubar identically.
 
 ### Re-anchor (M3a)
 
