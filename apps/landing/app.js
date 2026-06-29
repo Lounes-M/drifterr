@@ -1,7 +1,7 @@
-// Adaptive download button: detect the visitor's OS and label the button for it.
-// Links stay on our own domain (/download/<os>); a serverless redirect
-// (api/download.js) resolves the latest installer and streams it straight to the
-// visitor — they never land on the GitHub repo.
+// Drifterr landing behaviour: adaptive download, scroll reveal, cursor glow +
+// parallax, the animated drift score, FAQ accordion and the pricing toggle.
+// Downloads stay on our own domain (/download/<os>) — a serverless redirect
+// (api/download.js) resolves the latest installer.
 
 const DOWNLOAD = (os) => `/download/${os}`;
 
@@ -13,13 +13,7 @@ export function detectOS(ua, platform) {
   return "other";
 }
 
-const LABELS = {
-  mac: "Download for macOS",
-  win: "Download for Windows",
-  linux: "Download for Linux",
-  other: "Download",
-};
-
+const LABELS = { mac: "Download for macOS", win: "Download for Windows", linux: "Download for Linux", other: "Download" };
 const SUBS = {
   mac: "macOS 11+ · Apple silicon & Intel — free",
   win: "Windows 10+ — free",
@@ -29,70 +23,102 @@ const SUBS = {
 
 export function apply(doc, os) {
   const label = LABELS[os] || LABELS.other;
-  // "other" (unknown OS) gets a chooser; everyone else a direct OS download.
   const href = os === "other" ? DOWNLOAD("") : DOWNLOAD(os);
-  for (const id of ["download", "download-2", "nav-download"]) {
+  // Primary CTAs carry the adaptive label + arrow; secondary ones stay short.
+  for (const id of ["download", "download-3"]) {
     const el = doc.getElementById(id);
-    if (el) {
-      el.textContent = id === "nav-download" ? "Download" : label;
-      el.href = href;
-    }
+    if (el) { el.innerHTML = `${label} <span class="arrow">→</span>`; el.href = href; }
   }
-  for (const id of ["cta-sub", "cta-sub-2"]) {
+  for (const id of ["download-2", "nav-download"]) {
+    const el = doc.getElementById(id);
+    if (el) { el.textContent = "Download"; el.href = href; }
+  }
+  for (const id of ["cta-sub"]) {
     const el = doc.getElementById(id);
     if (el) el.textContent = SUBS[os] || SUBS.other;
   }
   return label;
 }
 
-// Reveal-on-scroll for a modern feel (no-op if IntersectionObserver missing).
 function setupReveal(doc) {
   const items = doc.querySelectorAll(".reveal");
-  if (!("IntersectionObserver" in window)) {
-    items.forEach((el) => el.classList.add("in"));
-    return;
-  }
+  if (!("IntersectionObserver" in window)) { items.forEach((el) => el.classList.add("in")); return; }
   const io = new IntersectionObserver(
-    (entries) =>
-      entries.forEach((e) => {
-        if (e.isIntersecting) {
-          e.target.classList.add("in");
-          io.unobserve(e.target);
-        }
-      }),
+    (entries) => entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }),
     { threshold: 0.14 }
   );
   items.forEach((el) => io.observe(el));
 }
 
-// Pointer-reactive glow on feature cards (the spotlight follows the cursor).
-function setupCardGlow(doc) {
-  doc.querySelectorAll(".card").forEach((card) => {
-    card.addEventListener("pointermove", (e) => {
-      const r = card.getBoundingClientRect();
-      card.style.setProperty("--mx", `${e.clientX - r.left}px`);
-      card.style.setProperty("--my", `${e.clientY - r.top}px`);
-    });
+// Cursor glow + depth-based parallax on the background blobs.
+function setupParallax(doc) {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const glow = doc.getElementById("cursor-glow");
+  const layers = [...doc.querySelectorAll("[data-depth]")];
+  const target = { x: 0, y: 0 }, curr = { x: 0, y: 0 };
+  window.addEventListener("pointermove", (e) => {
+    target.x = e.clientX / window.innerWidth - 0.5;
+    target.y = e.clientY / window.innerHeight - 0.5;
+    if (glow) { glow.style.left = e.clientX + "px"; glow.style.top = e.clientY + "px"; glow.style.opacity = "1"; }
+  }, { passive: true });
+  (function tick() {
+    curr.x += (target.x - curr.x) * 0.06;
+    curr.y += (target.y - curr.y) * 0.06;
+    for (const el of layers) {
+      const d = parseFloat(el.getAttribute("data-depth")) || 0;
+      el.style.transform = `translate3d(${(curr.x * d).toFixed(2)}px,${(curr.y * d).toFixed(2)}px,0)`;
+    }
+    requestAnimationFrame(tick);
+  })();
+}
+
+// Count the drift score up to 87% once the mockup scrolls into view.
+function setupDriftScore(doc) {
+  const el = doc.getElementById("driftScore");
+  if (!el) return;
+  let done = false;
+  const run = () => {
+    if (done) return; done = true;
+    const dur = 1700, start = performance.now(), to = 87;
+    (function step(now) {
+      const t = Math.min(1, (now - start) / dur);
+      el.textContent = Math.round((1 - Math.pow(1 - t, 3)) * to);
+      if (t < 1) requestAnimationFrame(step);
+    })(start);
+  };
+  if (!("IntersectionObserver" in window)) return run();
+  const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { run(); io.disconnect(); } }), { threshold: 0.4 });
+  io.observe(el);
+}
+
+function setupFaq(doc) {
+  doc.querySelectorAll(".qa button").forEach((btn) => {
+    btn.addEventListener("click", () => btn.parentElement.classList.toggle("open"));
   });
 }
 
-// Gentle parallax tilt on the hero product window, tied to the cursor.
-function setupTilt(doc) {
-  const tilt = doc.getElementById("tilt");
-  const win = tilt && tilt.querySelector(".window");
-  if (!win || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  if (window.matchMedia("(max-width: 860px)").matches) return;
-  window.addEventListener("pointermove", (e) => {
-    const x = (e.clientX / window.innerWidth - 0.5) * 2;
-    const y = (e.clientY / window.innerHeight - 0.5) * 2;
-    win.style.transform = `perspective(900px) rotateY(${x * 4}deg) rotateX(${-y * 4}deg)`;
-  });
+function setupPricing(doc) {
+  const m = doc.getElementById("bill-monthly"), a = doc.getElementById("bill-annual");
+  const pro = doc.getElementById("proPrice"), team = doc.getElementById("teamPrice");
+  const proNote = doc.getElementById("proNote"), teamNote = doc.getElementById("teamNote");
+  if (!m || !a) return;
+  const set = (annual) => {
+    a.classList.toggle("on", annual); m.classList.toggle("on", !annual);
+    if (pro) pro.textContent = annual ? "9" : "12";
+    if (team) team.textContent = annual ? "16" : "20";
+    const note = annual ? "billed annually" : "billed monthly";
+    if (proNote) proNote.textContent = note;
+    if (teamNote) teamNote.textContent = note;
+  };
+  m.addEventListener("click", () => set(false));
+  a.addEventListener("click", () => set(true));
 }
 
 if (typeof document !== "undefined" && typeof navigator !== "undefined") {
-  const os = detectOS(navigator.userAgent, navigator.platform);
-  apply(document, os);
+  apply(document, detectOS(navigator.userAgent, navigator.platform));
   setupReveal(document);
-  setupCardGlow(document);
-  setupTilt(document);
+  setupParallax(document);
+  setupDriftScore(document);
+  setupFaq(document);
+  setupPricing(document);
 }

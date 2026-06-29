@@ -1,56 +1,41 @@
-/* Drifterr menubar panel — real "liquid glass" (iOS-26-like).
-   The panel is a strongly translucent frosted material floating over an ambient
-   backdrop (in the Tauri menubar that's the desktop wallpaper; here an animated
-   ambient stands in). Blue is reserved for buttons/accents. Smooth + animated. */
+/* Drifterr menubar panel — dark glass, matching the product design system.
+   A translucent dark frosted panel floats over an ambient backdrop (the desktop
+   wallpaper in Tauri; an animated ambient stands in here). Orange→pink is the
+   accent. Space Grotesk (display), Manrope (text), JetBrains Mono (code). */
 
-/* --- Satoshi (drop files into public/fonts; see that folder's README) ------ */
-@font-face {
-  font-family: "Satoshi";
-  src:
-    url("public/fonts/satoshi/Satoshi-Variable.woff2") format("woff2-variations"),
-    url("public/fonts/satoshi/Satoshi-Variable.woff") format("woff-variations");
-  font-weight: 300 900;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Satoshi";
-  src:
-    url("public/fonts/satoshi/Satoshi-VariableItalic.woff2") format("woff2-variations"),
-    url("public/fonts/satoshi/Satoshi-VariableItalic.woff") format("woff-variations");
-  font-weight: 300 900;
-  font-style: italic;
-  font-display: swap;
-}
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 
 :root {
-  --ink: #0d1622;
-  --ink-soft: #54606f;
-  --ink-faint: #8893a1;
+  --ink: #ffffff;
+  --ink-soft: #a3a1b4;
+  --ink-faint: #86849a;
 
-  /* Glass: strongly translucent neutral so the backdrop refracts through. */
-  --glass-top: rgba(255, 255, 255, 0.52);
-  --glass-bot: rgba(255, 255, 255, 0.26);
-  --glass-sub: rgba(255, 255, 255, 0.34);
-  --edge: rgba(255, 255, 255, 0.7);
-  --hairline: rgba(13, 22, 34, 0.1);
+  /* Dark glass — translucent so the backdrop refracts through. */
+  --glass-top: rgba(28, 26, 42, 0.78);
+  --glass-bot: rgba(17, 16, 27, 0.62);
+  --glass-sub: rgba(255, 255, 255, 0.05);
+  --edge: rgba(255, 255, 255, 0.1);
+  --hairline: rgba(255, 255, 255, 0.08);
 
-  /* Blue — buttons / accents only. */
-  --blue: #0096c7;
-  --blue-bright: #00b4d8;
-  --blue-deep: #0077b6;
+  /* Accent — orange→pink (buttons / accents). */
+  --blue: #ff7847;
+  --blue-bright: #ff8a64;
+  --blue-deep: #ff3d81;
 
-  --green: #10b981;
-  --amber: #f59e0b;
-  --red: #ef4444;
-  --unknown: #94a3b8;
+  --green: #34e89e;
+  --amber: #ffb23e;
+  --red: #ff4d6d;
+  --unknown: #6f6d82;
+
+  --display: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
+  --sans: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --radius: 24px;
   --spring: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 * { box-sizing: border-box; }
-
 html, body { margin: 0; height: 100%; }
 
 body {
@@ -59,51 +44,37 @@ body {
   place-items: center;
   padding: 30px;
   color: var(--ink);
-  font-family: "Satoshi", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
 
-  /* Ambient backdrop — the "wallpaper" the glass floats over. Soft, drifting
-     color so the frost is visible; the app chrome itself stays neutral. */
-  background:
-    radial-gradient(40% 50% at 18% 22%, rgba(99, 140, 255, 0.45), transparent 60%),
-    radial-gradient(45% 55% at 82% 28%, rgba(0, 200, 220, 0.40), transparent 62%),
-    radial-gradient(50% 55% at 30% 88%, rgba(167, 139, 250, 0.42), transparent 60%),
-    radial-gradient(45% 50% at 88% 82%, rgba(255, 170, 190, 0.38), transparent 60%),
-    linear-gradient(135deg, #eef1f7, #e8edf4);
+  background: radial-gradient(120% 90% at 50% -10%, #0e0d1c 0%, #08070f 45%, #050409 100%);
   background-attachment: fixed;
   overflow: hidden;
 }
 
 /* Slowly drifting blobs add life behind the glass. */
-body::before,
-body::after {
+body::before, body::after {
   content: "";
   position: fixed;
   width: 60vmax; height: 60vmax;
   border-radius: 50%;
   filter: blur(40px);
-  opacity: 0.5;
+  opacity: 0.45;
   z-index: -1;
   pointer-events: none;
 }
 body::before {
-  background: radial-gradient(circle, rgba(0, 180, 216, 0.55), transparent 65%);
+  background: radial-gradient(circle, rgba(255, 120, 71, 0.5), transparent 65%);
   top: -18vmax; left: -12vmax;
   animation: drift-a 26s ease-in-out infinite alternate;
 }
 body::after {
-  background: radial-gradient(circle, rgba(167, 139, 250, 0.5), transparent 65%);
+  background: radial-gradient(circle, rgba(255, 61, 129, 0.45), transparent 65%);
   bottom: -20vmax; right: -14vmax;
   animation: drift-b 32s ease-in-out infinite alternate;
 }
-@keyframes drift-a {
-  from { transform: translate(0, 0) scale(1); }
-  to { transform: translate(14vmax, 10vmax) scale(1.18); }
-}
-@keyframes drift-b {
-  from { transform: translate(0, 0) scale(1.1); }
-  to { transform: translate(-12vmax, -8vmax) scale(1); }
-}
+@keyframes drift-a { from { transform: translate(0, 0) scale(1); } to { transform: translate(14vmax, 10vmax) scale(1.18); } }
+@keyframes drift-b { from { transform: translate(0, 0) scale(1.1); } to { transform: translate(-12vmax, -8vmax) scale(1); } }
 
 /* --- the glass panel ------------------------------------------------------ */
 .panel {
@@ -117,15 +88,14 @@ body::after {
   isolation: isolate;
 
   background: linear-gradient(150deg, var(--glass-top), var(--glass-bot));
-  backdrop-filter: blur(36px) saturate(180%);
-  -webkit-backdrop-filter: blur(36px) saturate(180%);
+  backdrop-filter: blur(36px) saturate(160%);
+  -webkit-backdrop-filter: blur(36px) saturate(160%);
   border: 1px solid var(--edge);
   border-radius: var(--radius);
   box-shadow:
-    0 30px 70px rgba(20, 40, 80, 0.28),
-    0 6px 18px rgba(20, 40, 80, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    inset 0 -1px 1px rgba(255, 255, 255, 0.35);
+    0 30px 70px rgba(0, 0, 0, 0.55),
+    0 6px 18px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
   animation: panel-in 0.55s var(--spring) both;
 }
 
@@ -134,7 +104,7 @@ body::after {
   content: "";
   position: absolute;
   inset: 0 0 auto 0; height: 46%;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), transparent);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent);
   pointer-events: none; z-index: 0;
 }
 .panel::after {
@@ -145,9 +115,9 @@ body::after {
   background: linear-gradient(
     100deg,
     transparent 0%,
-    rgba(255, 255, 255, 0.28) 45%,
-    rgba(255, 255, 255, 0.5) 50%,
-    rgba(255, 255, 255, 0.28) 55%,
+    rgba(255, 255, 255, 0.06) 45%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.06) 55%,
     transparent 100%
   );
   transform: rotate(8deg);
@@ -168,7 +138,7 @@ body::after {
 
 /* --- header --------------------------------------------------------------- */
 .head { display: flex; align-items: center; gap: 12px; }
-.head-text h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.015em; }
+.head-text h1 { margin: 0; font-family: var(--display); font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
 .blurb { margin: 2px 0 0; color: var(--ink-soft); font-size: 12px; }
 
 .dot {
@@ -193,18 +163,18 @@ body::after {
   backdrop-filter: blur(10px);
   border: 1px solid var(--edge); cursor: pointer;
   color: var(--ink-soft); font-size: 14px; border-radius: 50%;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   transition: transform 0.4s var(--spring), color 0.2s ease, background 0.2s ease;
 }
-.gear:hover { color: var(--ink); background: rgba(255, 255, 255, 0.55); transform: rotate(60deg) scale(1.05); }
+.gear:hover { color: var(--ink); background: rgba(255, 255, 255, 0.12); transform: rotate(60deg) scale(1.05); }
 
 /* --- shared --------------------------------------------------------------- */
 .section-title {
-  margin: 0 0 8px; font-size: 10px; text-transform: uppercase;
-  letter-spacing: 0.1em; color: var(--ink-faint); font-weight: 700;
+  margin: 0 0 8px; font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.12em; color: var(--blue-bright); font-weight: 500;
 }
 .muted { color: var(--ink-soft); font-size: 11px; }
-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+code { font-family: var(--mono); }
 [hidden] { display: none !important; }
 
 .trigger:not([hidden]),
@@ -220,7 +190,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   background: var(--glass-sub);
   backdrop-filter: blur(8px);
   border: 1px solid var(--edge);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 /* --- trigger -------------------------------------------------------------- */
@@ -234,44 +204,44 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .trigger.amber { border-left-color: var(--amber); }
 .trigger-row { display: flex; align-items: baseline; gap: 8px; }
 .trigger-tag {
-  text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.05em;
-  font-weight: 800; color: var(--ink-faint); flex: 0 0 auto;
+  text-transform: uppercase; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em;
+  font-weight: 500; color: var(--ink-faint); flex: 0 0 auto;
 }
 .trigger-detail { font-size: 12.5px; line-height: 1.4; color: var(--ink); }
 .span-chip {
   align-self: flex-start;
-  background: rgba(13, 22, 34, 0.06); border: 1px solid var(--hairline);
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--hairline);
   border-radius: 7px; padding: 2px 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px; color: #b3261e;
+  font-family: var(--mono);
+  font-size: 11.5px; color: #ff9b78;
 }
 
-/* Primary action — modern liquid-glass accent button (the only blue). */
+/* Primary action — orange→pink accent button. */
 .reanchor-btn {
   position: relative; overflow: hidden;
   align-self: flex-start; margin-top: 2px;
   display: inline-flex; align-items: center; gap: 6px;
-  background: linear-gradient(135deg, var(--blue-bright), var(--blue-deep));
+  background: linear-gradient(135deg, var(--blue), var(--blue-deep));
   color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.45);
+  border: none;
   border-radius: 999px;
   padding: 10px 18px; font-size: 12.5px; font-weight: 700; cursor: pointer;
   box-shadow:
-    0 10px 24px rgba(0, 119, 182, 0.38),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    0 10px 24px rgba(255, 61, 129, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
   transition: transform 0.2s var(--spring), box-shadow 0.25s ease, filter 0.2s ease;
 }
 .reanchor-btn::after {
   content: ""; position: absolute; top: 0; left: -60%;
   width: 40%; height: 100%;
-  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.45), transparent);
   transform: skewX(-18deg);
   transition: left 0.5s ease;
 }
 .reanchor-btn:hover {
   transform: translateY(-2px) scale(1.02);
-  filter: brightness(1.06);
-  box-shadow: 0 14px 32px rgba(0, 119, 182, 0.46), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  filter: brightness(1.07);
+  box-shadow: 0 14px 32px rgba(255, 61, 129, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 .reanchor-btn:hover::after { left: 120%; }
 .reanchor-btn:active { transform: translateY(0) scale(0.98); }
@@ -285,16 +255,16 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   backdrop-filter: blur(10px);
   border: 1px solid var(--edge); border-radius: 10px;
   padding: 5px 12px; font-size: 11px; cursor: pointer; font-weight: 600;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   transition: background 0.18s ease, transform 0.15s var(--spring);
 }
-.mini-btn:hover { background: rgba(255, 255, 255, 0.6); }
+.mini-btn:hover { background: rgba(255, 255, 255, 0.12); }
 .mini-btn:active { transform: scale(0.95); }
 .reanchor-text {
   margin: 0; max-height: 220px; overflow: auto;
   border-radius: 14px; padding: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px; line-height: 1.55; white-space: pre-wrap; color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px; line-height: 1.55; white-space: pre-wrap; color: var(--ink-soft);
 }
 
 /* --- saturation ----------------------------------------------------------- */
@@ -304,17 +274,17 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 }
 .bar {
   position: relative; height: 8px; border-radius: 99px; overflow: hidden;
-  background: rgba(13, 22, 34, 0.09);
-  box-shadow: inset 0 1px 2px rgba(13, 22, 34, 0.08);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 .bar-fill {
   height: 100%; border-radius: 99px;
-  background: linear-gradient(90deg, #34d399, var(--green));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  background: linear-gradient(90deg, #2ee6a6, var(--green));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
   transition: width 0.6s var(--spring), background 0.4s ease;
 }
-.bar-fill.amber { background: linear-gradient(90deg, #fbbf24, var(--amber)); }
-.bar-fill.red { background: linear-gradient(90deg, #f87171, var(--red)); }
+.bar-fill.amber { background: linear-gradient(90deg, #ffcf6b, var(--amber)); }
+.bar-fill.red { background: linear-gradient(90deg, var(--blue), var(--blue-deep)); }
 
 /* --- signal list ---------------------------------------------------------- */
 .signal-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
@@ -332,24 +302,24 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .settings { display: flex; flex-direction: column; gap: 6px; }
 .env-line {
   display: block; border-radius: 10px; padding: 8px 10px; font-size: 11px;
-  color: var(--ink); overflow-x: auto; white-space: nowrap;
+  color: var(--ink-soft); overflow-x: auto; white-space: nowrap;
 }
 .cfg-row { display: flex; justify-content: space-between; font-size: 12px; }
-.cfg-row span:last-child { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+.cfg-row span:last-child { font-family: var(--mono); font-size: 11.5px; }
 
 /* --- empty / error / footer ---------------------------------------------- */
 .empty { text-align: center; padding: 8px 0; }
 .empty p { margin: 4px 0; }
 .error {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.28);
-  border-radius: 13px; padding: 9px 11px; font-size: 12px; color: #b3261e;
+  background: rgba(255, 77, 109, 0.12);
+  border: 1px solid rgba(255, 77, 109, 0.3);
+  border-radius: 13px; padding: 9px 11px; font-size: 12px; color: #ff9bb0;
 }
 .foot { border-top: 1px solid var(--hairline); padding-top: 11px; }
 
 /* --- scrollbars ----------------------------------------------------------- */
 .reanchor-text::-webkit-scrollbar { width: 8px; }
-.reanchor-text::-webkit-scrollbar-thumb { background: rgba(13, 22, 34, 0.18); border-radius: 8px; }
+.reanchor-text::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 8px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::after, *::before { animation: none !important; transition: none !important; }

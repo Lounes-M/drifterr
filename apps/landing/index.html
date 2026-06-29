@@ -6,197 +6,292 @@
     <title>Drifterr — catch AI drift before the wall</title>
     <meta
       name="description"
-      content="Drifterr is a local-first copilot that detects when your AI chat session drifts from what you asked — and warns you before you lose an hour, with one-click re-anchoring."
+      content="Drifterr watches your AI chat for drift from your original goal and constraints, and warns you before you lose an hour. One click re-anchors the thread. Local-first."
     />
     <meta property="og:title" content="Drifterr" />
     <meta property="og:description" content="Your model didn't change. Your conversation did. Drifterr warns you before the wall." />
-    <meta name="theme-color" content="#f7f7f5" />
+    <meta name="theme-color" content="#07060d" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,500;1,400;1,500;1,600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div class="bg" aria-hidden="true">
+      <div class="grid"></div>
+      <span class="blob a" data-depth="40"></span>
+      <span class="blob b" data-depth="70"></span>
+      <span class="blob c" data-depth="55"></span>
+    </div>
+    <div class="cursor-glow" id="cursor-glow" aria-hidden="true"></div>
+
     <header class="nav">
       <div class="nav-inner">
-        <a class="brand" href="#top"><span class="logo"></span> Drifterr</a>
+        <a class="brand" href="#top">
+          <span class="mark"><span class="fill"></span><span class="ring"></span></span>
+          <b>drifterr</b>
+        </a>
         <nav class="nav-links">
           <a href="#how">How it works</a>
           <a href="#features">Features</a>
-          <a href="#why">Why it's solid</a>
-          <a class="btn btn-sm" id="nav-download" href="/download">Download</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#faq">FAQ</a>
         </nav>
+        <a class="btn" id="nav-download" href="/download">Download</a>
       </div>
     </header>
 
-    <main id="top">
-      <section class="hero">
-        <span class="eyebrow reveal"><span class="dot"></span> Local-first · open source</span>
-        <h1 class="reveal">Your model didn't change.<br /><span class="serif">Your conversation did.</span></h1>
-        <p class="lede reveal">
-          Drifterr is a local-first copilot that catches when your AI chat drifts
-          from what you actually asked — your goal and constraints — and warns you
-          <em>before</em> you lose an hour, with one-click re-anchoring.
-        </p>
-        <div class="cta reveal">
-          <a class="btn btn-lg" id="download" href="/download">Download</a>
-          <a class="btn btn-ghost btn-lg" href="#how">See how it works</a>
-        </div>
-        <p class="cta-sub reveal" id="cta-sub">macOS · Windows · Linux — free</p>
-
-        <div class="hero-shot reveal">
-          <div class="window">
-            <div class="window-bar">
-              <span class="tl"></span><span class="tl"></span><span class="tl"></span>
-              <em>Drifterr</em>
+    <main>
+      <section class="hero" id="top">
+        <div class="hero-grid">
+          <div>
+            <h1 class="reveal">Your model didn't change.<br /><span class="grad-text">Your conversation did.</span></h1>
+            <p class="lede reveal">
+              Drifterr watches your AI chat for drift from your original goal and
+              constraints, and warns you before you lose an hour. One click
+              re-anchors the thread.
+            </p>
+            <div class="hero-cta reveal">
+              <a class="btn btn-lg" id="download" href="/download">Download <span class="arrow">→</span></a>
+              <a class="btn btn-ghost btn-lg" href="#demo"><span class="sq" style="width:9px;height:9px;border-radius:50%;background:var(--grad)"></span> Watch the drift demo</a>
             </div>
-            <img src="assets/menubar-red.png" alt="Drifterr menubar panel showing a drifting session" />
+            <p class="sub reveal" id="cta-sub" style="margin-top:14px;font-size:13px;color:var(--faint-2)">macOS · Windows · Linux — free</p>
+            <div class="hero-stats reveal">
+              <div><div class="v">52 min</div><div class="l">avg. saved per drift</div></div>
+              <div class="sep"></div>
+              <div><div class="v">100% local</div><div class="l">prompts never leave</div></div>
+              <div class="sep"></div>
+              <div><div class="v">6+</div><div class="l">assistants supported</div></div>
+            </div>
+          </div>
+
+          <div class="mock reveal" id="demo">
+            <div class="mock-glow" aria-hidden="true"></div>
+            <div class="chat">
+              <div class="chat-head">
+                <div class="dots"><span></span><span></span><span></span></div>
+                <div class="sess">session · build-reports.ai</div>
+                <div style="width:38px"></div>
+              </div>
+              <div class="anchor">
+                <span class="sq"></span>
+                <span class="tag">ANCHOR</span>
+                <span class="txt">CSV export · reports page · <b>server-side only</b></span>
+              </div>
+              <div class="msgs">
+                <div class="msg me">Build a CSV export for the reports page. Keep it server-side.</div>
+                <div class="msg ai">Done. While we were in there I also refactored your auth flow and swapped the ORM…</div>
+                <div class="typing"><span></span><span></span><span></span></div>
+              </div>
+              <div class="alert">
+                <div class="alert-top">
+                  <div class="l"><span class="bang">!</span><span class="title">Drift detected</span></div>
+                  <div class="score"><span id="driftScore">0</span>%<small>DRIFT SCORE</small></div>
+                </div>
+                <div class="bar"><i></i></div>
+                <p>Conversation moved from <b>CSV export</b> → <b>auth refactor + ORM swap</b>. Your constraint <span class="c">"server-side"</span> was never addressed.</p>
+                <div class="alert-btns">
+                  <button class="re">↩ Re-anchor</button>
+                  <button class="dismiss">Dismiss</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="marquee reveal">
+          <div class="marquee-track">
+            <span class="row"><b style="color:var(--faint-2)">WORKS WITH</b><b>ChatGPT</b><b>Claude</b><b>Gemini</b><b>Copilot</b><b>Cursor</b><b>Perplexity</b></span>
+            <span class="row"><b style="color:var(--faint-2)">WORKS WITH</b><b>ChatGPT</b><b>Claude</b><b>Gemini</b><b>Copilot</b><b>Cursor</b><b>Perplexity</b></span>
           </div>
         </div>
       </section>
 
-      <section class="stats">
-        <div class="stat reveal"><b>5</b><span>separate signals, each with evidence</span></div>
-        <div class="stat reveal"><b>~0ms</b><span>added latency through the proxy</span></div>
-        <div class="stat reveal"><b>100%</b><span>local — nothing leaves your machine</span></div>
-        <div class="stat reveal"><b>3</b><span>channels: proxy · file · browser</span></div>
-      </section>
-
-      <section class="logos reveal">
-        <span>Works with</span>
-        <b>Claude</b><b>ChatGPT</b><b>Cursor</b><b>OpenRouter</b>
-      </section>
-
-      <section id="how" class="how">
+      <section class="how" id="how">
         <div class="head reveal">
           <span class="kicker">How it works</span>
-          <h2>Three steps to stop the <span class="serif">drift</span></h2>
-          <p class="sub">No new habits. Point a tool at it once, and it watches in the background.</p>
+          <h2 class="section-title">Three turns. Zero lost hours.</h2>
         </div>
-        <div class="steps">
-          <div class="step reveal">
-            <span class="num">01</span>
-            <h3>Point your tool at Drifterr</h3>
-            <p>Set your base URL to the local proxy, or let it watch your Claude Code sessions and browser chats. Streaming passes through byte-for-byte.</p>
-          </div>
-          <div class="step reveal">
-            <span class="num">02</span>
-            <h3>It measures the drift</h3>
-            <p>Five separate signals — constraints, saturation, goal, decisions, degradation — each with named evidence. No opaque score.</p>
-          </div>
-          <div class="step reveal">
-            <span class="num">03</span>
-            <h3>Re-anchor in one click</h3>
-            <p>When it goes red, get a paste-ready reset snapshot — or let the proxy re-inject your constraints automatically.</p>
+        <div class="track-wrap">
+          <div class="track"><span class="dot"></span></div>
+          <div class="steps">
+            <div class="step reveal">
+              <div class="step-top">
+                <div class="glyph"><span class="ring2"></span><span class="ring2 d"></span><span class="cross-h"></span><span class="cross-v"></span><span class="core"></span></div>
+                <span class="step-num">01</span>
+              </div>
+              <h3>Pin your intent</h3>
+              <p>Drifterr captures your goal and hard constraints from your first message, or you pin them explicitly in one tap.</p>
+            </div>
+            <div class="step reveal">
+              <div class="step-top">
+                <div class="glyph radar"><span class="sweep"></span><span class="blip" style="top:28%;left:64%"></span><span class="blip" style="top:66%;left:34%;animation-delay:.6s"></span></div>
+                <span class="step-num">02</span>
+              </div>
+              <h3>Watch silently</h3>
+              <p>Every turn is scored against that anchor in real time: scope creep, dropped constraints, and quiet subject changes all light up.</p>
+            </div>
+            <div class="step reveal">
+              <div class="step-top">
+                <div class="glyph snap"><span class="box"></span><span class="line"></span><span class="core"></span></div>
+                <span class="step-num">03</span>
+              </div>
+              <h3>Re-anchor in one click</h3>
+              <p>When the thread wanders, Drifterr nudges you and snaps the model straight back to the brief. No retyping.</p>
+            </div>
           </div>
         </div>
       </section>
 
-      <section id="features" class="features">
+      <section class="features" id="features">
         <div class="head reveal">
-          <span class="kicker">Five signals</span>
-          <h2>What it <span class="serif">catches</span></h2>
-          <p class="sub">Each signal stands on its own, with the exact evidence behind it.</p>
+          <span class="kicker">Features</span>
+          <h2 class="section-title">Built like a tool, not a toy.</h2>
         </div>
         <div class="grid">
           <div class="card reveal">
-            <span class="ic">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9.5 9.5l5 5M14.5 9.5l-5 5"/></svg>
-            </span>
-            <h3>Constraint breaks</h3>
-            <p>Deterministic rules flag the exact violation and the offending span — 0 false positives.</p>
+            <div class="fic"><svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a8 8 0 1 1 16 0"/><path d="M12 14l4.5-3.2"/><circle cx="12" cy="14" r="1.4" fill="currentColor" stroke="none"/></svg></div>
+            <h3>Real-time drift score</h3>
+            <p>A live 0–100 gauge of how far the conversation has wandered from where you started.</p>
           </div>
           <div class="card reveal">
-            <span class="ic">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a8 8 0 1 1 16 0"/><path d="M12 14l4-3"/><circle cx="12" cy="14" r="1.3" fill="currentColor" stroke="none"/></svg>
-            </span>
-            <h3>Context saturation</h3>
-            <p>Exact occupancy via the proxy. The leading indicator, before the output degrades.</p>
+            <div class="fic"><svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="4" rx="1.5"/><rect x="4" y="14.5" width="16" height="4" rx="1.5"/><path d="M8 16.5l1.6 1.6 3-3.2"/></svg></div>
+            <h3>Constraint tracking</h3>
+            <p>Hard rules like "server-side" or "no new deps" stay pinned and get flagged the moment they're broken.</p>
           </div>
           <div class="card reveal">
-            <span class="ic">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
-            </span>
-            <h3>Goal drift</h3>
-            <p>Tracks how far recent replies wander from your stated goal — measured locally.</p>
+            <div class="fic"><svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.4 6.5"/><path d="M20 5v6h-6"/></svg></div>
+            <h3>One-click re-anchor</h3>
+            <p>Snap the model back to your brief instantly. Drifterr re-injects your goal and constraints for you.</p>
           </div>
           <div class="card reveal">
-            <span class="ic">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9a8 8 0 1 1-1.6 4.8"/><path d="M4 4v5h5"/></svg>
-            </span>
-            <h3>Reintroduced decisions</h3>
-            <p>Catches the model re-proposing something you already explicitly rejected.</p>
+            <div class="fic"><svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
+            <h3>Works everywhere</h3>
+            <p>ChatGPT, Claude, Gemini, Copilot, Cursor and Perplexity — a light layer over the chat you already use.</p>
           </div>
           <div class="card reveal">
-            <span class="ic">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2.5 6 4-13L17 12h4"/></svg>
-            </span>
-            <h3>Degradation</h3>
-            <p>Looping, ballooning, hedging — the tells of a context that's rotting.</p>
+            <div class="fic"><svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18l5-6 4 3 7-9"/><circle cx="4" cy="18" r="1.3" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="13" cy="15" r="1.3" fill="currentColor" stroke="none"/><circle cx="20" cy="6" r="1.3" fill="currentColor" stroke="none"/></svg></div>
+            <h3>Session drift map</h3>
+            <p>A timeline of every drift and re-anchor, so you can see exactly where threads tend to slip.</p>
           </div>
           <div class="card reveal">
-            <span class="ic">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg>
-            </span>
-            <h3>Standing orders</h3>
-            <p>The rules you repeat become permanent and reappear in every new session.</p>
+            <div class="fic"><svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9.5 12l1.8 1.8 3.2-3.6"/></svg></div>
+            <h3>Private by design</h3>
+            <p>Drift scoring runs locally. Drifterr never stores or transmits your conversation content.</p>
           </div>
         </div>
       </section>
 
-      <section id="why" class="why">
-        <div class="why-text reveal">
-          <span class="kicker">No opaque score</span>
-          <h2>Name the cause,<br /><span class="serif">not a number.</span></h2>
-          <p>Every signal carries its own state and evidence, so the panel tells you <em>why</em> — a violated constraint, a filling window — and hands you the fix.</p>
-          <ul class="ticks">
-            <li>Separate signals, each with its own evidence</li>
-            <li>Only hard signals can ever go red</li>
-            <li>One-click, paste-ready re-anchor</li>
-          </ul>
+      <section class="tmonials">
+        <div class="head reveal">
+          <span class="kicker">Loved by builders</span>
+          <h2 class="section-title">People stopped losing the thread.</h2>
         </div>
-        <div class="why-imgs reveal">
-          <div class="window"><div class="window-bar"><span class="tl"></span><span class="tl"></span><span class="tl"></span></div><img src="assets/menubar-reanchor.png" alt="Re-anchor snapshot" /></div>
-          <div class="window up"><div class="window-bar"><span class="tl"></span><span class="tl"></span><span class="tl"></span></div><img src="assets/menubar-green.png" alt="Aligned session" /></div>
+        <div class="tm-wrap reveal">
+          <div class="tm-row">
+            <div class="tm"><p>"It caught my model wandering into an auth refactor I never asked for. One click and we were back on the actual task."</p><div class="who"><span class="av"></span><div><div class="nm">Maya R.</div><div class="rl">Staff Engineer</div></div></div></div>
+            <div class="tm"><p>"The drift score is weirdly addictive. I finally notice the slow scope-creep before it eats my afternoon."</p><div class="who"><span class="av"></span><div><div class="nm">Devon K.</div><div class="rl">Indie hacker</div></div></div></div>
+            <div class="tm"><p>"Local-first was the dealbreaker for us. Nothing leaves the machine and it still nails when a thread goes sideways."</p><div class="who"><span class="av"></span><div><div class="nm">Priya S.</div><div class="rl">Eng Lead</div></div></div></div>
+            <div class="tm"><p>"Re-anchor is the feature I didn't know I needed. It re-states my constraints so I don't have to retype them."</p><div class="who"><span class="av"></span><div><div class="nm">Tom A.</div><div class="rl">Product Designer</div></div></div></div>
+            <div class="tm"><p>"It caught my model wandering into an auth refactor I never asked for. One click and we were back on the actual task."</p><div class="who"><span class="av"></span><div><div class="nm">Maya R.</div><div class="rl">Staff Engineer</div></div></div></div>
+            <div class="tm"><p>"The drift score is weirdly addictive. I finally notice the slow scope-creep before it eats my afternoon."</p><div class="who"><span class="av"></span><div><div class="nm">Devon K.</div><div class="rl">Indie hacker</div></div></div></div>
+          </div>
         </div>
       </section>
 
-      <section class="download-cta">
-        <div class="cta-panel reveal">
-          <span class="kicker">Free · local-first</span>
-          <h2>Catch the drift <span class="serif">before the wall.</span></h2>
-          <p class="sub">Install it once. It watches every session and warns you the moment things slip.</p>
-          <a class="btn btn-lg" id="download-2" href="/download">Download</a>
-          <p class="cta-sub" id="cta-sub-2">Free · local-first · open source</p>
+      <section class="pricing" id="pricing">
+        <div class="head reveal">
+          <span class="kicker">Pricing</span>
+          <h2 class="section-title">Stay on track for less than a coffee.</h2>
         </div>
+        <div class="toggle reveal">
+          <button id="bill-monthly">Monthly</button>
+          <button id="bill-annual" class="on">Annual <span class="save">-25%</span></button>
+        </div>
+        <div class="tiers">
+          <div class="tier reveal">
+            <div class="name">Free</div>
+            <div class="price">$0</div>
+            <div class="desc">For trying drift detection on one chat.</div>
+            <ul>
+              <li><span>✓</span>Real-time drift score</li>
+              <li><span>✓</span>Manual re-anchor</li>
+              <li><span>✓</span>One active session</li>
+            </ul>
+            <a class="pick ghost btn" id="download-2" href="/download" style="background:rgba(255,255,255,.06);box-shadow:none">Download</a>
+          </div>
+          <div class="tier feat reveal">
+            <span class="badge">MOST POPULAR</span>
+            <div class="name">Pro</div>
+            <div class="price">$<span id="proPrice">9</span><small>/mo</small></div>
+            <div class="desc">For people who live in AI chats.</div>
+            <p style="font-size:12px;color:#9a8f96;margin:-14px 0 18px;font-family:var(--mono)" id="proNote">billed annually</p>
+            <ul>
+              <li><span>✓</span>Unlimited sessions</li>
+              <li><span>✓</span>Constraint tracking + alerts</li>
+              <li><span>✓</span>Session drift map</li>
+              <li><span>✓</span>All assistants supported</li>
+            </ul>
+            <a class="pick btn" href="#cta">Get Pro</a>
+          </div>
+          <div class="tier reveal">
+            <div class="name">Team</div>
+            <div class="price">$<span id="teamPrice">16</span><small>/seat/mo</small></div>
+            <div class="desc">Shared anchors for whole squads.</div>
+            <p style="font-size:12px;color:#7e7c92;margin:-14px 0 18px;font-family:var(--mono)" id="teamNote">billed annually</p>
+            <ul>
+              <li><span>✓</span>Everything in Pro</li>
+              <li><span>✓</span>Shared team anchors</li>
+              <li><span>✓</span>Drift analytics dashboard</li>
+              <li><span>✓</span>SSO &amp; priority support</li>
+            </ul>
+            <a class="pick ghost btn" href="#cta" style="background:rgba(255,255,255,.06);box-shadow:none">Get Team</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="faq" id="faq">
+        <div class="head reveal">
+          <span class="kicker">FAQ</span>
+          <h2 class="section-title">Questions, anchored.</h2>
+        </div>
+        <div class="qa-list reveal">
+          <div class="qa"><button>How does Drifterr know what I "actually asked"?<span class="plus">+</span></button><div class="ans"><p>It reads your first message to extract the goal and any hard constraints, then lets you edit or pin them explicitly. Nothing is locked. You always control the anchor.</p></div></div>
+          <div class="qa"><button>Which assistants does it work with?<span class="plus">+</span></button><div class="ans"><p>ChatGPT, Claude, Gemini, Copilot, Cursor and Perplexity today, with more coming. It runs as a lightweight layer over the chat you already use. No workflow change.</p></div></div>
+          <div class="qa"><button>Does it send my prompts anywhere?<span class="plus">+</span></button><div class="ans"><p>No. Drift scoring runs locally. Drifterr never stores or transmits your conversation content.</p></div></div>
+          <div class="qa"><button>What exactly counts as "drift"?<span class="plus">+</span></button><div class="ans"><p>Any meaningful divergence between the current turn and your anchored intent: scope creep, dropped constraints, or the model quietly changing the subject.</p></div></div>
+          <div class="qa"><button>Can I turn off the nudges?<span class="plus">+</span></button><div class="ans"><p>Yes. Tune the sensitivity, mute it during deep work, or switch to a silent timeline you review whenever you like.</p></div></div>
+        </div>
+      </section>
+
+      <section class="final" id="cta">
+        <h2 class="reveal">Keep every chat<br /><span class="grad-text">pointed at the point.</span></h2>
+        <p class="reveal">Install Drifterr in 30 seconds. It watches quietly, and only speaks up when you're about to lose the thread.</p>
+        <div class="final-cta reveal">
+          <a class="btn btn-lg" id="download-3" href="/download">Download <span class="arrow">→</span></a>
+          <a class="btn btn-ghost btn-lg" href="#pricing">See pricing</a>
+        </div>
+        <p class="sub reveal" id="cta-sub-2">Free · local-first · works with every major assistant</p>
       </section>
     </main>
 
-    <footer class="foot">
+    <footer>
       <div class="foot-inner">
-        <div class="foot-brand">
-          <span class="brand"><span class="logo"></span> Drifterr</span>
-          <p>Your model didn't change. Your conversation did.</p>
+        <a class="brand" href="#top">
+          <span class="mark"><span class="fill"></span><span class="ring"></span></span>
+          <b>drifterr</b>
+        </a>
+        <div class="foot-links">
+          <a href="#how">How it works</a>
+          <a href="#features">Features</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#faq">FAQ</a>
+          <a href="/download">Download</a>
         </div>
-        <div class="foot-cols">
-          <div>
-            <h4>Product</h4>
-            <a href="#how">How it works</a>
-            <a href="#features">Features</a>
-            <a href="/download">Download</a>
-          </div>
-          <div>
-            <h4>Why it's solid</h4>
-            <a href="#why">The evidence model</a>
-            <a href="#features">The five signals</a>
-          </div>
-        </div>
-      </div>
-      <div class="foot-bottom">
-        <span>Local-first AI drift detection.</span>
+        <div class="foot-copy">© 2026 Drifterr · stay on point</div>
       </div>
     </footer>
 
