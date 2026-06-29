@@ -28,7 +28,32 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.png"]
+    "targets": ["dmg", "app", "appimage", "deb", "nsis"],
+    "category": "DeveloperTool",
+    "shortDescription": "Drift detector for AI chat sessions",
+    "longDescription": "Drifterr is a local-first copilot that detects when an AI chat session drifts from your stated intent and warns you before the wall, with one-click re-anchoring.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.png"
+    ],
+    "createUpdaterArtifacts": false,
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
+    "linux": {
+      "appimage": { "bundleMediaFramework": false }
+    },
+    "windows": {
+      "nsis": { "installMode": "perMachine" }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Lounes-M/drifterr/releases/latest/download/latest.json"
+      ],
+      "pubkey": "REPLACE_WITH_OUTPUT_OF_tauri_signer_generate"
+    }
   }
 }
