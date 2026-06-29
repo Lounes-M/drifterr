@@ -57,13 +57,17 @@ open http://127.0.0.1:8788/        # the panel, live
 ```
 
 **As a native menubar app** (on a machine with the Tauri prerequisites —
-webkit2gtk on Linux, Xcode CLT on macOS):
+webkit2gtk on Linux, Xcode CLT on macOS). The app **embeds the proxy** and starts
+it in-process, so this is the only thing you run:
 
 ```bash
 cargo install tauri-cli --version '^2'
 cd apps/desktop/src-tauri
-cargo tauri dev
+cargo tauri dev      # menubar + proxy (:8787) + control API (:8788), all in one
 ```
+
+To build installers (`.dmg` / `.AppImage` / `.deb` / `.msi`) and set up signing
+and auto-update, see [`PACKAGING.md`](PACKAGING.md).
 
 > The Tauri shell is intentionally excluded from the Cargo workspace and is not
 > compiled in the headless CI used for the rest of the repo (it needs platform

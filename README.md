@@ -34,6 +34,7 @@ panel renders the live state.
 | M3c — decision coherence (3) + pluggable judge (OpenRouter) | ✅ done |
 | M4 — file watcher (Claude Code) + browser extension channels | ✅ done |
 | M5 — standing orders (the moat) + opt-in proxy auto-re-anchor | ✅ done |
+| Packaging — proxy↔app fusion + installers + signing/update (release workflow) | ✅ wired · ⬜ first signed build |
 
 ![Drifting](docs/menubar-red.png) ![Aligned](docs/menubar-green.png) ![Re-anchor](docs/menubar-reanchor.png)
 

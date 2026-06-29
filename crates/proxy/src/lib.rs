@@ -161,6 +161,12 @@ impl AppState {
     }
 }
 
+/// Open a durable SQLite store at `path`, or `None` on failure. Convenience for
+/// embedders (e.g. the Tauri app) so they don't depend on `drifterr-store`.
+pub fn open_store(path: &str) -> Option<drifterr_store::Store> {
+    drifterr_store::Store::open(path).ok()
+}
+
 /// The transparent relay: a catch-all over every path and method.
 pub fn proxy_router(state: AppState) -> Router {
     Router::new().fallback(proxy_handler).with_state(state)

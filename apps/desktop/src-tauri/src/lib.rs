@@ -11,6 +11,10 @@
 //! A background task polls the control API (`/status`) every 1.5s and recolors
 //! the tray. The webview panel polls the same endpoint for its detailed view.
 //!
+//! **Fusion (M-packaging):** the app embeds the Drifterr proxy as a library and
+//! starts it in-process on launch, so installing one app gives you both the
+//! local proxy/control API and the menubar — no separate process to run.
+//!
 //! NOTE: this crate is excluded from the Cargo workspace and is not compiled in
 //! the headless CI used for the rest of the repo (it needs platform GUI libs).
 //! Build it on a dev machine: `cargo tauri dev` (or `cargo tauri build`).
@@ -30,10 +34,53 @@ const TRAY_UNKNOWN: &[u8] = include_bytes!("../icons/tray-unknown.png");
 
 const TRAY_ID: &str = "drifterr";
 
+/// Listen addresses for the embedded proxy (overridable via env).
+fn proxy_addr() -> std::net::SocketAddr {
+    std::env::var("DRIFTERR_PROXY_ADDR")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| "127.0.0.1:8787".parse().unwrap())
+}
+fn control_addr() -> std::net::SocketAddr {
+    std::env::var("DRIFTERR_CONTROL_ADDR")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| "127.0.0.1:8788".parse().unwrap())
+}
+
+/// Start the embedded Drifterr proxy in-process. Persists to the app's data dir
+/// when available. Best-effort: if the ports are taken (an external proxy is
+/// already running), the menubar simply attaches to that one.
+fn start_embedded_proxy(app: &tauri::App) {
+    let db = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .map(|d| {
+            let _ = std::fs::create_dir_all(&d);
+            d.join("drifterr.sqlite")
+        })
+        .and_then(|p| p.to_str().map(str::to_string));
+
+    let store = db.and_then(|p| drifterr_proxy::open_store(&p));
+    let cfg = drifterr_proxy::ProxyConfig::default();
+    let state = drifterr_proxy::AppState::new(cfg, store);
+
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = drifterr_proxy::serve(proxy_addr(), control_addr(), state).await {
+            eprintln!("drifterr: embedded proxy stopped: {e}");
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            // Start the bundled proxy first so the panel has data to show.
+            start_embedded_proxy(app);
+
             let quit = MenuItem::with_id(app, "quit", "Quit Drifterr", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit])?;
 
