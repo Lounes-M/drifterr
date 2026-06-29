@@ -1,9 +1,9 @@
 // Adaptive download button: detect the visitor's OS and label the button for it.
-// Until the first GitHub release exists, links point at the releases page (which
-// always resolves); after a release, the same link lands on the latest assets.
+// Links stay on our own domain (/download/<os>); a serverless redirect
+// (api/download.js) resolves the latest installer and streams it straight to the
+// visitor — they never land on the GitHub repo.
 
-const REPO = "https://github.com/Lounes-M/drifterr";
-const RELEASES = REPO + "/releases";
+const DOWNLOAD = (os) => `/download/${os}`;
 
 export function detectOS(ua, platform) {
   const s = `${platform || ""} ${ua || ""}`.toLowerCase();
@@ -29,11 +29,13 @@ const SUBS = {
 
 export function apply(doc, os) {
   const label = LABELS[os] || LABELS.other;
+  // "other" (unknown OS) gets a chooser; everyone else a direct OS download.
+  const href = os === "other" ? DOWNLOAD("") : DOWNLOAD(os);
   for (const id of ["download", "download-2", "nav-download"]) {
     const el = doc.getElementById(id);
     if (el) {
       el.textContent = id === "nav-download" ? "Download" : label;
-      el.href = RELEASES;
+      el.href = href;
     }
   }
   for (const id of ["cta-sub", "cta-sub-2"]) {
