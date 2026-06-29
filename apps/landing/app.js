@@ -91,6 +91,17 @@ function setupDriftScore(doc) {
   io.observe(el);
 }
 
+// Cursor spotlight on the bento feature cards (drives the --mx/--my glow).
+function setupCardSpot(doc) {
+  doc.querySelectorAll(".card[data-spot]").forEach((card) => {
+    card.addEventListener("pointermove", (e) => {
+      const r = card.getBoundingClientRect();
+      card.style.setProperty("--mx", `${e.clientX - r.left}px`);
+      card.style.setProperty("--my", `${e.clientY - r.top}px`);
+    });
+  });
+}
+
 function setupFaq(doc) {
   doc.querySelectorAll(".qa button").forEach((btn) => {
     btn.addEventListener("click", () => btn.parentElement.classList.toggle("open"));
@@ -119,6 +130,7 @@ if (typeof document !== "undefined" && typeof navigator !== "undefined") {
   setupReveal(document);
   setupParallax(document);
   setupDriftScore(document);
+  setupCardSpot(document);
   setupFaq(document);
   setupPricing(document);
 }
