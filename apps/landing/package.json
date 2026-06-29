@@ -1,0 +1,13 @@
+{
+  "name": "drifterr-landing",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Drifterr landing page — static, with an adaptive download button.",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/landing.test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

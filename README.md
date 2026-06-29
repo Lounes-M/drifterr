@@ -35,6 +35,7 @@ panel renders the live state.
 | M4 — file watcher (Claude Code) + browser extension channels | ✅ done |
 | M5 — standing orders (the moat) + opt-in proxy auto-re-anchor | ✅ done |
 | Packaging — proxy↔app fusion + installers + signing/update (release workflow) | ✅ wired · ⬜ first signed build |
+| Landing page — static, adaptive download, GitHub Pages deploy | ✅ done |
 
 ![Drifting](docs/menubar-red.png) ![Aligned](docs/menubar-green.png) ![Re-anchor](docs/menubar-reanchor.png)
 

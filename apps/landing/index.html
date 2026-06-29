@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Drifterr — catch AI drift before the wall</title>
+    <meta
+      name="description"
+      content="Drifterr is a local-first copilot that detects when your AI chat session drifts from what you asked — and warns you before you lose an hour, with one-click re-anchoring."
+    />
+    <meta property="og:title" content="Drifterr" />
+    <meta property="og:description" content="Your model didn't change. Your conversation did. Drifterr warns you before the wall." />
+    <link rel="preconnect" href="https://api.fontshare.com" />
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <a class="brand" href="#top"><span class="logo"></span> Drifterr</a>
+      <nav class="nav-links">
+        <a href="#how">How it works</a>
+        <a href="#features">Features</a>
+        <a href="https://github.com/Lounes-M/drifterr" target="_blank" rel="noopener">GitHub</a>
+        <a class="btn btn-sm" id="nav-download" href="https://github.com/Lounes-M/drifterr/releases">Download</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <span class="eyebrow">Local-first · open source</span>
+          <h1>Your model didn't change.<br /><span class="grad">Your conversation did.</span></h1>
+          <p class="lede">
+            Drifterr watches your AI chat for drift from what you actually asked —
+            your goal and constraints — and warns you <em>before</em> you lose an
+            hour, with one-click re-anchoring.
+          </p>
+          <div class="cta">
+            <a class="btn btn-lg" id="download" href="https://github.com/Lounes-M/drifterr/releases">Download</a>
+            <a class="btn btn-ghost btn-lg" href="https://github.com/Lounes-M/drifterr" target="_blank" rel="noopener">View on GitHub</a>
+          </div>
+          <p class="cta-sub" id="cta-sub">macOS · Windows · Linux — free</p>
+        </div>
+        <div class="hero-art">
+          <img src="assets/menubar-red.png" alt="Drifterr menubar panel showing a drifting session" />
+        </div>
+      </section>
+
+      <section class="strip">
+        <span>Works with Claude · ChatGPT · Cursor · OpenRouter</span>
+        <span>Nothing leaves your machine</span>
+        <span>~0 added latency</span>
+      </section>
+
+      <section id="how" class="how">
+        <h2>Three steps</h2>
+        <div class="steps">
+          <div class="step glass">
+            <span class="num">1</span>
+            <h3>Point your tool at Drifterr</h3>
+            <p>Set your base URL to the local proxy, or just let it watch your Claude Code sessions and browser chats. Streaming passes through byte-for-byte.</p>
+          </div>
+          <div class="step glass">
+            <span class="num">2</span>
+            <h3>It measures the drift</h3>
+            <p>Five separate signals — constraints, saturation, goal, decisions, degradation — each with named evidence. No opaque score.</p>
+          </div>
+          <div class="step glass">
+            <span class="num">3</span>
+            <h3>Re-anchor in one click</h3>
+            <p>When it goes red, get a paste-ready reset snapshot — or let the proxy re-inject your constraints automatically.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="features" class="features">
+        <h2>What it catches</h2>
+        <div class="grid">
+          <div class="card glass"><h3>Constraint breaks</h3><p>Deterministic rules flag the exact violation and the offending span — 0 false positives.</p></div>
+          <div class="card glass"><h3>Context saturation</h3><p>Exact occupancy via the proxy. The leading indicator, before the output degrades.</p></div>
+          <div class="card glass"><h3>Goal drift</h3><p>Tracks how far recent replies wander from your stated goal, locally.</p></div>
+          <div class="card glass"><h3>Reintroduced decisions</h3><p>Catches the model re-proposing something you already rejected.</p></div>
+          <div class="card glass"><h3>Degradation</h3><p>Looping, ballooning, hedging — the tells of a rotting context.</p></div>
+          <div class="card glass"><h3>Standing orders</h3><p>The rules you repeat become permanent and reappear in every new session.</p></div>
+        </div>
+      </section>
+
+      <section class="showcase">
+        <div class="showcase-text">
+          <h2>Name the cause, not a number.</h2>
+          <p>Every signal carries its own state and evidence, so the panel tells you <em>why</em> — a violated constraint, a filling window — and hands you the fix.</p>
+        </div>
+        <div class="showcase-imgs">
+          <img class="glass-img" src="assets/menubar-reanchor.png" alt="Re-anchor snapshot" />
+          <img class="glass-img" src="assets/menubar-green.png" alt="Aligned session" />
+        </div>
+      </section>
+
+      <section class="download-cta">
+        <h2>Catch the drift before the wall.</h2>
+        <a class="btn btn-lg" id="download-2" href="https://github.com/Lounes-M/drifterr/releases">Download</a>
+        <p class="cta-sub" id="cta-sub-2">Free · local-first · open source</p>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span>Drifterr — local-first AI drift detection.</span>
+      <a href="https://github.com/Lounes-M/drifterr" target="_blank" rel="noopener">GitHub</a>
+    </footer>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
