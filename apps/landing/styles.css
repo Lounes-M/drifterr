@@ -186,8 +186,9 @@ h2.section-title { font-size: clamp(30px, 3.6vw, 46px); }
 .track-wrap { position: relative; }
 .track { position: absolute; left: 9%; right: 9%; top: 80px; height: 2px; border-radius: 2px;
   background: linear-gradient(90deg, transparent, rgba(255, 138, 100, 0.45) 18%, rgba(255, 61, 129, 0.45) 82%, transparent); }
-.track .dot { position: absolute; top: 50%; width: 11px; height: 11px; border-radius: 50%; background: #ff7847;
-  box-shadow: 0 0 16px 2px rgba(255, 120, 71, 0.9); transform: translate(-50%, -50%); animation: travelX 5.5s ease-in-out infinite; }
+.track .dot { position: absolute; top: 50%; left: 0; width: 11px; height: 11px; border-radius: 50%; background: #ff7847;
+  box-shadow: 0 0 16px 2px rgba(255, 120, 71, 0.9); transform: translate(-50%, -50%); }
+.track-wrap:hover .track .dot { animation: travelX 5.5s ease-in-out infinite; }
 @keyframes travelX { 0%, 100% { left: 0%; } 50% { left: 100%; } }
 .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; position: relative; }
 .step { padding: 32px 30px; border-radius: 20px; background: var(--card); border: 1px solid var(--edge);
@@ -199,20 +200,25 @@ h2.section-title { font-size: clamp(30px, 3.6vw, 46px); }
 .step h3 { font-size: 21px; margin-bottom: 11px; }
 .step p { font-size: 14.5px; line-height: 1.62; color: var(--mute-2); }
 .glyph { width: 64px; height: 64px; position: relative; display: flex; align-items: center; justify-content: center; }
-.glyph .ring2 { position: absolute; width: 54px; height: 54px; border-radius: 50%; border: 1.5px solid rgba(255, 138, 100, 0.55); animation: ringPulse 2.8s ease-out infinite; }
-.glyph .ring2.d { border-color: rgba(255, 61, 129, 0.5); animation-delay: 1.4s; }
+.glyph .ring2 { position: absolute; width: 54px; height: 54px; border-radius: 50%; border: 1.5px solid rgba(255, 138, 100, 0.55); opacity: 0.5; }
+.glyph .ring2.d { border-color: rgba(255, 61, 129, 0.5); }
+.step:hover .glyph .ring2 { animation: ringPulse 2.8s ease-out infinite; }
+.step:hover .glyph .ring2.d { animation-delay: 1.4s; }
 .glyph .core { width: 15px; height: 15px; border-radius: 50%; background: var(--grad); box-shadow: 0 0 16px rgba(255, 120, 71, 0.9); position: relative; }
 .glyph .cross-h, .glyph .cross-v { position: absolute; background: rgba(255, 255, 255, 0.18); }
 .glyph .cross-h { width: 34px; height: 1px; } .glyph .cross-v { width: 1px; height: 34px; }
 @keyframes ringPulse { 0% { transform: scale(0.7); opacity: 0.9; } 100% { transform: scale(1.15); opacity: 0; } }
 .glyph.radar { border-radius: 50%; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(255, 255, 255, 0.02); }
-.glyph.radar .sweep { position: absolute; inset: 0; background: conic-gradient(from 0deg, rgba(255, 138, 100, 0.6), rgba(255, 138, 100, 0) 65%); animation: spin 3.2s linear infinite; }
-.glyph.radar .blip { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: #ff3d81; animation: pulseDot 1.9s infinite; }
+.glyph.radar .sweep { position: absolute; inset: 0; background: conic-gradient(from 0deg, rgba(255, 138, 100, 0.6), rgba(255, 138, 100, 0) 65%); }
+.glyph.radar .blip { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: #ff3d81; }
+.step:hover .glyph.radar .sweep { animation: spin 3.2s linear infinite; }
+.step:hover .glyph.radar .blip { animation: pulseDot 1.9s infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulseDot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .glyph.snap .box { position: absolute; left: 5px; top: 50%; width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid rgba(255, 255, 255, 0.5); transform: translateY(-50%); }
 .glyph.snap .line { position: absolute; left: 21px; top: 50%; width: 36px; border-top: 1.5px dashed rgba(255, 138, 100, 0.45); transform: translateY(-50%); }
-.glyph.snap .core { position: absolute; left: 7px; top: 50%; width: 12px; height: 12px; transform: translateY(-50%); animation: snapDrift 3.4s ease-in-out infinite; }
+.glyph.snap .core { position: absolute; left: 7px; top: 50%; width: 12px; height: 12px; transform: translateY(-50%); }
+.step:hover .glyph.snap .core { animation: snapDrift 3.4s ease-in-out infinite; }
 @keyframes snapDrift { 0%, 100% { left: 7px; } 45% { left: 46px; } 55% { left: 46px; } }
 
 /* ===== features (bento) ===== */
@@ -238,13 +244,15 @@ h2.section-title { font-size: clamp(30px, 3.6vw, 46px); }
 
 /* drift-score tile */
 .card.big .live { position: relative; display: flex; align-items: center; gap: 9px; }
-.card.big .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); animation: blink 2s ease-in-out infinite; }
+.card.big .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); }
+.card.big[data-spot]:hover .pulse { animation: blink 2s ease-in-out infinite; }
 .card.big .mono { font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: #9a98ad; }
 .gauge { position: relative; flex: 1; display: grid; place-items: center; margin: 6px 0; }
 .gauge svg { width: 168px; height: 168px; transform: rotate(-90deg); }
 .gauge circle { fill: none; stroke-width: 10; stroke-linecap: round; }
 .gauge .g-bg { stroke: rgba(255, 255, 255, 0.08); }
-.gauge .g-fg { stroke: url(#og); stroke: var(--o-light); stroke-dasharray: 314; stroke-dashoffset: 182; animation: gaugeFill 1.8s var(--ease) both; }
+.gauge .g-fg { stroke: var(--o-light); stroke-dasharray: 314; stroke-dashoffset: 182; }
+.card.big[data-spot]:hover .g-fg { animation: gaugeFill 1.8s var(--ease); }
 @keyframes gaugeFill { from { stroke-dashoffset: 314; } }
 .g-num { position: absolute; text-align: center; }
 .g-num b { font-family: var(--display); font-weight: 700; font-size: 44px; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
@@ -255,7 +263,7 @@ h2.section-title { font-size: clamp(30px, 3.6vw, 46px); }
 .chips { position: relative; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .chips span { font-family: var(--mono); font-size: 12px; padding: 6px 11px; border-radius: 8px;
   background: rgba(52, 232, 158, 0.14); border: 1px solid rgba(52, 232, 158, 0.45); color: #7ff0c0; }
-.chips .brk { animation: chipBreak 4.2s ease-in-out infinite; }
+.card.wide[data-spot]:hover .chips .brk { animation: chipBreak 4.2s ease-in-out infinite; }
 .chips.small { margin-top: 12px; }
 .chips.small span { font-family: var(--sans); font-weight: 600; background: rgba(255, 255, 255, 0.05); border-color: var(--edge); color: #b6b4c6; }
 .chips.small .more { color: var(--o-light); }
@@ -266,7 +274,8 @@ h2.section-title { font-size: clamp(30px, 3.6vw, 46px); }
 /* re-anchor demo */
 .re-demo { position: relative; display: flex; align-items: center; gap: 14px; margin-top: 18px; }
 .re-track { position: relative; flex: 1; height: 2px; border-radius: 2px; background: linear-gradient(90deg, rgba(255,138,100,.4), rgba(255,61,129,.4)); }
-.re-dot { position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%; background: var(--grad); box-shadow: 0 0 12px rgba(255,120,71,.9); transform: translate(-50%, -50%); animation: snapDrift 3.4s ease-in-out infinite; }
+.re-dot { position: absolute; top: 50%; left: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--grad); box-shadow: 0 0 12px rgba(255,120,71,.9); transform: translate(-50%, -50%); }
+.card.wide[data-spot]:hover .re-dot { animation: snapDrift 3.4s ease-in-out infinite; }
 .re-pill { font-size: 12.5px; font-weight: 700; color: #fff; padding: 8px 14px; border-radius: 999px; background: var(--grad); box-shadow: 0 6px 18px rgba(255,61,129,.35); white-space: nowrap; }
 @keyframes snapDrift { 0%, 10% { left: 0; } 42%, 58% { left: 100%; } 72% { left: 46%; } 82%, 100% { left: 0; } }
 
@@ -276,12 +285,16 @@ h2.section-title { font-size: clamp(30px, 3.6vw, 46px); }
 .orbit .o-ring.d2 { inset: 14px; }
 .orbit .o-core { position: absolute; left: 50%; top: 50%; width: 13px; height: 13px; border-radius: 50%; background: var(--grad); transform: translate(-50%, -50%); box-shadow: 0 0 12px rgba(255,120,71,.8); }
 .orbit .o-sat { position: absolute; width: 8px; height: 8px; border-radius: 50%; top: -3px; left: 50%; margin-left: -4px; }
-.orbit .o-sat.s1 { animation: spin 5.5s linear infinite; transform-origin: 4px 39px; background: var(--o-light); }
-.orbit .o-sat.s2 { animation: spin 3.8s linear infinite reverse; transform-origin: 4px 25px; background: var(--o2); top: 11px; }
+.orbit .o-sat.s1 { transform-origin: 4px 39px; background: var(--o-light); }
+.orbit .o-sat.s2 { transform-origin: 4px 25px; background: var(--o2); top: 11px; }
+.card.row[data-spot]:hover .o-sat.s1 { animation: spin 5.5s linear infinite; }
+.card.row[data-spot]:hover .o-sat.s2 { animation: spin 3.8s linear infinite reverse; }
 
 /* drift-map equaliser */
 .eq { display: flex; align-items: flex-end; gap: 5px; height: 48px; }
-.eq span { width: 6px; height: 46px; border-radius: 3px; background: linear-gradient(#ff7847, #ff3d81); transform-origin: bottom; animation: eq 1.7s ease-in-out infinite; }
+.eq span { width: 6px; height: 46px; border-radius: 3px; background: linear-gradient(#ff7847, #ff3d81); transform-origin: bottom; transform: scaleY(0.4); }
+.eq span:nth-child(odd) { transform: scaleY(0.7); }
+.card[data-spot]:hover .eq span { animation: eq 1.7s ease-in-out infinite; }
 .eq span:nth-child(2) { animation-delay: 0.15s; } .eq span:nth-child(3) { animation-delay: 0.3s; }
 .eq span:nth-child(4) { animation-delay: 0.45s; } .eq span:nth-child(5) { animation-delay: 0.6s; }
 .eq span:nth-child(6) { animation-delay: 0.75s; } .eq span:nth-child(7) { animation-delay: 0.9s; }
@@ -290,7 +303,8 @@ h2.section-title { font-size: clamp(30px, 3.6vw, 46px); }
 /* private shield */
 .shield { position: relative; width: 50px; height: 56px; display: grid; place-items: center; overflow: hidden; }
 .shield svg { width: 50px; height: 56px; }
-.shield .scan { position: absolute; left: 0; right: 0; height: 34%; top: -30%; background: linear-gradient(180deg, transparent, rgba(255, 138, 100, 0.6), transparent); animation: scanY 2.6s linear infinite; }
+.shield .scan { position: absolute; left: 0; right: 0; height: 34%; top: -30%; background: linear-gradient(180deg, transparent, rgba(255, 138, 100, 0.6), transparent); }
+.card[data-spot]:hover .shield .scan { animation: scanY 2.6s linear infinite; }
 @keyframes scanY { 0% { top: -30%; } 100% { top: 115%; } }
 
 /* ===== testimonials ===== */
