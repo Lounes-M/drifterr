@@ -47,9 +47,9 @@ async function main() {
     process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}
   );
 
-  for (const [name, ua, want] of [
-    ["macOS", MAC_UA, "macOS"],
-    ["Windows", WIN_UA, "Windows"],
+  for (const [name, ua, want, path] of [
+    ["macOS", MAC_UA, "macOS", "/download/mac"],
+    ["Windows", WIN_UA, "Windows", "/download/win"],
   ]) {
     const ctx = await browser.newContext({ userAgent: ua });
     const page = await ctx.newPage();
@@ -59,7 +59,8 @@ async function main() {
     const label = await page.locator("#download").textContent();
     check(label.includes(want), `download button says "${want}"`);
     const href = await page.locator("#download").getAttribute("href");
-    check(href.includes("/releases"), "download links to releases");
+    check(href.endsWith(path), `download links to ${path} (own domain)`);
+    check(!/github\.com/.test(href), "download does not point at github.com");
     check((await page.locator("h1").textContent()).length > 10, "hero headline renders");
     check((await page.locator(".card").count()) === 6, "six feature cards");
     await ctx.close();
