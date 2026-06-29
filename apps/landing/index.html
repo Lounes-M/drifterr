@@ -115,32 +115,70 @@
           <span class="kicker">How it works</span>
           <h2 class="section-title">Three turns. Zero lost hours.</h2>
         </div>
-        <div class="track-wrap">
-          <div class="track"><span class="dot"></span></div>
-          <div class="steps">
-            <div class="step reveal">
-              <div class="step-top">
-                <div class="glyph"><span class="ring2"></span><span class="ring2 d"></span><span class="cross-h"></span><span class="cross-v"></span><span class="core"></span></div>
-                <span class="step-num">01</span>
-              </div>
-              <h3>Pin your intent</h3>
-              <p>Drifterr captures your goal and hard constraints from your first message, or you pin them explicitly in one tap.</p>
+        <div class="how-grid reveal">
+          <!-- step selector -->
+          <div class="how-steps" role="tablist">
+            <button class="how-step active" type="button" data-step="0">
+              <span class="s-num">01</span>
+              <span class="s-body">
+                <h3>Pin your intent</h3>
+                <p>Drifterr captures your goal and hard constraints from your first message, or you pin them in one tap.</p>
+                <span class="s-prog"><i></i></span>
+              </span>
+            </button>
+            <button class="how-step" type="button" data-step="1">
+              <span class="s-num">02</span>
+              <span class="s-body">
+                <h3>Watch silently</h3>
+                <p>Every turn is scored against that anchor in real time. Scope creep and dropped constraints light up.</p>
+                <span class="s-prog"><i></i></span>
+              </span>
+            </button>
+            <button class="how-step" type="button" data-step="2">
+              <span class="s-num">03</span>
+              <span class="s-body">
+                <h3>Re-anchor in one click</h3>
+                <p>When the thread wanders, Drifterr nudges you and snaps the model straight back to the brief.</p>
+                <span class="s-prog"><i></i></span>
+              </span>
+            </button>
+          </div>
+
+          <!-- live demo panel -->
+          <div class="how-panel">
+            <div class="hp-head">
+              <span class="dots3"><i></i><i></i><i></i></span>
+              <span class="hp-live"><span class="live-dot"></span> drifterr · live</span>
             </div>
-            <div class="step reveal">
-              <div class="step-top">
-                <div class="glyph radar"><span class="sweep"></span><span class="blip" style="top:28%;left:64%"></span><span class="blip" style="top:66%;left:34%;animation-delay:.6s"></span></div>
-                <span class="step-num">02</span>
+            <div class="hp-body">
+              <!-- step 0: pin intent -->
+              <div class="hp-state" data-state="0">
+                <span class="hp-label">FIRST MESSAGE</span>
+                <div class="hp-msg me">Build a CSV export for the reports page. Keep it <b>server-side</b>.</div>
+                <span class="hp-label">DRIFTERR EXTRACTS THE ANCHOR</span>
+                <div class="hp-anchor"><span class="tag">ANCHOR</span> CSV export · reports page · <b>server-side only</b></div>
+                <div class="hp-ok"><span class="ck">✓</span> Goal &amp; constraints pinned</div>
               </div>
-              <h3>Watch silently</h3>
-              <p>Every turn is scored against that anchor in real time: scope creep, dropped constraints, and quiet subject changes all light up.</p>
-            </div>
-            <div class="step reveal">
-              <div class="step-top">
-                <div class="glyph snap"><span class="box"></span><span class="line"></span><span class="core"></span></div>
-                <span class="step-num">03</span>
+              <!-- step 1: watch silently -->
+              <div class="hp-state" data-state="1" hidden>
+                <div class="hp-msg me">Add the export button to the toolbar.</div>
+                <div class="hp-msg">Done. I also moved exporting to the client and added a new charting library…</div>
+                <div class="hp-msg warn">2 constraints slipping</div>
+                <div class="hp-meter-row"><span>DRIFT</span><span>RISING</span></div>
+                <div class="hp-meter"><i></i></div>
               </div>
-              <h3>Re-anchor in one click</h3>
-              <p>When the thread wanders, Drifterr nudges you and snaps the model straight back to the brief. No retyping.</p>
+              <!-- step 2: re-anchor -->
+              <div class="hp-state" data-state="2" hidden>
+                <div class="hp-alert">
+                  <div class="hp-alert-top">
+                    <span class="l"><span class="hp-bang">!</span><span class="ttl">Drift detected</span></span>
+                    <span class="pct">81% off-anchor</span>
+                  </div>
+                  <p>Moved to <b>client-side export</b> + a <b>new dependency</b>. Constraint <span class="c">"server-side"</span> broken.</p>
+                  <button class="hp-re" type="button">↩ Re-anchor to the brief</button>
+                </div>
+                <div class="hp-ok"><span class="ck">✓</span> Back on track — model re-aligned to CSV export, server-side</div>
+              </div>
             </div>
           </div>
         </div>

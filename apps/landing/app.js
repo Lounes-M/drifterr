@@ -102,6 +102,29 @@ function setupCardSpot(doc) {
   });
 }
 
+// How-it-works: a tabbed live demo. Click a step to switch; while the section
+// is hovered it auto-advances through the steps (calm at rest, lively on focus).
+function setupHow(doc) {
+  const grid = doc.querySelector(".how-grid");
+  if (!grid) return;
+  const steps = [...grid.querySelectorAll(".how-step")];
+  const states = [...grid.querySelectorAll(".hp-state")];
+  let cur = 0, timer = null;
+  const show = (n) => {
+    cur = n;
+    steps.forEach((s, i) => s.classList.toggle("active", i === n));
+    states.forEach((s, i) => (s.hidden = i !== n));
+  };
+  const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+  const start = () => { stop(); if (grid.classList.contains("advancing")) timer = setInterval(() => show((cur + 1) % steps.length), 3800); };
+  steps.forEach((s, i) => s.addEventListener("click", () => { show(i); start(); }));
+  if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    grid.addEventListener("pointerenter", () => { grid.classList.add("advancing"); start(); });
+    grid.addEventListener("pointerleave", () => { grid.classList.remove("advancing"); stop(); });
+  }
+  show(0);
+}
+
 function setupFaq(doc) {
   doc.querySelectorAll(".qa button").forEach((btn) => {
     btn.addEventListener("click", () => btn.parentElement.classList.toggle("open"));
@@ -131,6 +154,7 @@ if (typeof document !== "undefined" && typeof navigator !== "undefined") {
   setupParallax(document);
   setupDriftScore(document);
   setupCardSpot(document);
+  setupHow(document);
   setupFaq(document);
   setupPricing(document);
 }
