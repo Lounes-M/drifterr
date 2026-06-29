@@ -10,24 +10,35 @@
     />
     <meta property="og:title" content="Drifterr" />
     <meta property="og:description" content="Your model didn't change. Your conversation did. Drifterr warns you before the wall." />
+    <meta name="theme-color" content="#070a14" />
     <link rel="preconnect" href="https://api.fontshare.com" />
     <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="nav">
+    <!-- animated aurora backdrop (purely decorative) -->
+    <div class="aurora" aria-hidden="true">
+      <span class="blob b1"></span>
+      <span class="blob b2"></span>
+      <span class="blob b3"></span>
+      <span class="blob b4"></span>
+      <div class="grain"></div>
+    </div>
+
+    <header class="nav glass-nav">
       <a class="brand" href="#top"><span class="logo"></span> Drifterr</a>
       <nav class="nav-links">
         <a href="#how">How it works</a>
         <a href="#features">Features</a>
+        <a href="#showcase">Why it's solid</a>
         <a class="btn btn-sm" id="nav-download" href="/download">Download</a>
       </nav>
     </header>
 
     <main id="top">
       <section class="hero">
-        <div class="hero-copy">
-          <span class="eyebrow">Local-first · open source</span>
+        <div class="hero-copy reveal">
+          <span class="eyebrow"><span class="dot"></span> Local-first · open source</span>
           <h1>Your model didn't change.<br /><span class="grad">Your conversation did.</span></h1>
           <p class="lede">
             Drifterr watches your AI chat for drift from what you actually asked —
@@ -40,31 +51,43 @@
           </div>
           <p class="cta-sub" id="cta-sub">macOS · Windows · Linux — free</p>
         </div>
-        <div class="hero-art">
-          <img src="assets/menubar-red.png" alt="Drifterr menubar panel showing a drifting session" />
+
+        <div class="hero-art reveal" id="tilt">
+          <div class="window glass">
+            <div class="window-bar">
+              <span class="tl"></span><span class="tl"></span><span class="tl"></span>
+              <em>Drifterr</em>
+            </div>
+            <img src="assets/menubar-red.png" alt="Drifterr menubar panel showing a drifting session" />
+          </div>
+          <div class="art-glow" aria-hidden="true"></div>
         </div>
       </section>
 
-      <section class="strip">
-        <span>Works with Claude · ChatGPT · Cursor · OpenRouter</span>
-        <span>Nothing leaves your machine</span>
+      <section class="strip reveal">
+        <span>Claude</span><i></i>
+        <span>ChatGPT</span><i></i>
+        <span>Cursor</span><i></i>
+        <span>OpenRouter</span><i></i>
+        <span>Nothing leaves your machine</span><i></i>
         <span>~0 added latency</span>
       </section>
 
       <section id="how" class="how">
-        <h2>Three steps</h2>
+        <span class="kicker">How it works</span>
+        <h2>Three steps to stop the drift</h2>
         <div class="steps">
-          <div class="step glass">
+          <div class="step glass reveal">
             <span class="num">1</span>
             <h3>Point your tool at Drifterr</h3>
             <p>Set your base URL to the local proxy, or just let it watch your Claude Code sessions and browser chats. Streaming passes through byte-for-byte.</p>
           </div>
-          <div class="step glass">
+          <div class="step glass reveal">
             <span class="num">2</span>
             <h3>It measures the drift</h3>
             <p>Five separate signals — constraints, saturation, goal, decisions, degradation — each with named evidence. No opaque score.</p>
           </div>
-          <div class="step glass">
+          <div class="step glass reveal">
             <span class="num">3</span>
             <h3>Re-anchor in one click</h3>
             <p>When it goes red, get a paste-ready reset snapshot — or let the proxy re-inject your constraints automatically.</p>
@@ -73,37 +96,91 @@
       </section>
 
       <section id="features" class="features">
+        <span class="kicker">Five signals</span>
         <h2>What it catches</h2>
         <div class="grid">
-          <div class="card glass"><h3>Constraint breaks</h3><p>Deterministic rules flag the exact violation and the offending span — 0 false positives.</p></div>
-          <div class="card glass"><h3>Context saturation</h3><p>Exact occupancy via the proxy. The leading indicator, before the output degrades.</p></div>
-          <div class="card glass"><h3>Goal drift</h3><p>Tracks how far recent replies wander from your stated goal, locally.</p></div>
-          <div class="card glass"><h3>Reintroduced decisions</h3><p>Catches the model re-proposing something you already rejected.</p></div>
-          <div class="card glass"><h3>Degradation</h3><p>Looping, ballooning, hedging — the tells of a rotting context.</p></div>
-          <div class="card glass"><h3>Standing orders</h3><p>The rules you repeat become permanent and reappear in every new session.</p></div>
+          <div class="card glass reveal">
+            <span class="ic">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9.5 9.5l5 5M14.5 9.5l-5 5"/></svg>
+            </span>
+            <h3>Constraint breaks</h3>
+            <p>Deterministic rules flag the exact violation and the offending span — 0 false positives.</p>
+          </div>
+          <div class="card glass reveal">
+            <span class="ic">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a8 8 0 1 1 16 0"/><path d="M12 14l4-3"/><circle cx="12" cy="14" r="1.3" fill="currentColor" stroke="none"/></svg>
+            </span>
+            <h3>Context saturation</h3>
+            <p>Exact occupancy via the proxy. The leading indicator, before the output degrades.</p>
+          </div>
+          <div class="card glass reveal">
+            <span class="ic">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
+            </span>
+            <h3>Goal drift</h3>
+            <p>Tracks how far recent replies wander from your stated goal — measured locally.</p>
+          </div>
+          <div class="card glass reveal">
+            <span class="ic">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9a8 8 0 1 1-1.6 4.8"/><path d="M4 4v5h5"/></svg>
+            </span>
+            <h3>Reintroduced decisions</h3>
+            <p>Catches the model re-proposing something you already explicitly rejected.</p>
+          </div>
+          <div class="card glass reveal">
+            <span class="ic">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2.5 6 4-13L17 12h4"/></svg>
+            </span>
+            <h3>Degradation</h3>
+            <p>Looping, ballooning, hedging — the tells of a context that's rotting.</p>
+          </div>
+          <div class="card glass reveal">
+            <span class="ic">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg>
+            </span>
+            <h3>Standing orders</h3>
+            <p>The rules you repeat become permanent and reappear in every new session.</p>
+          </div>
         </div>
       </section>
 
-      <section class="showcase">
-        <div class="showcase-text">
-          <h2>Name the cause, not a number.</h2>
+      <section id="showcase" class="showcase">
+        <div class="showcase-text reveal">
+          <span class="kicker">No opaque score</span>
+          <h2>Name the cause,<br />not a number.</h2>
           <p>Every signal carries its own state and evidence, so the panel tells you <em>why</em> — a violated constraint, a filling window — and hands you the fix.</p>
+          <ul class="ticks">
+            <li>Separate signals, each with its own evidence</li>
+            <li>Only hard signals can ever go red</li>
+            <li>One-click, paste-ready re-anchor</li>
+          </ul>
         </div>
-        <div class="showcase-imgs">
-          <img class="glass-img" src="assets/menubar-reanchor.png" alt="Re-anchor snapshot" />
-          <img class="glass-img" src="assets/menubar-green.png" alt="Aligned session" />
+        <div class="showcase-imgs reveal">
+          <div class="window glass tilt-soft">
+            <div class="window-bar"><span class="tl"></span><span class="tl"></span><span class="tl"></span></div>
+            <img src="assets/menubar-reanchor.png" alt="Re-anchor snapshot" />
+          </div>
+          <div class="window glass tilt-soft up">
+            <div class="window-bar"><span class="tl"></span><span class="tl"></span><span class="tl"></span></div>
+            <img src="assets/menubar-green.png" alt="Aligned session" />
+          </div>
         </div>
       </section>
 
-      <section class="download-cta">
-        <h2>Catch the drift before the wall.</h2>
-        <a class="btn btn-lg" id="download-2" href="/download">Download</a>
-        <p class="cta-sub" id="cta-sub-2">Free · local-first · open source</p>
+      <section class="download-cta reveal">
+        <div class="cta-panel glass">
+          <div class="cta-glow" aria-hidden="true"></div>
+          <span class="kicker">Free · local-first</span>
+          <h2>Catch the drift before the wall.</h2>
+          <a class="btn btn-lg" id="download-2" href="/download">Download</a>
+          <p class="cta-sub" id="cta-sub-2">Free · local-first · open source</p>
+        </div>
       </section>
     </main>
 
     <footer class="foot">
-      <span>Drifterr — local-first AI drift detection.</span>
+      <span class="brand sm"><span class="logo"></span> Drifterr</span>
+      <span class="muted">Local-first AI drift detection.</span>
       <a href="/download">Download</a>
     </footer>
 

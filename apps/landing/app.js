@@ -47,20 +47,52 @@ export function apply(doc, os) {
 
 // Reveal-on-scroll for a modern feel (no-op if IntersectionObserver missing).
 function setupReveal(doc) {
-  const items = doc.querySelectorAll(".glass, .card, .step, .glass-img");
+  const items = doc.querySelectorAll(".reveal");
   if (!("IntersectionObserver" in window)) {
     items.forEach((el) => el.classList.add("in"));
     return;
   }
   const io = new IntersectionObserver(
-    (entries) => entries.forEach((e) => e.isIntersecting && e.target.classList.add("in")),
-    { threshold: 0.12 }
+    (entries) =>
+      entries.forEach((e) => {
+        if (e.isIntersecting) {
+          e.target.classList.add("in");
+          io.unobserve(e.target);
+        }
+      }),
+    { threshold: 0.14 }
   );
   items.forEach((el) => io.observe(el));
+}
+
+// Pointer-reactive glow on feature cards (the spotlight follows the cursor).
+function setupCardGlow(doc) {
+  doc.querySelectorAll(".card").forEach((card) => {
+    card.addEventListener("pointermove", (e) => {
+      const r = card.getBoundingClientRect();
+      card.style.setProperty("--mx", `${e.clientX - r.left}px`);
+      card.style.setProperty("--my", `${e.clientY - r.top}px`);
+    });
+  });
+}
+
+// Gentle parallax tilt on the hero product window, tied to the cursor.
+function setupTilt(doc) {
+  const tilt = doc.getElementById("tilt");
+  const win = tilt && tilt.querySelector(".window");
+  if (!win || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (window.matchMedia("(max-width: 860px)").matches) return;
+  window.addEventListener("pointermove", (e) => {
+    const x = (e.clientX / window.innerWidth - 0.5) * 2;
+    const y = (e.clientY / window.innerHeight - 0.5) * 2;
+    win.style.transform = `perspective(900px) rotateY(${x * 4}deg) rotateX(${-y * 4}deg)`;
+  });
 }
 
 if (typeof document !== "undefined" && typeof navigator !== "undefined") {
   const os = detectOS(navigator.userAgent, navigator.platform);
   apply(document, os);
   setupReveal(document);
+  setupCardGlow(document);
+  setupTilt(document);
 }
