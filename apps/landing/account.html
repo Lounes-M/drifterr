@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Your account · Drifterr</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="auth.css" />
+    <script src="config.js"></script>
+  </head>
+  <body>
+    <div class="bg" aria-hidden="true"><span class="blob b1" data-depth="18"></span><span class="blob b2" data-depth="-22"></span></div>
+
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="brand" href="/">
+          <span class="mark"><span class="fill"></span><span class="ring"></span></span>
+          <b>drifterr</b>
+        </a>
+        <a class="btn btn-ghost" id="signout" href="#">Sign out</a>
+      </div>
+    </header>
+
+    <main class="account">
+      <h1>Your account</h1>
+      <p class="sub" id="hello">Loading…</p>
+
+      <div id="msg" class="auth-msg" hidden></div>
+
+      <div class="acct-card" id="plan-card" hidden>
+        <div class="acct-row">
+          <span class="k">Current plan</span>
+          <span class="v"><span id="plan-pill" class="plan-pill free">Free</span></span>
+        </div>
+        <div class="acct-row">
+          <span class="k">Status</span>
+          <span class="v" id="status">—</span>
+        </div>
+        <div class="acct-row" id="renew-row" hidden>
+          <span class="k">Renews</span>
+          <span class="v" id="renew">—</span>
+        </div>
+        <div class="acct-actions">
+          <a class="btn" id="upgrade" href="/#pricing">Upgrade plan</a>
+          <a class="btn btn-ghost" id="manage" href="#" hidden>Manage billing</a>
+          <a class="btn btn-ghost" href="/download">Download the app</a>
+        </div>
+      </div>
+
+      <div class="acct-card" id="account-card" hidden>
+        <div class="acct-row"><span class="k">Email</span><span class="v" id="email">—</span></div>
+        <div class="acct-row"><span class="k">Member since</span><span class="v" id="since">—</span></div>
+      </div>
+    </main>
+
+    <script type="module">
+      import { supabase, configured, currentUser, fetchMe, openPortal, startCheckout, signOut } from "./supabase.js";
+
+      const msg = document.getElementById("msg");
+      const show = (text, kind) => { msg.hidden = false; msg.className = "auth-msg " + kind; msg.textContent = text; };
+      const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—";
+
+      document.getElementById("signout").addEventListener("click", async (e) => {
+        e.preventDefault(); await signOut(); window.location.href = "/";
+      });
+
+      async function init() {
+        if (!configured) { show("Accounts aren't enabled yet.", "info"); document.getElementById("hello").textContent = ""; return; }
+
+        const user = await currentUser();
+        if (!user) { window.location.href = "/login"; return; }
+
+        // Returning from Stripe checkout?
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("checkout") === "success") show("You're all set — your plan is active. 🎉", "ok");
+        if (params.get("checkout") === "cancelled") show("Checkout cancelled — no charge was made.", "info");
+
+        // Resume a checkout the visitor started from the pricing page before logging in.
+        const pending = localStorage.getItem("drifterr_pending_checkout");
+        if (pending && !params.get("checkout")) {
+          localStorage.removeItem("drifterr_pending_checkout");
+          try { const { plan, interval } = JSON.parse(pending); await startCheckout(plan, interval); return; } catch { /* fall through */ }
+        }
+
+        try {
+          const me = await fetchMe();
+          const ent = me.entitlement || {};
+          document.getElementById("hello").textContent = `Signed in as ${me.user.email}`;
+          document.getElementById("email").textContent = me.user.email || "—";
+          document.getElementById("since").textContent = fmtDate(me.profile?.created_at);
+
+          const planId = ent.plan_id || "free";
+          const pill = document.getElementById("plan-pill");
+          pill.textContent = ent.plan_name || "Free";
+          pill.className = "plan-pill" + (planId === "free" ? " free" : "");
+          document.getElementById("status").textContent = ent.status || "free";
+          if (ent.current_period_end) {
+            document.getElementById("renew-row").hidden = false;
+            document.getElementById("renew").textContent =
+              (ent.cancel_at_period_end ? "Ends " : "Renews ") + fmtDate(ent.current_period_end);
+          }
+          if (planId !== "free") {
+            const manage = document.getElementById("manage");
+            manage.hidden = false;
+            manage.addEventListener("click", (e) => { e.preventDefault(); openPortal().catch((err) => show(err.message, "error")); });
+            document.getElementById("upgrade").textContent = "Change plan";
+          }
+          document.getElementById("plan-card").hidden = false;
+          document.getElementById("account-card").hidden = false;
+        } catch (err) {
+          show(err.message || "Could not load your account.", "error");
+        }
+      }
+
+      init();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Create your account · Drifterr</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="auth.css" />
+    <script src="config.js"></script>
+  </head>
+  <body>
+    <div class="bg" aria-hidden="true"><span class="blob b1" data-depth="18"></span><span class="blob b2" data-depth="-22"></span></div>
+    <a class="back-link" href="/">← Back to drifterr</a>
+
+    <div class="auth-wrap">
+      <div class="auth-card">
+        <a class="brand" href="/">
+          <span class="mark"><span class="fill"></span><span class="ring"></span></span>
+          <b>drifterr</b>
+        </a>
+        <h1>Create your account</h1>
+        <p class="sub">Free to start. Pick a plan after you sign in.</p>
+
+        <div id="msg" class="auth-msg" hidden></div>
+
+        <form id="form">
+          <label class="field"><span>Full name</span><input id="name" type="text" autocomplete="name" /></label>
+          <label class="field"><span>Email</span><input id="email" type="email" autocomplete="email" required /></label>
+          <label class="field"><span>Password</span><input id="password" type="password" autocomplete="new-password" minlength="8" required /></label>
+          <button class="btn btn-lg btn-full" type="submit" id="submit">Create account</button>
+        </form>
+
+        <div class="divider">or</div>
+        <div class="oauth">
+          <button type="button" data-provider="google">Continue with Google</button>
+          <button type="button" data-provider="github">Continue with GitHub</button>
+        </div>
+
+        <p class="auth-alt">Already have an account? <a id="login-link" href="/login">Sign in</a></p>
+      </div>
+    </div>
+
+    <script type="module">
+      import { supabase, configured, signInWithProvider, qp } from "./supabase.js";
+
+      const msg = document.getElementById("msg");
+      const show = (text, kind) => { msg.hidden = false; msg.className = "auth-msg " + kind; msg.textContent = text; };
+
+      // Carry the chosen plan through sign-up so checkout resumes after login.
+      const plan = qp("plan"), interval = qp("interval") || "year";
+      if (plan) {
+        localStorage.setItem("drifterr_pending_checkout", JSON.stringify({ plan, interval }));
+        for (const a of ["login-link"]) {
+          const el = document.getElementById(a);
+          if (el) el.href = `/login?plan=${plan}&interval=${interval}`;
+        }
+      }
+
+      if (!configured) show("Accounts aren't enabled yet — you can still download Drifterr for free.", "info");
+
+      document.getElementById("form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!configured) { window.location.href = "/download"; return; }
+        const btn = document.getElementById("submit");
+        btn.disabled = true; btn.textContent = "Creating…";
+        try {
+          const { data, error } = await supabase.auth.signUp({
+            email: document.getElementById("email").value.trim(),
+            password: document.getElementById("password").value,
+            options: {
+              data: { full_name: document.getElementById("name").value.trim() },
+              emailRedirectTo: `${window.location.origin}/account`,
+            },
+          });
+          if (error) throw error;
+          if (data.session) {
+            window.location.href = "/account";        // confirmations off → straight in
+          } else {
+            show("Check your email to confirm your account, then sign in.", "ok");
+          }
+        } catch (err) {
+          show(err.message || "Could not create the account.", "error");
+        } finally {
+          btn.disabled = false; btn.textContent = "Create account";
+        }
+      });
+
+      document.querySelectorAll(".oauth button").forEach((b) =>
+        b.addEventListener("click", () => {
+          if (!configured) { window.location.href = "/download"; return; }
+          signInWithProvider(b.dataset.provider, "/account").catch((e) => show(e.message, "error"));
+        })
+      );
+    </script>
+  </body>
+</html>

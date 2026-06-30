@@ -1,7 +1,18 @@
 // Drifterr landing behaviour: scroll reveal, cursor glow + parallax, the
-// animated drift score, FAQ accordion and the pricing toggle. All download
-// buttons link to the dedicated /download page, which handles OS detection and
-// the actual installers.
+// animated drift score, FAQ accordion and the pricing toggle. Download buttons
+// link to /download (OS detection + installers); the Pro/Team pricing buttons
+// route into the accounts flow (Stripe checkout if signed in, else sign-up).
+//
+// The accounts helpers (supabase.js) are loaded lazily, so a CDN hiccup on the
+// Supabase client can never take down the core page behaviour.
+
+// The billing interval the pricing toggle currently shows. Read by checkout.
+let billingInterval = "year";
+
+let _accounts = null;
+function accounts() {
+  return (_accounts ??= import("./supabase.js").catch(() => null));
+}
 
 function setupReveal(doc) {
   const items = doc.querySelectorAll(".reveal");
@@ -100,6 +111,7 @@ function setupPricing(doc) {
   const proNote = doc.getElementById("proNote"), teamNote = doc.getElementById("teamNote");
   if (!m || !a) return;
   const set = (annual) => {
+    billingInterval = annual ? "year" : "month";
     a.classList.toggle("on", annual); m.classList.toggle("on", !annual);
     if (pro) pro.textContent = annual ? "9" : "12";
     if (team) team.textContent = annual ? "16" : "20";
@@ -111,6 +123,49 @@ function setupPricing(doc) {
   a.addEventListener("click", () => set(true));
 }
 
+// Route the Pro/Team pricing buttons into the accounts flow. Signed-in visitors
+// go straight to Stripe Checkout; everyone else goes to sign-up carrying the
+// chosen plan (the account page resumes checkout after they authenticate). If
+// accounts aren't configured yet, the plain href (/signup?plan=…) still works.
+function setupCheckout(doc) {
+  doc.querySelectorAll("[data-plan]").forEach((btn) => {
+    const plan = btn.dataset.plan;
+    btn.addEventListener("click", async (e) => {
+      // Stop the link synchronously, then decide where to go. Falls back to the
+      // button's own href (/signup?plan=…) whenever accounts aren't available.
+      e.preventDefault();
+      const fallback = btn.getAttribute("href") || `/signup?plan=${plan}`;
+      btn.setAttribute("aria-busy", "true");
+      try {
+        const mod = await accounts();
+        if (!mod || !mod.configured) { window.location.href = fallback; return; }
+        const user = await mod.currentUser();
+        if (user) {
+          await mod.startCheckout(plan, billingInterval);
+        } else {
+          window.location.href = `/signup?plan=${plan}&interval=${billingInterval}`;
+        }
+      } catch (_e) {
+        window.location.href = `/signup?plan=${plan}&interval=${billingInterval}`;
+      } finally {
+        btn.removeAttribute("aria-busy");
+      }
+    });
+  });
+}
+
+// Reflect auth state in the nav: "Sign in" → "Account" when logged in.
+async function setupNavAccount(doc) {
+  const link = doc.getElementById("nav-account");
+  if (!link) return;
+  const mod = await accounts();
+  if (!mod || !mod.configured) return;
+  try {
+    const user = await mod.currentUser();
+    if (user) { link.textContent = "Account"; link.href = "/account"; }
+  } catch (_e) { /* leave as Sign in */ }
+}
+
 if (typeof document !== "undefined" && typeof navigator !== "undefined") {
   setupReveal(document);
   setupParallax(document);
@@ -119,4 +174,6 @@ if (typeof document !== "undefined" && typeof navigator !== "undefined") {
   setupHow(document);
   setupFaq(document);
   setupPricing(document);
+  setupCheckout(document);
+  setupNavAccount(document);
 }
