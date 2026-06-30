@@ -102,6 +102,42 @@ function setupCardSpot(doc) {
   });
 }
 
+// Download clicks: resolve whether a release exists. If it does, go through the
+// on-domain redirect (/download/<os>) which streams the installer; if not, show
+// a clear on-page notice instead of navigating to a dead "coming soon" page.
+const REPO = "Lounes-M/drifterr";
+let _releaseProbe;
+async function hasRelease() {
+  if (_releaseProbe !== undefined) return _releaseProbe;
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: "application/vnd.github+json" } });
+    if (!r.ok) return (_releaseProbe = false);
+    const data = await r.json();
+    _releaseProbe = Array.isArray(data.assets) && data.assets.length > 0;
+  } catch { _releaseProbe = false; }
+  return _releaseProbe;
+}
+
+function toast(msg) {
+  let t = document.getElementById("toast");
+  if (!t) { t = document.createElement("div"); t.id = "toast"; t.className = "toast"; document.body.appendChild(t); }
+  t.textContent = msg;
+  requestAnimationFrame(() => t.classList.add("show"));
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 4600);
+}
+
+function setupDownloadClicks(doc) {
+  doc.querySelectorAll('a[href^="/download"]').forEach((a) => {
+    a.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const os = detectOS(navigator.userAgent, navigator.platform);
+      const ok = await hasRelease();
+      if (ok) { window.location.href = os === "other" ? "/download" : `/download/${os}`; }
+      else { toast("The installer isn't out yet — the first build lands here very soon. ⏳"); }
+    });
+  });
+}
+
 // How-it-works: a tabbed live demo. Click a step to switch; while the section
 // is hovered it auto-advances through the steps (calm at rest, lively on focus).
 function setupHow(doc) {
@@ -154,6 +190,7 @@ if (typeof document !== "undefined" && typeof navigator !== "undefined") {
   setupParallax(document);
   setupDriftScore(document);
   setupCardSpot(document);
+  setupDownloadClicks(document);
   setupHow(document);
   setupFaq(document);
   setupPricing(document);
