@@ -93,6 +93,15 @@ export function render(doc, data) {
     if (re) re.hidden = true;
   }
 
+  // Drift score (0–100 display aggregate).
+  const drift = clampPct(cur.driftScore);
+  const dfill = doc.getElementById("drift-fill");
+  if (dfill) {
+    dfill.style.width = drift + "%";
+    dfill.className = "bar-fill " + saturationClass(drift);
+    setText(doc, "drift-meta", `${drift} / 100`);
+  }
+
   // Saturation bar.
   const pct = clampPct(cur.saturationPct);
   const fill = doc.getElementById("sat-fill");
