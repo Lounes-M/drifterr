@@ -3,8 +3,8 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/download", "destination": "/api/download" },
-    { "source": "/download/:os", "destination": "/api/download?os=:os" }
+    { "source": "/dl", "destination": "/api/download" },
+    { "source": "/dl/:os", "destination": "/api/download?os=:os" }
   ],
   "headers": [
     {

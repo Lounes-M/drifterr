@@ -1,44 +1,7 @@
-// Drifterr landing behaviour: adaptive download, scroll reveal, cursor glow +
-// parallax, the animated drift score, FAQ accordion and the pricing toggle.
-// Downloads stay on our own domain (/download/<os>) — a serverless redirect
-// (api/download.js) resolves the latest installer.
-
-const DOWNLOAD = (os) => `/download/${os}`;
-
-export function detectOS(ua, platform) {
-  const s = `${platform || ""} ${ua || ""}`.toLowerCase();
-  if (/mac|iphone|ipad|ios/.test(s)) return "mac";
-  if (/win/.test(s)) return "win";
-  if (/linux|x11|android/.test(s)) return "linux";
-  return "other";
-}
-
-const LABELS = { mac: "Download for macOS", win: "Download for Windows", linux: "Download for Linux", other: "Download" };
-const SUBS = {
-  mac: "macOS 11+ · Apple silicon & Intel — free",
-  win: "Windows 10+ — free",
-  linux: "AppImage / .deb — free",
-  other: "macOS · Windows · Linux — free",
-};
-
-export function apply(doc, os) {
-  const label = LABELS[os] || LABELS.other;
-  const href = os === "other" ? DOWNLOAD("") : DOWNLOAD(os);
-  // Primary CTAs carry the adaptive label + arrow; secondary ones stay short.
-  for (const id of ["download", "download-3"]) {
-    const el = doc.getElementById(id);
-    if (el) { el.innerHTML = `${label} <span class="arrow">→</span>`; el.href = href; }
-  }
-  for (const id of ["download-2", "nav-download"]) {
-    const el = doc.getElementById(id);
-    if (el) { el.textContent = "Download"; el.href = href; }
-  }
-  for (const id of ["cta-sub"]) {
-    const el = doc.getElementById(id);
-    if (el) el.textContent = SUBS[os] || SUBS.other;
-  }
-  return label;
-}
+// Drifterr landing behaviour: scroll reveal, cursor glow + parallax, the
+// animated drift score, FAQ accordion and the pricing toggle. All download
+// buttons link to the dedicated /download page, which handles OS detection and
+// the actual installers.
 
 function setupReveal(doc) {
   const items = doc.querySelectorAll(".reveal");
@@ -102,55 +65,6 @@ function setupCardSpot(doc) {
   });
 }
 
-// Download clicks: resolve whether a release exists. If it does, go through the
-// on-domain redirect (/download/<os>) which streams the installer; if not, show
-// a clear on-page notice instead of navigating to a dead "coming soon" page.
-const REPO = "Lounes-M/drifterr";
-let _releaseProbe;
-async function hasRelease() {
-  if (_releaseProbe !== undefined) return _releaseProbe;
-  try {
-    const r = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: "application/vnd.github+json" } });
-    if (!r.ok) return (_releaseProbe = false);
-    const data = await r.json();
-    _releaseProbe = Array.isArray(data.assets) && data.assets.length > 0;
-  } catch { _releaseProbe = false; }
-  return _releaseProbe;
-}
-
-function toast(msg) {
-  let t = document.getElementById("toast");
-  if (!t) { t = document.createElement("div"); t.id = "toast"; t.className = "toast"; document.body.appendChild(t); }
-  t.textContent = msg;
-  requestAnimationFrame(() => t.classList.add("show"));
-  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 4600);
-}
-
-// First-launch help (the builds are unsigned, so the OS warns once).
-const FIRST_LAUNCH = {
-  mac: "Downloading… First launch: right-click the app → Open (it's unsigned).",
-  win: "Downloading… If SmartScreen appears: More info → Run anyway.",
-  linux: "Downloading… Make it executable (chmod +x) and run the AppImage.",
-  other: "Downloading…",
-};
-
-function setupDownloadClicks(doc) {
-  doc.querySelectorAll('a[href^="/download"]').forEach((a) => {
-    a.addEventListener("click", async (e) => {
-      e.preventDefault();
-      const os = detectOS(navigator.userAgent, navigator.platform);
-      const ok = await hasRelease();
-      if (ok) {
-        // A 302-to-file download keeps the page, so the tip stays visible.
-        window.location.href = os === "other" ? "/download" : `/download/${os}`;
-        toast(FIRST_LAUNCH[os] || FIRST_LAUNCH.other);
-      } else {
-        toast("The installer isn't out yet — the first build lands here very soon. ⏳");
-      }
-    });
-  });
-}
-
 // How-it-works: a tabbed live demo. Click a step to switch; while the section
 // is hovered it auto-advances through the steps (calm at rest, lively on focus).
 function setupHow(doc) {
@@ -198,12 +112,10 @@ function setupPricing(doc) {
 }
 
 if (typeof document !== "undefined" && typeof navigator !== "undefined") {
-  apply(document, detectOS(navigator.userAgent, navigator.platform));
   setupReveal(document);
   setupParallax(document);
   setupDriftScore(document);
   setupCardSpot(document);
-  setupDownloadClicks(document);
   setupHow(document);
   setupFaq(document);
   setupPricing(document);
