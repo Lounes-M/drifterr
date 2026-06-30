@@ -78,14 +78,17 @@ enforced — gating is a follow-up once the plumbing is proven.
    | Tracked sessions at once | 1 | ∞ | ∞ |
    | Drift map (history) | 🔒 | ✅ | ✅ |
    | Auto-re-anchor (proxy) | 🔒 | ✅ | ✅ |
-   | Hosted judge (no personal key) | 🔒 | ✅ | ✅ |
    | Shared standing orders · SSO | 🔒 | 🔒 | ✅ |
 
    The desktop app `POST`s the plan to the proxy's `/entitlement` after `/me`;
    `/status` then returns the active `entitlement` so the menubar can lock
    features and prompt to upgrade. Enforcement of session cap, drift map and
-   auto-re-anchor is live; the **hosted judge** (server-side, the genuinely
-   server-enforced tier) and **team sharing / SSO** are the next hookups.
+   auto-re-anchor is live; **team sharing / SSO** are the next hookups.
+
+   The judge (decision-coherence signal) always runs through the **user's own**
+   model provider — Drifterr never hosts model calls, so no chat content ever
+   passes through Drifterr's infrastructure. That keeps the local-first line
+   bright and means no per-customer model cost.
 
 Until `config.js` is filled with a real Supabase project, both clients run
 **accounts-free** — the desktop app skips the login gate, the proxy defaults to

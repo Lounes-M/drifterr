@@ -19,7 +19,6 @@ values
       "manual_reanchor": true,
       "constraint_alerts": false,
       "drift_map": false,
-      "hosted_judge": false,
       "team_sharing": false,
       "sso": false,
       "support": "community"
@@ -39,7 +38,6 @@ values
       "manual_reanchor": true,
       "constraint_alerts": true,
       "drift_map": true,
-      "hosted_judge": true,
       "all_assistants": true,
       "team_sharing": false,
       "sso": false,
@@ -60,7 +58,6 @@ values
       "manual_reanchor": true,
       "constraint_alerts": true,
       "drift_map": true,
-      "hosted_judge": true,
       "all_assistants": true,
       "team_sharing": true,
       "analytics": true,

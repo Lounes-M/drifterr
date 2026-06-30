@@ -41,9 +41,6 @@ pub struct Entitlement {
     /// Session drift map (the rolling drift-score history sparkline).
     #[serde(rename = "driftMap")]
     pub drift_map: bool,
-    /// Drifterr-hosted fail-safe judge (decision coherence without a personal key).
-    #[serde(rename = "hostedJudge")]
-    pub hosted_judge: bool,
     /// Opt-in proxy auto-re-anchor (inject the preamble on RED).
     #[serde(rename = "autoReanchor")]
     pub auto_reanchor: bool,
@@ -65,7 +62,6 @@ impl Entitlement {
                 plan,
                 max_sessions: Some(1),
                 drift_map: false,
-                hosted_judge: false,
                 auto_reanchor: false,
                 team_sharing: false,
             },
@@ -73,7 +69,6 @@ impl Entitlement {
                 plan,
                 max_sessions: None,
                 drift_map: true,
-                hosted_judge: true,
                 auto_reanchor: true,
                 team_sharing: false,
             },
@@ -81,7 +76,6 @@ impl Entitlement {
                 plan,
                 max_sessions: None,
                 drift_map: true,
-                hosted_judge: true,
                 auto_reanchor: true,
                 team_sharing: true,
             },
@@ -98,21 +92,21 @@ mod tests {
         let e = Entitlement::default();
         assert_eq!(e.plan, Plan::Free);
         assert_eq!(e.max_sessions, Some(1));
-        assert!(!e.drift_map && !e.hosted_judge && !e.auto_reanchor && !e.team_sharing);
+        assert!(!e.drift_map && !e.auto_reanchor && !e.team_sharing);
     }
 
     #[test]
     fn pro_unlocks_core_paid_features_but_not_team() {
         let e = Entitlement::for_plan(Plan::Pro);
         assert_eq!(e.max_sessions, None);
-        assert!(e.drift_map && e.hosted_judge && e.auto_reanchor);
+        assert!(e.drift_map && e.auto_reanchor);
         assert!(!e.team_sharing);
     }
 
     #[test]
     fn team_unlocks_everything() {
         let e = Entitlement::for_plan(Plan::Team);
-        assert!(e.team_sharing && e.drift_map && e.hosted_judge && e.auto_reanchor);
+        assert!(e.team_sharing && e.drift_map && e.auto_reanchor);
         assert_eq!(e.max_sessions, None);
     }
 
