@@ -6,7 +6,7 @@
 // a Supabase JWT) — see supabase/config.toml. Signature verification is what
 // authenticates the request instead.
 
-import Stripe from "https://esm.sh/stripe@17.5.0?target=deno";
+import Stripe from "npm:stripe@17.5.0";
 import { adminClient, stripe } from "../_shared/clients.ts";
 
 const WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;

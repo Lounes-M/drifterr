@@ -6,8 +6,8 @@
 //   * adminClient(): the service role, bypasses RLS. Use ONLY for writes the
 //     user isn't allowed to make directly (granting a plan after Stripe says so).
 
-import Stripe from "https://esm.sh/stripe@17.5.0?target=deno";
-import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
+import Stripe from "npm:stripe@17.5.0";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.47.10";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
