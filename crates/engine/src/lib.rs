@@ -58,13 +58,14 @@ pub fn evaluate(conv: &Conversation, baseline: &Baseline) -> Verdict {
     // Signal 4 — saturation (hard, always one event).
     events.push(saturation::evaluate(conv));
 
-    // Soft signals (support only; AMBER ceiling). A local, deterministic
-    // embedder keeps these zero-cost and zero-network.
-    let embedder = drifterr_embeddings::BagEmbedder::default();
-    if let Some(e) = signals::goal::evaluate(baseline, conv, &embedder) {
+    // Soft signals (support only; AMBER ceiling). The embedder comes from the
+    // factory — a local, deterministic hybrid-lexical model by default; a real
+    // ONNX model can be slotted in there without touching this code.
+    let embedder = drifterr_embeddings::default_embedder();
+    if let Some(e) = signals::goal::evaluate(baseline, conv, embedder.as_ref()) {
         events.push(e);
     }
-    if let Some(e) = signals::degradation::evaluate(conv, &embedder) {
+    if let Some(e) = signals::degradation::evaluate(conv, embedder.as_ref()) {
         events.push(e);
     }
 
