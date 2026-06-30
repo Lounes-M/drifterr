@@ -136,6 +136,36 @@ body::after {
   to { opacity: 1; transform: none; filter: none; }
 }
 
+/* --- brand bar ------------------------------------------------------------ */
+.brandbar { display: flex; align-items: center; gap: 9px; }
+.wordmark { font-family: var(--display); font-weight: 700; font-size: 16px; letter-spacing: -0.02em; color: var(--ink); }
+
+/* Animated brand mark — the anchor that drifts free, mirroring the site. */
+.mark { position: relative; display: inline-flex; width: 24px; height: 24px; flex: 0 0 auto; animation: logoFloat 4s ease-in-out infinite; }
+.mark::before {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 22px; height: 22px;
+  transform: translate(-50%, -50%); border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 61, 129, 0.5), transparent 64%);
+  filter: blur(5px); pointer-events: none; animation: logoHalo 3.2s ease-in-out infinite;
+}
+.mark span { position: absolute; width: 12px; height: 12px; border-radius: 50%; }
+.mark .fill {
+  background: linear-gradient(135deg, var(--blue), var(--blue-deep)); left: 0; top: 6px;
+  animation: anchorPulse 2.6s ease-in-out infinite;
+}
+.mark .ring {
+  border: 1.5px solid rgba(255, 255, 255, 0.92); right: 0; top: 0;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.25);
+  animation: driftAway 3.8s cubic-bezier(0.6, 0, 0.2, 1) infinite;
+}
+@keyframes logoFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+@keyframes logoHalo { 0%, 100% { opacity: 0.45; transform: translate(-50%, -50%) scale(0.9); } 50% { opacity: 0.9; transform: translate(-50%, -50%) scale(1.15); } }
+@keyframes anchorPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 9px rgba(255, 61, 129, 0.6), inset 0 0 4px rgba(255, 255, 255, 0.4); }
+  50% { transform: scale(1.1); box-shadow: 0 0 17px rgba(255, 61, 129, 0.9), inset 0 0 5px rgba(255, 255, 255, 0.5); }
+}
+@keyframes driftAway { 0%, 10% { transform: translate(0, 0); } 46%, 54% { transform: translate(6px, -6px); } 72% { transform: translate(-1.5px, 1.5px); } 84%, 100% { transform: translate(0, 0); } }
+
 /* --- header --------------------------------------------------------------- */
 .head { display: flex; align-items: center; gap: 12px; }
 .head-text h1 { margin: 0; font-family: var(--display); font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
