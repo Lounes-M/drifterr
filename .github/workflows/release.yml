@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release tag to build (e.g. v0.1.1)"
+        description: "Release tag to build (e.g. v0.1.2)"
         required: true
-        default: "v0.1.1"
+        default: "v0.1.2"
 
 jobs:
   release:

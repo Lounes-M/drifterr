@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon/apple-touch-icon.png" />
+    <title>Privacy Policy · Drifterr</title>
+    <meta name="description" content="How Drifterr handles your data. Short version: your conversations never leave your machine." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg" aria-hidden="true">
+      <div class="grid"></div>
+      <span class="blob a" data-depth="40"></span>
+      <span class="blob b" data-depth="70"></span>
+    </div>
+
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="brand" href="/">
+          <span class="mark"><span class="fill"></span><span class="ring"></span></span>
+          <b>drifterr</b>
+        </a>
+        <div class="nav-right">
+          <a class="nav-acct" href="/">← Back to site</a>
+          <a class="btn" href="/download">Download</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="legal">
+      <span class="kicker">Legal</span>
+      <h1>Privacy Policy</h1>
+      <p class="legal-updated">Last updated: 30 June 2026</p>
+
+      <div class="legal-callout">
+        <strong>The short version.</strong> Drifterr is local-first. Your AI
+        conversations, prompts, drift signals and re-anchor snapshots stay on
+        your device and are <em>never</em> sent to a Drifterr server. The only
+        data we hold is what's needed for your account and subscription —
+        your email and plan.
+      </div>
+
+      <h2>1. Who we are</h2>
+      <p>
+        Drifterr ("we", "us") provides the Drifterr application and website at
+        drifterr.app. For any privacy question, contact
+        <a href="mailto:support@drifterr.app">support@drifterr.app</a>.
+      </p>
+
+      <h2>2. What stays on your device (and never reaches us)</h2>
+      <p>
+        Detection runs entirely locally. The following never leave your machine
+        and we never receive them:
+      </p>
+      <ul>
+        <li>Your conversations, prompts and the assistant's replies;</li>
+        <li>Your goal, constraints and decisions (the "baseline");</li>
+        <li>Drift signals, drift scores and re-anchor snapshots.</li>
+      </ul>
+      <p>
+        These live in a local SQLite database on your computer. If you enable the
+        optional "judge" feature, a short excerpt of the relevant turn is sent to
+        <em>your own</em> AI provider (e.g. OpenAI, Anthropic, OpenRouter) using
+        <em>your own</em> API key — it goes directly from your machine to that
+        provider, never through Drifterr.
+      </p>
+
+      <h2>3. What we do collect (accounts &amp; billing only)</h2>
+      <ul>
+        <li><strong>Account:</strong> your email address, and your name if you provide it.</li>
+        <li><strong>Subscription:</strong> your plan, subscription status and renewal date.</li>
+        <li><strong>Billing:</strong> a Stripe customer/subscription identifier. Payment card details are handled by Stripe — we never see or store them.</li>
+        <li><strong>Auth metadata:</strong> standard sign-in data (e.g. timestamps), and, if you use Google/GitHub sign-in, the basic profile your provider returns.</li>
+      </ul>
+
+      <h2>4. Processors we use</h2>
+      <ul>
+        <li><strong>Supabase</strong> — authentication and the accounts/subscriptions database.</li>
+        <li><strong>Stripe</strong> — payment processing and subscription management.</li>
+        <li><strong>Resend</strong> — transactional emails (e.g. confirm your email).</li>
+        <li><strong>Vercel</strong> — hosting of this website.</li>
+      </ul>
+      <p>
+        Each processes the limited data above on our behalf. Your AI model
+        provider (when you use the judge) acts under your own account, not ours.
+      </p>
+
+      <h2>5. Cookies &amp; local storage</h2>
+      <p>
+        The website uses local storage and cookies only to keep you signed in and
+        remember preferences (e.g. your selected provider and whether you've seen
+        onboarding). We do not run third-party advertising or cross-site tracking.
+      </p>
+
+      <h2>6. How we use the data</h2>
+      <p>
+        To create and secure your account, provide the plan you chose, process
+        payments and renewals, send essential service emails, and comply with
+        legal obligations. We do not sell your data.
+      </p>
+
+      <h2>7. Retention</h2>
+      <p>
+        We keep account and billing data while your account is active and as
+        required for legal/accounting purposes. Delete your account by contacting
+        us and we will remove your personal data, subject to those obligations.
+      </p>
+
+      <h2>8. Your rights</h2>
+      <p>
+        Depending on where you live (e.g. the EU/EEA under GDPR), you may access,
+        correct, export or delete your personal data, and object to or restrict
+        certain processing. Email
+        <a href="mailto:support@drifterr.app">support@drifterr.app</a> to exercise
+        these rights.
+      </p>
+
+      <h2>9. Security</h2>
+      <p>
+        Access to account data is protected by row-level security and is limited
+        to your own records. We never transmit conversation content.
+      </p>
+
+      <h2>10. Children</h2>
+      <p>Drifterr is not directed to children under 16, and we do not knowingly collect their data.</p>
+
+      <h2>11. Changes</h2>
+      <p>
+        We may update this policy; we'll revise the date above and, for material
+        changes, notify you. Continued use means acceptance of the update.
+      </p>
+
+      <p class="legal-foot">
+        Questions? <a href="mailto:support@drifterr.app">support@drifterr.app</a>
+        · See also our <a href="/terms">Terms of Service</a>.
+      </p>
+    </main>
+
+    <footer>
+      <div class="foot-inner">
+        <a class="brand" href="/"><span class="mark"><span class="fill"></span><span class="ring"></span></span><b>drifterr</b></a>
+        <div class="foot-links">
+          <a href="/">Home</a>
+          <a href="/download">Download</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+        </div>
+        <div class="foot-copy">© 2026 Drifterr · stay on point</div>
+      </div>
+    </footer>
+  </body>
+</html>
