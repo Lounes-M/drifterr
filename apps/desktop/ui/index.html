@@ -5,15 +5,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Drifterr</title>
     <link rel="stylesheet" href="styles.css" />
+    <script src="config.js"></script>
   </head>
   <body>
     <main id="panel" class="panel">
       <header class="brandbar">
         <span class="mark" aria-hidden="true"><span class="fill"></span><span class="ring"></span></span>
         <b class="wordmark">Drifterr</b>
+        <span id="plan-pill" class="plan-pill" hidden>Free</span>
         <button id="gear" class="gear" type="button" title="Settings" aria-label="Settings">⚙</button>
       </header>
 
+      <section id="gate" class="gate" hidden>
+        <h1 id="gate-title">Sign in to Drifterr</h1>
+        <p class="muted" id="gate-sub">Connect your account to start tracking drift.</p>
+        <div id="gate-msg" class="gate-msg" hidden></div>
+        <label class="gate-field" id="gate-name-field" hidden>
+          <span>Name</span>
+          <input id="gate-name" type="text" autocomplete="name" />
+        </label>
+        <label class="gate-field">
+          <span>Email</span>
+          <input id="gate-email" type="email" autocomplete="email" />
+        </label>
+        <label class="gate-field">
+          <span>Password</span>
+          <input id="gate-password" type="password" autocomplete="current-password" />
+        </label>
+        <button id="gate-submit" class="reanchor-btn gate-submit" type="button">Sign in</button>
+        <p class="gate-alt">
+          <span id="gate-alt-text">New here?</span>
+          <a id="gate-toggle" href="#">Create an account</a>
+        </p>
+      </section>
+
+      <div id="app-body">
       <header class="head">
         <span id="dot" class="dot unknown" aria-hidden="true"></span>
         <div class="head-text">
@@ -33,6 +59,22 @@
         <div class="cfg-row"><span class="muted">Judge</span><span id="cfg-judge">—</span></div>
         <div class="cfg-row"><span class="muted">Storage</span><span id="cfg-storage">—</span></div>
         <div class="cfg-row"><span class="muted">Version</span><span id="cfg-version">—</span></div>
+
+        <div id="account-block" hidden>
+          <h2 class="section-title" style="margin-top:12px">Account</h2>
+          <div class="cfg-row"><span class="muted">Signed in</span><span id="acct-email">—</span></div>
+          <div class="cfg-row"><span class="muted">Plan</span><span id="acct-plan">Free</span></div>
+          <div class="acct-buttons">
+            <button id="acct-plan-btn" class="mini-btn" type="button">Choose plan</button>
+            <button id="acct-signout" class="mini-btn" type="button">Sign out</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="upgrade-nudge" class="upgrade-nudge" hidden>
+        <span class="trigger-tag">Free plan</span>
+        <p class="muted">Unlock unlimited sessions, constraint alerts and the hosted judge.</p>
+        <button id="upgrade-btn" class="reanchor-btn" type="button">↑ Choose a plan</button>
       </section>
 
       <section id="trigger" class="trigger" hidden>
@@ -95,6 +137,7 @@
       <footer class="foot">
         <span id="meta" class="muted"></span>
       </footer>
+      </div>
     </main>
 
     <script type="module" src="app.js"></script>
