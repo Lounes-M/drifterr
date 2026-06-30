@@ -78,28 +78,59 @@
 .back-link:hover { color: var(--ink); }
 
 /* --- account page --------------------------------------------------------- */
-.account { max-width: 760px; margin: 0 auto; padding: 96px 20px 80px; }
-.account h1 { font-size: 30px; margin: 0 0 4px; }
-.account .sub { color: var(--mute); margin: 0 0 30px; }
-
-.acct-card {
-  background: var(--card);
-  border: 1px solid var(--edge);
-  border-radius: 18px;
-  padding: 24px 26px;
-  margin-bottom: 18px;
+.account { position: relative; z-index: 2; max-width: 720px; margin: 0 auto; padding: 130px 20px 90px; }
+.acct-head { margin-bottom: 26px; }
+.acct-head .kicker {
+  display: inline-block; font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--o-light); margin-bottom: 12px;
 }
-.acct-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--edge-soft); }
-.acct-row:last-child { border-bottom: 0; }
-.acct-row .k { color: var(--faint); font-size: 13px; font-family: var(--mono); }
-.acct-row .v { font-size: 15px; font-weight: 600; }
+.account h1 { font-size: clamp(34px, 5vw, 46px); margin: 0 0 10px; }
+.account .sub { color: var(--mute); margin: 0; font-size: 15px; }
+
+/* Featured plan card — gradient ring + glass, mirroring the pricing/download hero. */
+.plan-hero { position: relative; border-radius: 24px; margin-bottom: 18px; }
+.plan-hero .ring {
+  position: absolute; inset: -1px; border-radius: 25px; z-index: 0;
+  background: conic-gradient(from 135deg, #ff7847, #ff3d81, #7c5cff, #ff7847);
+  opacity: 0.45; filter: blur(3px);
+}
+.plan-hero-inner {
+  position: relative; z-index: 1; border-radius: 24px; padding: 28px 30px;
+  background: linear-gradient(180deg, rgba(22, 20, 34, 0.92), rgba(14, 13, 24, 0.92));
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+}
+.plan-hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.plan-current .kick,
+.plan-stats .k { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+.plan-current .kick { margin-bottom: 10px; }
+.plan-stats { display: flex; flex-direction: column; gap: 8px; text-align: right; }
+.plan-stats .ps-row { display: flex; gap: 10px; align-items: baseline; justify-content: flex-end; }
+.plan-stats .v { font-size: 14px; font-weight: 600; text-transform: capitalize; }
 
 .plan-pill {
-  display: inline-flex; align-items: center; gap: 7px;
-  font-family: var(--mono); font-size: 12px; font-weight: 600;
-  padding: 5px 12px; border-radius: 999px;
-  background: var(--grad); color: #1a0d12;
+  display: inline-flex; align-items: center;
+  font-family: var(--display); font-weight: 700; font-size: 26px; letter-spacing: -0.02em;
+  padding: 6px 18px; border-radius: 14px; color: #1a0d12;
+  background: var(--grad); box-shadow: 0 6px 22px rgba(255, 61, 129, 0.4);
 }
-.plan-pill.free { background: rgba(255, 255, 255, 0.08); color: var(--ink); }
+.plan-pill.free {
+  background: rgba(255, 255, 255, 0.07); color: var(--ink);
+  border: 1px solid var(--edge); box-shadow: none;
+}
 
-.acct-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+.acct-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
+.acct-actions .arrow { transition: transform 0.25s var(--ease); }
+.acct-actions .btn:hover .arrow { transform: translateX(4px); }
+
+.acct-card {
+  position: relative; z-index: 1;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.025));
+  border: 1px solid var(--edge);
+  border-radius: 20px;
+  padding: 8px 26px;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+.acct-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--edge-soft); }
+.acct-row:last-child { border-bottom: 0; }
+.acct-row .k { color: var(--faint); font-size: 12px; font-family: var(--mono); letter-spacing: 0.04em; text-transform: uppercase; }
+.acct-row .v { font-size: 15px; font-weight: 600; }
