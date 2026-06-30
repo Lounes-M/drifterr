@@ -57,19 +57,24 @@ recurring **monthly** and **yearly** price each:
 | Pro  | $9.00   | $81.00 |
 | Team | $16.00 (per seat) | $144.00 (per seat) |
 
-Copy the four `price_...` ids.
+Copy the four `price_...` ids and put them in the catalog (`supabase/seed.sql`,
+in the `plans` rows) — price ids are not secret, so they live in the database,
+not in function secrets. Re-run the seed after editing.
 
 ### 4. Wire the secrets
 
+Only two secrets are needed (the price ids come from the catalog, the Supabase
+keys are injected automatically):
+
 ```bash
 cp supabase/functions/.env.example supabase/functions/.env
-# edit .env: SITE_URL, STRIPE_SECRET_KEY, the four STRIPE_PRICE_* ids
+# edit .env: SITE_URL, STRIPE_SECRET_KEY  (STRIPE_WEBHOOK_SECRET after step 6)
 supabase secrets set --env-file supabase/functions/.env
 ```
 
-(Optional, also set them as Stripe Price ids on the `plans` rows so the catalog
-mirrors Stripe:
-`update public.plans set stripe_price_monthly='price_...', stripe_price_yearly='price_...' where id='pro';`)
+Or set them in the dashboard: Project → Edge Functions → Manage secrets.
+Note: GitHub repo/Actions secrets do **not** reach the edge functions — they
+must be set here, in Supabase.
 
 ### 5. Deploy the functions
 
