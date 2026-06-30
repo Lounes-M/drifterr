@@ -145,6 +145,62 @@
       </div>
     </main>
 
+    <div id="onboarding" class="onboarding" hidden>
+      <div class="onb-card">
+        <div class="onb-top">
+          <span class="mark" aria-hidden="true"><span class="fill"></span><span class="ring"></span></span>
+          <button id="onb-skip" class="onb-skip" type="button">Skip</button>
+        </div>
+
+        <div class="onb-viewport">
+          <div id="onb-track" class="onb-track">
+            <section class="onb-slide">
+              <span class="onb-hero-mark mark" aria-hidden="true"><span class="fill"></span><span class="ring"></span></span>
+              <h1>Welcome to <span class="grad">Drifterr</span></h1>
+              <p>Your model didn't change — your conversation did. Drifterr catches AI drift before you hit the wall, and re-anchors in one click.</p>
+            </section>
+
+            <section class="onb-slide">
+              <span class="onb-kicker">Step 1</span>
+              <h1>Pick your provider</h1>
+              <p>Where your chats are relayed. Use that provider's own API key — nothing is sent to a Drifterr server.</p>
+              <div id="onb-provider-select" class="provider-select"></div>
+            </section>
+
+            <section class="onb-slide">
+              <span class="onb-kicker">Step 2</span>
+              <h1>Connect your tool</h1>
+              <p>Point your AI tool at the local proxy — then just chat.</p>
+              <div class="onb-copy" data-copy="OPENAI_BASE_URL=http://localhost:8787/v1">
+                <code>OPENAI_BASE_URL=http://localhost:8787/v1</code><span class="onb-copy-btn">Copy</span>
+              </div>
+              <div class="onb-copy" data-copy="ANTHROPIC_BASE_URL=http://localhost:8787">
+                <code>ANTHROPIC_BASE_URL=http://localhost:8787</code><span class="onb-copy-btn">Copy</span>
+              </div>
+            </section>
+
+            <section class="onb-slide">
+              <span class="onb-kicker">You're set</span>
+              <h1>Watch the dot</h1>
+              <ul class="onb-legend">
+                <li><span class="dot green" aria-hidden="true"></span><div><b>Aligned</b><span>on track with your intent</span></div></li>
+                <li><span class="dot amber" aria-hidden="true"></span><div><b>Watch</b><span>starting to drift</span></div></li>
+                <li><span class="dot red" aria-hidden="true"></span><div><b>Drifting</b><span>off track — re-anchor in one click</span></div></li>
+              </ul>
+            </section>
+          </div>
+        </div>
+
+        <div class="onb-foot">
+          <div id="onb-dots" class="onb-dots"></div>
+          <div class="onb-nav">
+            <button id="onb-back" class="mini-btn" type="button">Back</button>
+            <button id="onb-next" class="reanchor-btn" type="button">Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="app.js"></script>
   </body>
 </html>

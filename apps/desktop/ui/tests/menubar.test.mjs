@@ -107,6 +107,9 @@ async function main() {
   await page.addInitScript(() => {
     window.DRIFTERR_SUPABASE_URL = "";
     window.DRIFTERR_SUPABASE_ANON_KEY = "";
+    // Mark onboarding as already seen so the first-run tour doesn't overlay the
+    // panel during these checks (the tour has its own scenario below).
+    try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) {}
   });
 
   // The route handler returns whatever `scenario` currently points at, so we
@@ -246,6 +249,40 @@ async function main() {
   await page.route("**/status*", (route) => route.abort());
   await page.waitForFunction(() => !document.getElementById("error").hidden, null, { timeout: 5000 });
   check(await page.locator("#error").isVisible(), "shows offline error when API unreachable");
+
+  console.log("ONBOARDING (first run):");
+  {
+    // Fresh context → no "onboarded" flag → the tour should appear and gate the
+    // panel until completed.
+    const octx = await browser.newContext();
+    const op = await octx.newPage();
+    await op.addInitScript(() => {
+      window.DRIFTERR_SUPABASE_URL = "";
+      window.DRIFTERR_SUPABASE_ANON_KEY = "";
+    });
+    await op.route("**/providers*", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ current: "openrouter", providers: [{ id: "openrouter", label: "OpenRouter" }, { id: "openai", label: "OpenAI" }] }),
+      })
+    );
+    await op.route("**/status*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ current: null, sessions: [] }) }));
+    await op.goto(url);
+    await op.waitForFunction(() => !document.getElementById("onboarding").hidden);
+    check(await op.locator("#onboarding").isVisible(), "first run shows the onboarding tour");
+    check((await op.locator("#onb-provider-select .provider-pill").count()) > 0, "tour embeds the provider selector");
+    // Walk to the end: Next ×3 → Get started.
+    for (let i = 0; i < 3; i++) await op.locator("#onb-next").click();
+    check((await op.locator("#onb-next").textContent()) === "Get started", "last step shows Get started");
+    await op.locator("#onb-next").click();
+    await op.waitForFunction(() => document.getElementById("onboarding").hidden);
+    check(!(await op.locator("#onboarding").isVisible()), "finishing dismisses the tour");
+    // Reload → it stays dismissed (persisted).
+    await op.reload();
+    await op.waitForFunction(() => typeof document.getElementById("onboarding") !== "undefined");
+    check(await op.locator("#onboarding").isHidden(), "tour does not reappear after completion");
+    await octx.close();
+  }
 
   await browser.close();
   server.close();
