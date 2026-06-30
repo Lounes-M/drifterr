@@ -6,8 +6,8 @@ Guidance for any AI assistant (and humans) working in Drifterr.
 
 Drifterr is a **local-first** copilot that detects when an AI chat session
 drifts from the user's stated intent (goal + constraints) and warns before the
-wall, with one-click re-anchoring. See `docs/BRIEF.md` for the full vision and
-`README.md` for current status.
+wall, with one-click re-anchoring. See `README.md` for the product overview and
+`docs/ACCOUNTS.md` for the accounts/billing architecture.
 
 ## Workflow (non-negotiable)
 
