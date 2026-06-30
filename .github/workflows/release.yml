@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release tag to build (e.g. v0.1.0)"
+        description: "Release tag to build (e.g. v0.1.1)"
         required: true
-        default: "v0.1.0"
+        default: "v0.1.1"
 
 jobs:
   release:
@@ -26,10 +26,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # One universal macOS binary — runs natively on Apple silicon AND Intel.
           - platform: macos-latest
-            args: "--target aarch64-apple-darwin"
-          - platform: macos-latest
-            args: "--target x86_64-apple-darwin"
+            args: "--target universal-apple-darwin"
           - platform: ubuntu-22.04
             args: ""
           - platform: windows-latest
