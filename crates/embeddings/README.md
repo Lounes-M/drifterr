@@ -21,47 +21,40 @@ related word forms ("auth" ↔ "authentication") and short phrases now register,
 where a plain bag-of-words scored them ~0. It is **not** truly semantic: it won't
 match synonyms with no lexical overlap ("car" ↔ "automobile").
 
-## Upgrading to a semantic ONNX model
+## Semantic ONNX model (implemented, behind the `onnx` feature)
 
-For true semantic similarity, add an ONNX-backed `Embedder` behind a feature
-flag and return it from `default_embedder()`. Design constraints to keep:
-local-first (no auto-download — the model ships with the app or is pointed at by
-config), deterministic, and a graceful fallback to `BagEmbedder`.
+For true semantic similarity ("car" ↔ "automobile"), the crate ships an
+ONNX-backed embedder in [`src/onnx.rs`](src/onnx.rs), compiled only with
+`--features onnx`. `default_embedder()` selects it when `DRIFTERR_EMBED_MODEL`
+points at a model directory, and falls back to `BagEmbedder` on any load error —
+so detection never breaks. It's local-first: the model is read from disk, nothing
+is auto-downloaded at runtime.
 
-**Recommended model:** `bge-small-en-v1.5` (384-dim, ~33 MB int8) for English, or
-`paraphrase-multilingual-MiniLM-L12-v2` if you want FR/EN parity. Export to ONNX.
+**Recommended model:** `bge-small-en-v1.5` (384-dim, ~33 MB) for English, or
+`paraphrase-multilingual-MiniLM-L12-v2` for FR/EN parity.
 
-**Steps:**
+**1. Export the model + tokenizer:**
+```bash
+pip install "optimum[exporters]"
+optimum-cli export onnx -m BAAI/bge-small-en-v1.5 ./bge-small-onnx
+# → ./bge-small-onnx/{model.onnx, tokenizer.json}
+```
 
-1. `Cargo.toml`:
-   ```toml
-   [features]
-   onnx = ["dep:ort", "dep:tokenizers"]
-   [dependencies]
-   ort = { version = "2", optional = true }          # ONNX Runtime
-   tokenizers = { version = "0.20", optional = true } # HF tokenizer
-   ```
-2. New `src/onnx.rs` (compiled only with `--features onnx`): load `model.onnx` +
-   `tokenizer.json` from `DRIFTERR_EMBED_MODEL` (a directory), run the encoder,
-   mean-pool the last hidden state over the attention mask, L2-normalize. Cache
-   the session in the struct (it's `Send + Sync`).
-3. In `default_embedder()`:
-   ```rust
-   #[cfg(feature = "onnx")]
-   if let Ok(dir) = std::env::var("DRIFTERR_EMBED_MODEL") {
-       match onnx::OnnxEmbedder::load(&dir) {
-           Ok(e) => return Box::new(e),
-           Err(err) => eprintln!("drifterr: ONNX embedder load failed ({err}); using local"),
-       }
-   }
-   ```
-4. Ship the model with the Tauri app (a resource) and set `DRIFTERR_EMBED_MODEL`
-   to its resource path at startup, so it's offline and per-machine.
+**2. Build with the feature and point at the model:**
+```bash
+cargo run -p drifterr-proxy --features drifterr-embeddings/onnx
+export DRIFTERR_EMBED_MODEL=/path/to/bge-small-onnx
+```
+(For the shipped app, bundle the model as a Tauri resource and set
+`DRIFTERR_EMBED_MODEL` to its resource path at startup.)
 
-**Why it's not done yet:** it pulls a native runtime (ONNX Runtime) and a model
-file, which can't be built or validated in the CI sandbox. It's isolated behind
-the `onnx` feature so the default build, CI and the shipped app are unaffected
-until a model is bundled and the path is validated on real hardware.
+**Validation caveat:** the `onnx` feature pulls a native runtime (ONNX Runtime,
+via `ort`'s `download-binaries`) and is **not built in CI** — the default build,
+CI and the shipped app are unaffected until you opt in. `ort` 2.x is a
+prerelease pinned in `Cargo.toml`; the binding surface (`inputs!`,
+`try_extract_raw_tensor`, `Session.inputs`) targets that pin — if you bump `ort`,
+the run/extract calls in `src/onnx.rs` may need a minor adjustment. The logic
+(tokenize → run → mean-pool → L2-normalize) is stable.
 
 ## Enabling the judge (decision-coherence, Signal 3)
 

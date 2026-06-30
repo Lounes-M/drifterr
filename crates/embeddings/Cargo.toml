@@ -4,4 +4,15 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Off by default. Enables a real semantic embedder backed by an ONNX model.
+# Pulls a native runtime (ONNX Runtime) + tokenizer, so it is opt-in and kept
+# out of the default build / CI. See README.md and src/onnx.rs.
+onnx = ["dep:ort", "dep:tokenizers", "dep:ndarray"]
+
 [dependencies]
+# All optional — only compiled with `--features onnx`. `ort` 2.x is a
+# prerelease, so it's pinned explicitly (bump when a stable 2.0 ships).
+ort = { version = "=2.0.0-rc.10", optional = true, features = ["download-binaries"] }
+tokenizers = { version = "0.20", optional = true }
+ndarray = { version = "0.16", optional = true }
