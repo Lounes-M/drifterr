@@ -18,6 +18,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
+    <script src="config.js"></script>
   </head>
   <body>
     <div class="bg" aria-hidden="true">
@@ -40,6 +41,7 @@
           <a href="#pricing">Pricing</a>
           <a href="#faq">FAQ</a>
         </nav>
+        <a class="nav-acct" id="nav-account" href="/login">Sign in</a>
         <a class="btn" id="nav-download" href="/download">Download</a>
       </div>
     </header>
@@ -321,7 +323,7 @@
               <li><span>✓</span>Session drift map</li>
               <li><span>✓</span>All assistants supported</li>
             </ul>
-            <a class="pick btn" href="#cta">Get Pro</a>
+            <a class="pick btn" id="get-pro" data-plan="pro" href="/signup?plan=pro">Get Pro</a>
           </div>
           <div class="tier reveal">
             <div class="name">Team</div>
@@ -334,7 +336,7 @@
               <li><span>✓</span>Drift analytics dashboard</li>
               <li><span>✓</span>SSO &amp; priority support</li>
             </ul>
-            <a class="pick ghost btn" href="#cta" style="background:rgba(255,255,255,.06);box-shadow:none">Get Team</a>
+            <a class="pick ghost btn" id="get-team" data-plan="team" href="/signup?plan=team" style="background:rgba(255,255,255,.06);box-shadow:none">Get Team</a>
           </div>
         </div>
       </section>
