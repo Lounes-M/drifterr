@@ -38,10 +38,14 @@ git push origin v0.1.0
 This runs the release workflow across macOS (Apple silicon + Intel), Linux and
 Windows, and creates a **draft** release with:
 
-- `Drifterr_0.1.0_aarch64.dmg`, `Drifterr_0.1.0_x64.dmg` (macOS)
-- `Drifterr_0.1.0_x64-setup.exe` (Windows, NSIS)
-- `Drifterr_0.1.0_amd64.AppImage`, `Drifterr_0.1.0_amd64.deb` (Linux)
+- `Drifterr_<v>_universal.dmg` (macOS — one universal build, Apple silicon + Intel)
+- `Drifterr_<v>_x64-setup.exe` (Windows, NSIS, per-user install — no admin)
+- `Drifterr_<v>_amd64.AppImage`, `Drifterr_<v>_amd64.deb` (Linux)
 - `latest.json` + `.sig` files (auto-update)
+
+The macOS / Windows installers are **unsigned** for now, so the OS warns on
+first launch (macOS: right-click → Open; Windows: More info → Run anyway). The
+landing surfaces this tip via a toast when you click Download.
 
 The version in the filenames comes from `version` in `tauri.conf.json` — bump it
 there (and keep the tag in sync) for each release.

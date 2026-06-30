@@ -126,14 +126,27 @@ function toast(msg) {
   clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 4600);
 }
 
+// First-launch help (the builds are unsigned, so the OS warns once).
+const FIRST_LAUNCH = {
+  mac: "Downloading… First launch: right-click the app → Open (it's unsigned).",
+  win: "Downloading… If SmartScreen appears: More info → Run anyway.",
+  linux: "Downloading… Make it executable (chmod +x) and run the AppImage.",
+  other: "Downloading…",
+};
+
 function setupDownloadClicks(doc) {
   doc.querySelectorAll('a[href^="/download"]').forEach((a) => {
     a.addEventListener("click", async (e) => {
       e.preventDefault();
       const os = detectOS(navigator.userAgent, navigator.platform);
       const ok = await hasRelease();
-      if (ok) { window.location.href = os === "other" ? "/download" : `/download/${os}`; }
-      else { toast("The installer isn't out yet — the first build lands here very soon. ⏳"); }
+      if (ok) {
+        // A 302-to-file download keeps the page, so the tip stays visible.
+        window.location.href = os === "other" ? "/download" : `/download/${os}`;
+        toast(FIRST_LAUNCH[os] || FIRST_LAUNCH.other);
+      } else {
+        toast("The installer isn't out yet — the first build lands here very soon. ⏳");
+      }
     });
   });
 }
