@@ -46,8 +46,13 @@ CI (`.github/workflows/ci.yml`) runs all of the above on every push/PR.
 - **The proxy must never break a user's request.** Streaming is byte-for-byte
   passthrough via tee; detection runs off the response path; parsing is
   best-effort and never panics.
-- **Local-first.** Conversations live in local SQLite; nothing goes to a
-  Drifterr server. Model calls (judge) go through the user's own provider.
+- **Local-first.** Conversations live in local SQLite; **no chat content ever
+  leaves the machine.** Model calls (judge) go through the user's own provider.
+  The one server-side component is **accounts & billing** (Supabase + Stripe,
+  see `supabase/` and `docs/ACCOUNTS.md`): it holds identity (email, plan,
+  subscription status) and nothing else. Conversations, prompts, signals and
+  drift scores are never sent there. When adding to the backend, keep that line
+  bright — if it touches chat content, it does not belong in Supabase.
 
 ## Model provider
 
