@@ -707,3 +707,62 @@ async fn plan_gates_drift_map_and_sessions() {
     );
     assert_eq!(v["sessionsLocked"], 0);
 }
+
+#[tokio::test]
+async fn provider_selector_switches_upstream() {
+    let cfg = ProxyConfig {
+        openai_upstream: "http://unused".into(),
+        anthropic_upstream: "http://unused".into(),
+        openai_strip_v1: false,
+    };
+    let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled);
+    let control = spawn(control_router(state)).await;
+    let client = client();
+
+    // The registry lists the major providers (incl. Gemini) + a current id.
+    let v: serde_json::Value = client
+        .get(format!("http://{control}/providers"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let ids: Vec<&str> = v["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["id"].as_str().unwrap())
+        .collect();
+    assert!(ids.contains(&"openai") && ids.contains(&"gemini") && ids.contains(&"anthropic"));
+
+    // Switch to OpenAI → /config reflects it live.
+    client
+        .post(format!("http://{control}/provider"))
+        .json(&serde_json::json!({"id": "openai"}))
+        .send()
+        .await
+        .unwrap();
+    let c: serde_json::Value = client
+        .get(format!("http://{control}/config"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(c["provider"], "OpenAI");
+    assert!(c["openaiUpstream"]
+        .as_str()
+        .unwrap()
+        .contains("api.openai.com"));
+
+    // Unknown provider is rejected.
+    let r = client
+        .post(format!("http://{control}/provider"))
+        .json(&serde_json::json!({"id": "nope"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+}

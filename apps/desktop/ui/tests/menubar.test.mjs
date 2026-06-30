@@ -188,6 +188,24 @@ async function main() {
       }),
     })
   );
+  await page.route("**/providers*", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        current: "openrouter",
+        providers: [
+          { id: "openrouter", label: "OpenRouter" },
+          { id: "openai", label: "OpenAI" },
+          { id: "gemini", label: "Google Gemini" },
+        ],
+      }),
+    })
+  );
+  let switchedTo = null;
+  await page.route("**/provider", (route) => {
+    switchedTo = JSON.parse(route.request().postData() || "{}").id;
+    route.fulfill({ contentType: "application/json", body: JSON.stringify({ provider: switchedTo }) });
+  });
   check(!(await page.locator("#settings").isVisible()), "settings hidden by default");
   await page.locator("#gear").click();
   await page.waitForFunction(() => !document.getElementById("settings").hidden);
@@ -199,9 +217,27 @@ async function main() {
     (await page.locator("#cfg-upstream").textContent()).includes("openrouter.ai"),
     "settings shows OpenRouter upstream"
   );
-  check((await page.locator("#cfg-provider").textContent()) === "OpenRouter", "settings names the active provider");
   check((await page.locator("#cfg-storage").textContent()) === "In-memory", "settings shows storage mode");
   check((await page.locator("#cfg-judge").textContent()).includes("gpt-4o-mini"), "settings shows judge model");
+
+  console.log("PROVIDER selector:");
+  await page.waitForFunction(() => document.querySelectorAll("#provider-select .provider-pill").length === 3);
+  check((await page.locator("#provider-select .provider-pill").count()) === 3, "provider pills render");
+  check(
+    (await page.locator("#provider-select .provider-pill.active").textContent()) === "OpenRouter",
+    "current provider is marked active"
+  );
+  await page.locator('#provider-select .provider-pill[data-id="gemini"]').click();
+  await page.waitForFunction(() => {
+    const a = document.querySelector("#provider-select .provider-pill.active");
+    return a && a.dataset.id === "gemini";
+  });
+  check(switchedTo === "gemini", "clicking a provider POSTs the switch");
+  check(
+    (await page.locator("#provider-select .provider-pill.active").textContent()) === "Google Gemini",
+    "selection moves the active state"
+  );
+
   await page.locator("#gear").click();
   check(!(await page.locator("#settings").isVisible()), "gear closes settings again");
 
