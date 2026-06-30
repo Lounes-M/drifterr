@@ -102,6 +102,22 @@ export function render(doc, data) {
     setText(doc, "drift-meta", `${drift} / 100`);
   }
 
+  // Drift map — sparkline of drift score over the recorded turns.
+  const map = doc.getElementById("drift-map");
+  if (map) {
+    const hist = Array.isArray(cur.history) ? cur.history : [];
+    map.innerHTML = "";
+    for (const v of hist.slice(-40)) {
+      const s = clampPct(v);
+      const b = doc.createElement("span");
+      b.className = "map-bar " + saturationClass(s);
+      b.style.height = Math.max(8, s) + "%";
+      b.title = s + " / 100";
+      map.appendChild(b);
+    }
+    setText(doc, "map-meta", hist.length ? `${hist.length} turn${hist.length > 1 ? "s" : ""}` : "no turns yet");
+  }
+
   // Saturation bar.
   const pct = clampPct(cur.saturationPct);
   const fill = doc.getElementById("sat-fill");

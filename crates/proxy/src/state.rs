@@ -42,6 +42,9 @@ pub struct SessionStatus {
     /// separate signals remain the source of truth for `state`/`triggering`).
     #[serde(rename = "driftScore")]
     pub drift_score: u8,
+    /// Drift score per recorded turn (oldest→newest), for the session drift map.
+    #[serde(default)]
+    pub history: Vec<u8>,
     /// Whether saturation is exact (proxy usage) or estimated.
     pub exact: bool,
     /// The single signal the UI should name as the cause, if not green.
@@ -61,6 +64,8 @@ pub struct SessionState {
     /// Constraint texts already counted toward standing orders this session, so
     /// a recurring constraint counts once per session, not once per turn.
     bumped: std::collections::HashSet<String>,
+    /// Rolling drift-score history (oldest→newest) for the session drift map.
+    history: Vec<u8>,
 }
 
 /// The proxy's shared core: every live session plus an optional durable store.
@@ -250,8 +255,10 @@ impl AppCore {
                     triggering: None,
                     signals: Vec::new(),
                     updated_at: 0,
+                    history: Vec::new(),
                 },
                 bumped: std::collections::HashSet::new(),
+                history: Vec::new(),
             }
         });
 
@@ -275,6 +282,13 @@ impl AppCore {
         let verdict = evaluate(&conv, &session.baseline);
         let committed = session.monitor.observe(&verdict);
 
+        // Append to the rolling drift-map history (cap to the last 60 turns).
+        session.history.push(verdict.drift_score());
+        if session.history.len() > 60 {
+            let drop = session.history.len() - 60;
+            session.history.drain(0..drop);
+        }
+
         session.status = SessionStatus {
             session_id: session_id.clone(),
             model: conv.model.clone(),
@@ -285,6 +299,7 @@ impl AppCore {
             triggering: verdict.triggering().map(view_of),
             signals: verdict.events.iter().map(view_of).collect(),
             updated_at: now_millis(),
+            history: session.history.clone(),
         };
 
         // Durable record (best-effort: persistence must never break ingestion).
