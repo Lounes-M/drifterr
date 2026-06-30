@@ -92,13 +92,21 @@ Then point your AI tool at the local proxy and watch the menubar:
 
 ```bash
 export OPENAI_BASE_URL=http://localhost:8787/v1
-export OPENAI_API_KEY=sk-or-...          # your own OpenRouter key
+export OPENAI_API_KEY=...                 # your own provider key
 # Anthropic-style tools:
 export ANTHROPIC_BASE_URL=http://localhost:8787
 ```
 
-Drifterr standardizes on **OpenRouter** (OpenAI-compatible) for its own model
-calls; nothing is sent to a Drifterr server.
+**Plug into any major provider.** The proxy defaults to OpenRouter, but you can
+connect directly to OpenAI, Anthropic, Google Gemini, Groq, Mistral, DeepSeek,
+xAI (Grok) or Together with a single setting — use your own key, nothing is sent
+to a Drifterr server:
+
+```bash
+DRIFTERR_PROVIDER=openai     # or: anthropic | gemini | groq | mistral | …
+# …or point at a fully custom endpoint:
+# OPENAI_UPSTREAM=https://my-host/v1
+```
 
 ## Repository layout
 

@@ -88,6 +88,7 @@ async fn bring_up() -> (SocketAddr, SocketAddr) {
     let cfg = ProxyConfig {
         openai_upstream: base.clone(),
         anthropic_upstream: base,
+        openai_strip_v1: false,
     };
     let state = AppState::new(cfg, None);
     let proxy_addr = spawn(proxy_router(state.clone())).await;
@@ -221,6 +222,7 @@ async fn judge_flags_reintroduced_rejected_decision() {
     let cfg = ProxyConfig {
         openai_upstream: base.clone(),
         anthropic_upstream: base,
+        openai_strip_v1: false,
     };
     // Stub judge says "yes" when the context mentions bcrypt — no network.
     let state = AppState::with_judge(cfg, None, Judge::Stub(StubJudge::new(&["bcrypt"])));
@@ -460,6 +462,7 @@ async fn auto_reanchor_injects_preamble_when_drifting() {
     let cfg = ProxyConfig {
         openai_upstream: base.clone(),
         anthropic_upstream: base,
+        openai_strip_v1: false,
     };
     // Auto-re-anchor is a paid capability, so the session must be on a plan that
     // unlocks it (Pro) for the injection to fire.
@@ -626,6 +629,7 @@ async fn plan_gates_drift_map_and_sessions() {
     let cfg = ProxyConfig {
         openai_upstream: "http://unused".into(),
         anthropic_upstream: "http://unused".into(),
+        openai_strip_v1: false,
     };
     let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled);
     let control = spawn(control_router(state)).await;
