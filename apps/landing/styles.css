@@ -96,7 +96,8 @@ main, .nav, footer { position: relative; z-index: 2; }
 .nav-links { display: flex; align-items: center; gap: 30px; }
 .nav-links a { color: #b6b4c6; font-size: 14.5px; font-weight: 500; transition: color 0.2s ease; }
 .nav-links a:hover { color: #fff; }
-.nav-acct { color: #b6b4c6; font-size: 14.5px; font-weight: 600; margin-right: 18px; transition: color 0.2s ease; }
+.nav-right { display: flex; align-items: center; gap: 16px; }
+.nav-acct { color: #b6b4c6; font-size: 14.5px; font-weight: 600; transition: color 0.2s ease; }
 .nav-acct:hover { color: #fff; }
 
 /* ===== buttons ===== */
