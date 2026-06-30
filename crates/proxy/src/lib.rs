@@ -144,6 +144,22 @@ pub struct ConfigMeta {
     pub auto_reanchor: bool,
 }
 
+/// The upstream provider currently in effect. Runtime-mutable so the menubar's
+/// provider selector can switch where traffic is relayed without a restart.
+#[derive(Debug, Clone, Serialize)]
+pub struct ActiveUpstream {
+    #[serde(rename = "openaiUpstream")]
+    pub openai_upstream: String,
+    #[serde(rename = "anthropicUpstream")]
+    pub anthropic_upstream: String,
+    #[serde(skip)]
+    pub openai_strip_v1: bool,
+    /// Preset id (e.g. "openai") or "custom".
+    pub provider: String,
+    #[serde(rename = "providerLabel")]
+    pub provider_label: String,
+}
+
 /// Shared, cheaply-clonable application state.
 #[derive(Clone)]
 pub struct AppState {
@@ -159,6 +175,8 @@ pub struct AppState {
     /// Free so the proxy works standalone. Gates paid capabilities (drift map,
     /// extra sessions, auto-re-anchor).
     pub entitlement: Arc<RwLock<Entitlement>>,
+    /// The active upstream provider — runtime-switchable via `POST /provider`.
+    pub upstream: Arc<RwLock<ActiveUpstream>>,
 }
 
 impl AppState {
@@ -216,6 +234,13 @@ impl AppState {
             judge: judge.label(),
             auto_reanchor,
         };
+        let upstream = ActiveUpstream {
+            openai_upstream: cfg.openai_upstream.clone(),
+            anthropic_upstream: cfg.anthropic_upstream.clone(),
+            openai_strip_v1: cfg.openai_strip_v1,
+            provider: upstreams::id_for_base(&cfg.openai_upstream).to_string(),
+            provider_label: cfg.provider_label().to_string(),
+        };
         Self {
             cfg: Arc::new(cfg),
             client,
@@ -224,6 +249,7 @@ impl AppState {
             judge: Arc::new(judge),
             auto_reanchor,
             entitlement: Arc::new(RwLock::new(Entitlement::default())),
+            upstream: Arc::new(RwLock::new(upstream)),
         }
     }
 
@@ -257,6 +283,8 @@ pub fn control_router(state: AppState) -> Router {
         .route("/status", get(status_handler))
         .route("/sessions", get(sessions_handler))
         .route("/config", get(config_handler))
+        .route("/providers", get(providers_handler))
+        .route("/provider", post(set_provider_handler))
         .route(
             "/entitlement",
             get(entitlement_handler).post(set_entitlement_handler),
@@ -383,7 +411,73 @@ async fn public_handler(AxPath(path): AxPath<String>) -> Response {
 }
 
 async fn config_handler(State(app): State<AppState>) -> Json<ConfigMeta> {
-    Json((*app.meta).clone())
+    let mut meta = (*app.meta).clone();
+    // Reflect the live (possibly switched) provider, not just the boot config.
+    if let Ok(u) = app.upstream.read() {
+        meta.openai_upstream = u.openai_upstream.clone();
+        meta.anthropic_upstream = u.anthropic_upstream.clone();
+        meta.provider = u.provider_label.clone();
+    }
+    Json(meta)
+}
+
+/// One selectable provider, for the menubar's provider selector.
+#[derive(Serialize)]
+struct ProviderInfo {
+    id: &'static str,
+    label: &'static str,
+}
+
+#[derive(Serialize)]
+struct ProvidersResponse {
+    current: String,
+    providers: Vec<ProviderInfo>,
+}
+
+async fn providers_handler(State(app): State<AppState>) -> Json<ProvidersResponse> {
+    let current = app
+        .upstream
+        .read()
+        .map(|u| u.provider.clone())
+        .unwrap_or_else(|_| "openrouter".to_string());
+    let providers = upstreams::PRESETS
+        .iter()
+        .map(|p| ProviderInfo {
+            id: p.id,
+            label: p.label,
+        })
+        .collect();
+    Json(ProvidersResponse { current, providers })
+}
+
+#[derive(Deserialize)]
+struct SetProvider {
+    #[serde(default)]
+    id: String,
+}
+
+/// Switch the upstream provider at runtime (the selector calls this). Derives the
+/// upstreams from the preset id — never trusts arbitrary URLs from the client.
+async fn set_provider_handler(
+    State(app): State<AppState>,
+    Json(body): Json<SetProvider>,
+) -> Response {
+    let Some(p) = upstreams::find(&body.id) else {
+        return (StatusCode::BAD_REQUEST, "unknown provider").into_response();
+    };
+    if let Ok(mut u) = app.upstream.write() {
+        if !p.openai_base.is_empty() {
+            u.openai_upstream = p.openai_base.to_string();
+            u.openai_strip_v1 = p.openai_strip_v1;
+        }
+        if !p.anthropic_base.is_empty() {
+            u.anthropic_upstream = p.anthropic_base.to_string();
+        }
+        u.provider = p.id.to_string();
+        u.provider_label = p.label.to_string();
+        return Json(u.clone()).into_response();
+    }
+    (StatusCode::INTERNAL_SERVER_ERROR, "busy").into_response()
 }
 
 /// A standing order (recurring correction) for the control API.
@@ -584,11 +678,18 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
     };
 
     let provider = Provider::from_path(&path_and_query);
-    let upstream_base = app.cfg.upstream_for(provider);
+    // Read the live upstream (runtime-switchable via the provider selector).
+    let (base, strip_v1) = match app.upstream.read() {
+        Ok(u) => match provider {
+            Provider::OpenAI => (u.openai_upstream.clone(), u.openai_strip_v1),
+            Provider::Anthropic => (u.anthropic_upstream.clone(), false),
+        },
+        Err(_) => (app.cfg.upstream_for(provider).to_string(), false),
+    };
     // Gemini-style upstreams carry their own `/v1beta/openai` prefix, so strip the
     // incoming `/v1` for OpenAI-schema traffic when configured.
-    let strip = matches!(provider, Provider::OpenAI) && app.cfg.openai_strip_v1;
-    let url = upstreams::join_url(upstream_base, &path_and_query, strip);
+    let strip = matches!(provider, Provider::OpenAI) && strip_v1;
+    let url = upstreams::join_url(&base, &path_and_query, strip);
     let parsed_req = provider::parse_request(provider, &body_bytes);
 
     // Opt-in auto-re-anchor: if this session is currently drifting (RED), inject

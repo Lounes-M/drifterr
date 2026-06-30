@@ -97,12 +97,19 @@ pub fn find(id: &str) -> Option<&'static Preset> {
 /// A friendly label for an OpenAI-schema base URL (for `/config` / the UI).
 /// Falls back to "Custom" for anything not in the registry.
 pub fn label_for_base(base: &str) -> &'static str {
+    by_base(base).map(|p| p.label).unwrap_or("Custom")
+}
+
+/// The preset id for an OpenAI-schema base URL ("custom" if unknown).
+pub fn id_for_base(base: &str) -> &'static str {
+    by_base(base).map(|p| p.id).unwrap_or("custom")
+}
+
+fn by_base(base: &str) -> Option<&'static Preset> {
     let base = base.trim_end_matches('/');
     PRESETS
         .iter()
         .find(|p| !p.openai_base.is_empty() && p.openai_base.trim_end_matches('/') == base)
-        .map(|p| p.label)
-        .unwrap_or("Custom")
 }
 
 /// Build the final upstream URL. With `strip_v1`, the incoming `/v1` prefix is

@@ -207,7 +207,6 @@ function clampPct(n) {
 /// Render the effective config into the settings view. `cfg` is the `/config`
 /// payload, or `null` when it couldn't be fetched.
 export function renderConfig(doc, cfg) {
-  setText(doc, "cfg-provider", cfg && cfg.provider ? cfg.provider : "—");
   setText(doc, "cfg-upstream", cfg ? cfg.openaiUpstream : "—");
   setText(doc, "cfg-judge", cfg ? cfg.judge : "—");
   setText(doc, "cfg-storage", cfg ? (cfg.persisted ? "SQLite (persisted)" : "In-memory") : "—");
@@ -233,6 +232,69 @@ export async function loadConfig(doc, fetchImpl) {
   } catch (_e) {
     renderConfig(doc, null);
   }
+}
+
+// --- provider selector -----------------------------------------------------
+
+/// Render the provider pills from `GET /providers` ({ current, providers }).
+export function renderProviders(doc, data) {
+  const wrap = doc.getElementById("provider-select");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const cur = data && data.current;
+  for (const p of (data && data.providers) || []) {
+    const b = doc.createElement("button");
+    b.type = "button";
+    b.className = "provider-pill" + (p.id === cur ? " active" : "");
+    b.dataset.id = p.id;
+    b.textContent = p.label;
+    b.addEventListener("click", () => selectProvider(doc, p.id));
+    wrap.appendChild(b);
+  }
+}
+
+export async function loadProviders(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/providers", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderProviders(doc, await res.json());
+  } catch (_e) {
+    const wrap = doc.getElementById("provider-select");
+    if (wrap) wrap.innerHTML = "";
+  }
+}
+
+/// Switch the upstream provider, remember it, and reflect it in the UI.
+async function selectProvider(doc, id) {
+  try {
+    const res = await fetch(apiBase() + "/provider", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    if (!res.ok) return;
+    try { localStorage.setItem("drifterr_provider", id); } catch (_e) { /* private mode */ }
+    for (const el of doc.querySelectorAll("#provider-select .provider-pill")) {
+      el.classList.toggle("active", el.dataset.id === id);
+    }
+    await loadConfig(doc); // refresh the Upstream row
+  } catch (_e) { /* proxy unreachable */ }
+}
+
+/// Re-apply the saved provider on launch so the choice survives a restart
+/// (the proxy itself defaults to the env/OpenRouter on boot).
+export async function applySavedProvider() {
+  let id = null;
+  try { id = localStorage.getItem("drifterr_provider"); } catch (_e) { /* ignore */ }
+  if (!id) return;
+  try {
+    await fetch(apiBase() + "/provider", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+  } catch (_e) { /* best effort */ }
 }
 
 // --- re-anchor intervention ------------------------------------------------
@@ -267,7 +329,7 @@ function setupUi(doc) {
   if (gear) {
     gear.addEventListener("click", async () => {
       const showing = toggleSettings(doc);
-      if (showing) await loadConfig(doc);
+      if (showing) { await loadConfig(doc); await loadProviders(doc); }
     });
   }
 
@@ -464,6 +526,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined" && !window.
   // an offline launch) can never leave a blank panel — worst case the user just
   // sees the (data-free) panel until the gate resolves.
   setupUi(document);
+  applySavedProvider();
   initAccounts(document);
   poll(document);
   window.setInterval(() => poll(document), 1500);
