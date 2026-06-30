@@ -67,8 +67,27 @@ enforced — gating is a follow-up once the plumbing is proven.
 3. ✅ **Desktop** — login gate on launch, account view, plan pill + upgrade
    nudge; plan changes open the hosted web checkout/portal in the browser.
    Configure via `apps/desktop/ui/config.js` (same keys as the web).
-4. **Gating** — enforce `plans.features` (decide what Pro/Team actually unlock).
+4. ✅ **Gating** — paid capabilities are enforced locally in the proxy from the
+   plan the app reports (identity only — no chat content involved). The plan →
+   capability mapping is the single source of truth in
+   [`crates/proxy/src/entitlement.rs`](../crates/proxy/src/entitlement.rs):
+
+   | Capability | Free | Pro | Team |
+   | --- | :-: | :-: | :-: |
+   | Local signals + manual re-anchor | ✅ | ✅ | ✅ |
+   | Tracked sessions at once | 1 | ∞ | ∞ |
+   | Drift map (history) | 🔒 | ✅ | ✅ |
+   | Auto-re-anchor (proxy) | 🔒 | ✅ | ✅ |
+   | Hosted judge (no personal key) | 🔒 | ✅ | ✅ |
+   | Shared standing orders · SSO | 🔒 | 🔒 | ✅ |
+
+   The desktop app `POST`s the plan to the proxy's `/entitlement` after `/me`;
+   `/status` then returns the active `entitlement` so the menubar can lock
+   features and prompt to upgrade. Enforcement of session cap, drift map and
+   auto-re-anchor is live; the **hosted judge** (server-side, the genuinely
+   server-enforced tier) and **team sharing / SSO** are the next hookups.
 
 Until `config.js` is filled with a real Supabase project, both clients run
-**accounts-free** — the desktop app skips the login gate and the site points at
-the free download, so nothing breaks before the backend is provisioned.
+**accounts-free** — the desktop app skips the login gate, the proxy defaults to
+the Free entitlement, and the site points at the free download, so nothing
+breaks before the backend is provisioned.

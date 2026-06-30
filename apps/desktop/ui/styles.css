@@ -418,3 +418,14 @@ code { font-family: var(--mono); }
 }
 .upgrade-nudge .muted { margin: 0; }
 .upgrade-nudge .reanchor-btn { width: 100%; justify-content: center; }
+
+/* --- gating: locked features ---------------------------------------------- */
+.lock-badge {
+  font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: 0.04em;
+  padding: 2px 7px; border-radius: 999px; margin-left: 6px; vertical-align: middle;
+  background: rgba(255, 120, 71, 0.16); color: var(--blue-bright);
+  border: 1px solid rgba(255, 120, 71, 0.3);
+}
+.lock-hint { display: none; margin: 8px 0 0; font-size: 11px; color: var(--ink-faint); }
+#drift-map-section.locked .drift-map { min-height: 18px; opacity: 0.25; filter: blur(1px); pointer-events: none; }
+#drift-map-section.locked .lock-hint { display: block; }

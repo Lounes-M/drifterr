@@ -461,8 +461,11 @@ async fn auto_reanchor_injects_preamble_when_drifting() {
         openai_upstream: base.clone(),
         anthropic_upstream: base,
     };
-    let state =
-        AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled).with_auto_reanchor(true);
+    // Auto-re-anchor is a paid capability, so the session must be on a plan that
+    // unlocks it (Pro) for the injection to fire.
+    let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled)
+        .with_auto_reanchor(true)
+        .with_plan(drifterr_proxy::entitlement::Plan::Pro);
     let proxy = spawn(proxy_router(state.clone())).await;
     let control = spawn(control_router(state)).await;
     let client = client();
@@ -615,4 +618,88 @@ async fn missing_auth_is_relayed_untouched() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 401);
+}
+
+#[tokio::test]
+async fn plan_gates_drift_map_and_sessions() {
+    // No upstream needed — we drive detection via the /ingest channel directly.
+    let cfg = ProxyConfig {
+        openai_upstream: "http://unused".into(),
+        anthropic_upstream: "http://unused".into(),
+    };
+    let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled);
+    let control = spawn(control_router(state)).await;
+    let client = client();
+    let ingest = format!("http://{control}/ingest");
+    let status = format!("http://{control}/status");
+    let entitlement = format!("http://{control}/entitlement");
+
+    let turns = serde_json::json!([
+        {"role": "user", "content": "build a CSV export, server-side only"},
+        {"role": "assistant", "content": "here is the plan for the export"}
+    ]);
+    // Two sessions, each ingested twice so the drift map has history.
+    for _ in 0..2 {
+        for sid in ["s1", "s2"] {
+            client
+                .post(&ingest)
+                .json(&serde_json::json!({"sessionId": sid, "model": "gpt-4o", "turns": turns}))
+                .send()
+                .await
+                .unwrap();
+        }
+    }
+
+    // Free (default): drift map locked (history withheld) and sessions capped at 1.
+    let v: serde_json::Value = client
+        .get(&status)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(v["entitlement"]["plan"], "free");
+    assert_eq!(v["entitlement"]["driftMap"], false);
+    assert!(
+        v["current"]["history"].as_array().unwrap().is_empty(),
+        "Free must not expose drift-map history"
+    );
+    assert_eq!(
+        v["sessions"].as_array().unwrap().len(),
+        1,
+        "Free caps tracked sessions at 1"
+    );
+    assert_eq!(
+        v["sessionsLocked"], 1,
+        "the other session is reported as locked"
+    );
+
+    // Upgrade to Pro: drift map + all sessions unlock.
+    client
+        .post(&entitlement)
+        .json(&serde_json::json!({"plan": "pro"}))
+        .send()
+        .await
+        .unwrap();
+    let v: serde_json::Value = client
+        .get(&status)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(v["entitlement"]["plan"], "pro");
+    assert_eq!(v["entitlement"]["driftMap"], true);
+    assert!(
+        !v["current"]["history"].as_array().unwrap().is_empty(),
+        "Pro exposes drift-map history"
+    );
+    assert_eq!(
+        v["sessions"].as_array().unwrap().len(),
+        2,
+        "Pro lifts the session cap"
+    );
+    assert_eq!(v["sessionsLocked"], 0);
 }

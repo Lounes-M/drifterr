@@ -22,6 +22,7 @@
 //! with a proxied path.
 
 pub mod dashboard;
+pub mod entitlement;
 pub mod provider;
 pub mod state;
 
@@ -33,6 +34,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use bytes::Bytes;
+use entitlement::{Entitlement, Plan};
 use futures_util::StreamExt;
 use provider::Provider;
 use serde::Deserialize;
@@ -40,7 +42,7 @@ use serde::Serialize;
 use state::{AppCore, SessionStatus};
 use std::future::IntoFuture;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::net::TcpListener;
 
 /// Largest request body we will read into memory before relaying (64 MiB).
@@ -102,6 +104,10 @@ pub struct AppState {
     /// Opt-in: inject the re-anchor preamble into outgoing requests when the
     /// session is drifting (RED). Off by default — it modifies user requests.
     pub auto_reanchor: bool,
+    /// Current plan entitlement, set by the desktop app after login. Defaults to
+    /// Free so the proxy works standalone. Gates paid capabilities (drift map,
+    /// extra sessions, auto-re-anchor).
+    pub entitlement: Arc<RwLock<Entitlement>>,
 }
 
 impl AppState {
@@ -127,6 +133,14 @@ impl AppState {
     /// Enable/disable auto-re-anchor (used by tests).
     pub fn with_auto_reanchor(mut self, on: bool) -> Self {
         self.auto_reanchor = on;
+        self
+    }
+
+    /// Set the active plan entitlement (used by tests and the app embedder).
+    pub fn with_plan(self, plan: Plan) -> Self {
+        if let Ok(mut w) = self.entitlement.write() {
+            *w = Entitlement::for_plan(plan);
+        }
         self
     }
 
@@ -157,7 +171,13 @@ impl AppState {
             meta: Arc::new(meta),
             judge: Arc::new(judge),
             auto_reanchor,
+            entitlement: Arc::new(RwLock::new(Entitlement::default())),
         }
+    }
+
+    /// Read the current entitlement (Free if the lock is poisoned).
+    pub fn entitlement(&self) -> Entitlement {
+        self.entitlement.read().map(|e| *e).unwrap_or_default()
     }
 }
 
@@ -185,6 +205,10 @@ pub fn control_router(state: AppState) -> Router {
         .route("/status", get(status_handler))
         .route("/sessions", get(sessions_handler))
         .route("/config", get(config_handler))
+        .route(
+            "/entitlement",
+            get(entitlement_handler).post(set_entitlement_handler),
+        )
         .route("/reanchor", get(reanchor_handler))
         .route("/standing-orders", get(standing_orders_handler))
         .route("/standing-orders/promote", post(promote_handler))
@@ -418,14 +442,72 @@ pub async fn serve(
 struct StatusResponse {
     current: Option<SessionStatus>,
     sessions: Vec<SessionStatus>,
+    /// The active entitlement, so the UI can render locks + upgrade prompts.
+    entitlement: Entitlement,
+    /// How many tracked sessions are hidden by the plan's session cap.
+    #[serde(rename = "sessionsLocked")]
+    sessions_locked: usize,
 }
 
 async fn status_handler(State(app): State<AppState>) -> Json<StatusResponse> {
-    let (current, sessions) = match app.core.lock() {
+    let ent = app.entitlement();
+    let (mut current, mut sessions) = match app.core.lock() {
         Ok(core) => (core.current(), core.all()),
         Err(_) => (None, Vec::new()),
     };
-    Json(StatusResponse { current, sessions })
+
+    // Gate the drift map: don't expose its history data unless the plan unlocks it.
+    if !ent.drift_map {
+        if let Some(c) = current.as_mut() {
+            c.history.clear();
+        }
+        for s in sessions.iter_mut() {
+            s.history.clear();
+        }
+    }
+
+    // Gate concurrent sessions: keep the active one first, then fill to the cap;
+    // the rest are surfaced only as a locked count.
+    let mut sessions_locked = 0;
+    if let Some(max) = ent.max_sessions {
+        if sessions.len() > max {
+            if let Some(cur) = current.as_ref() {
+                sessions.sort_by_key(|s| s.session_id != cur.session_id);
+            }
+            sessions_locked = sessions.len() - max;
+            sessions.truncate(max);
+        }
+    }
+
+    Json(StatusResponse {
+        current,
+        sessions,
+        entitlement: ent,
+        sessions_locked,
+    })
+}
+
+async fn entitlement_handler(State(app): State<AppState>) -> Json<Entitlement> {
+    Json(app.entitlement())
+}
+
+/// Set the active plan (the desktop app calls this after `/me`). We derive the
+/// capabilities from the plan id — never from client-sent flags.
+#[derive(Deserialize)]
+struct SetEntitlement {
+    #[serde(default)]
+    plan: String,
+}
+
+async fn set_entitlement_handler(
+    State(app): State<AppState>,
+    Json(body): Json<SetEntitlement>,
+) -> Json<Entitlement> {
+    let ent = Entitlement::for_plan(Plan::from_id(&body.plan));
+    if let Ok(mut w) = app.entitlement.write() {
+        *w = ent;
+    }
+    Json(ent)
 }
 
 async fn sessions_handler(State(app): State<AppState>) -> Json<Vec<SessionStatus>> {
@@ -458,7 +540,7 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
     // the re-anchor preamble into the outgoing request. Idempotent and best-
     // effort — on any doubt we relay the original bytes unchanged.
     let mut body_to_send = body_bytes.to_vec();
-    if app.auto_reanchor {
+    if app.auto_reanchor && app.entitlement().auto_reanchor {
         let session_id = state::session_id_for(&parsed_req);
         let preamble = app
             .core

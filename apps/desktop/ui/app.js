@@ -102,20 +102,32 @@ export function render(doc, data) {
     setText(doc, "drift-meta", `${drift} / 100`);
   }
 
-  // Drift map — sparkline of drift score over the recorded turns.
+  // Drift map — sparkline of drift score over the recorded turns. Gated: the
+  // proxy withholds history unless the plan unlocks it, so we lock the section
+  // and prompt to upgrade instead of showing an empty chart.
+  const ent = (data && data.entitlement) || {};
+  const mapSection = doc.getElementById("drift-map-section");
+  const mapLocked = ent.driftMap === false;
+  if (mapSection) mapSection.classList.toggle("locked", mapLocked);
+  const mapLock = doc.getElementById("map-lock");
+  if (mapLock) mapLock.hidden = !mapLocked;
   const map = doc.getElementById("drift-map");
   if (map) {
-    const hist = Array.isArray(cur.history) ? cur.history : [];
     map.innerHTML = "";
-    for (const v of hist.slice(-40)) {
-      const s = clampPct(v);
-      const b = doc.createElement("span");
-      b.className = "map-bar " + saturationClass(s);
-      b.style.height = Math.max(8, s) + "%";
-      b.title = s + " / 100";
-      map.appendChild(b);
+    if (mapLocked) {
+      setText(doc, "map-meta", "");
+    } else {
+      const hist = Array.isArray(cur.history) ? cur.history : [];
+      for (const v of hist.slice(-40)) {
+        const s = clampPct(v);
+        const b = doc.createElement("span");
+        b.className = "map-bar " + saturationClass(s);
+        b.style.height = Math.max(8, s) + "%";
+        b.title = s + " / 100";
+        map.appendChild(b);
+      }
+      setText(doc, "map-meta", hist.length ? `${hist.length} turn${hist.length > 1 ? "s" : ""}` : "no turns yet");
     }
-    setText(doc, "map-meta", hist.length ? `${hist.length} turn${hist.length > 1 ? "s" : ""}` : "no turns yet");
   }
 
   // Saturation bar.
@@ -377,13 +389,24 @@ async function loadEntitlement(doc, mod, user) {
   if (block) block.hidden = false;
   setText(doc, "acct-email", user.email || "");
 
-  let isFree = true, planName = "Free";
+  let isFree = true, planName = "Free", planId = "free";
   try {
     const me = await mod.fetchMe();
     const ent = me.entitlement || {};
     planName = ent.plan_name || "Free";
-    isFree = (ent.plan_id || "free") === "free";
+    planId = ent.plan_id || "free";
+    isFree = planId === "free";
   } catch (_e) { /* keep Free defaults */ }
+
+  // Tell the local proxy which plan to enforce (identity only — no chat content).
+  // The proxy derives the capability flags from the plan id itself.
+  try {
+    await fetch(apiBase() + "/entitlement", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan: planId }),
+    });
+  } catch (_e) { /* proxy not reachable yet — status poll will still reflect Free */ }
 
   setText(doc, "acct-plan", planName);
   const pill = doc.getElementById("plan-pill");
