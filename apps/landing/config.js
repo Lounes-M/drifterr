@@ -1,7 +1,8 @@
-// Public front-end config. The anon key is SAFE to expose in the browser — it's
-// designed to be public and Row Level Security is what actually protects data.
-// Fill these in after creating your Supabase project (see supabase/README.md),
-// then redeploy. Until they're filled, the auth/pricing UI degrades gracefully
-// (it points people at the free download instead of erroring).
-window.DRIFTERR_SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
-window.DRIFTERR_SUPABASE_ANON_KEY = "YOUR_PUBLIC_ANON_KEY";
+// Public front-end config. The publishable/anon key is SAFE to expose in the
+// browser — it's designed to be public and Row Level Security is what actually
+// protects data. (See supabase/README.md.)
+//
+// `??=` so a host (e.g. the hermetic test harness) can pre-set these before this
+// script runs; in production nothing pre-sets them, so the real values apply.
+window.DRIFTERR_SUPABASE_URL ??= "https://osjwjlyeqshhesunnite.supabase.co";
+window.DRIFTERR_SUPABASE_ANON_KEY ??= "sb_publishable_dGHpPqr3leDKfgB5ufztMw_51peO0pr";
