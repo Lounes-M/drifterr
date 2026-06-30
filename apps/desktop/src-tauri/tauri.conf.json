@@ -47,7 +47,7 @@
       "appimage": { "bundleMediaFramework": false }
     },
     "windows": {
-      "nsis": { "installMode": "perUser" }
+      "nsis": { "installMode": "currentUser" }
     }
   },
   "plugins": {
