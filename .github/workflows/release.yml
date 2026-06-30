@@ -12,6 +12,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag to build (e.g. v0.1.0)"
+        required: true
+        default: "v0.1.0"
 
 jobs:
   release:
@@ -67,8 +72,8 @@ jobs:
           # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/desktop/src-tauri
-          tagName: ${{ github.ref_name }}
-          releaseName: "Drifterr ${{ github.ref_name }}"
+          tagName: ${{ inputs.version || github.ref_name }}
+          releaseName: "Drifterr ${{ inputs.version || github.ref_name }}"
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
