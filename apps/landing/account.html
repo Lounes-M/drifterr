@@ -4,12 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Your account · Drifterr</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="auth.css" />
     <script src="config.js"></script>
   </head>
   <body>
-    <div class="bg" aria-hidden="true"><span class="blob b1" data-depth="18"></span><span class="blob b2" data-depth="-22"></span></div>
+    <div class="bg" aria-hidden="true">
+      <div class="grid"></div>
+      <span class="blob a" data-depth="40"></span>
+      <span class="blob b" data-depth="70"></span>
+      <span class="blob c" data-depth="55"></span>
+    </div>
+    <div class="cursor-glow" id="cursor-glow" aria-hidden="true"></div>
 
     <header class="nav">
       <div class="nav-inner">
@@ -17,44 +29,52 @@
           <span class="mark"><span class="fill"></span><span class="ring"></span></span>
           <b>drifterr</b>
         </a>
-        <a class="btn btn-ghost" id="signout" href="#">Sign out</a>
+        <div class="nav-right">
+          <a class="nav-acct" href="/">← Back to site</a>
+          <a class="btn" id="signout" href="#">Sign out</a>
+        </div>
       </div>
     </header>
 
     <main class="account">
-      <h1>Your account</h1>
-      <p class="sub" id="hello">Loading…</p>
+      <div class="acct-head reveal">
+        <span class="kicker">Account</span>
+        <h1>Your <span class="grad-text">account</span></h1>
+        <p class="sub" id="hello">Loading…</p>
+      </div>
 
       <div id="msg" class="auth-msg" hidden></div>
 
-      <div class="acct-card" id="plan-card" hidden>
-        <div class="acct-row">
-          <span class="k">Current plan</span>
-          <span class="v"><span id="plan-pill" class="plan-pill free">Free</span></span>
-        </div>
-        <div class="acct-row">
-          <span class="k">Status</span>
-          <span class="v" id="status">—</span>
-        </div>
-        <div class="acct-row" id="renew-row" hidden>
-          <span class="k">Renews</span>
-          <span class="v" id="renew">—</span>
-        </div>
-        <div class="acct-actions">
-          <a class="btn" id="upgrade" href="/#pricing">Upgrade plan</a>
-          <a class="btn btn-ghost" id="manage" href="#" hidden>Manage billing</a>
-          <a class="btn btn-ghost" href="/download">Download the app</a>
+      <div class="plan-hero reveal" id="plan-card" hidden>
+        <span class="ring" aria-hidden="true"></span>
+        <div class="plan-hero-inner">
+          <div class="plan-hero-top">
+            <div class="plan-current">
+              <div class="kick">Current plan</div>
+              <span id="plan-pill" class="plan-pill free">Free</span>
+            </div>
+            <div class="plan-stats">
+              <div class="ps-row"><span class="k">Status</span><b class="v" id="status">—</b></div>
+              <div class="ps-row" id="renew-row" hidden><span class="k">Renews</span><b class="v" id="renew">—</b></div>
+            </div>
+          </div>
+          <div class="acct-actions">
+            <a class="btn" id="upgrade" href="/#pricing">Upgrade plan <span class="arrow">→</span></a>
+            <a class="btn btn-ghost" id="manage" href="#" hidden>Manage billing</a>
+            <a class="btn btn-ghost" href="/download">Download the app</a>
+          </div>
         </div>
       </div>
 
-      <div class="acct-card" id="account-card" hidden>
+      <div class="acct-card reveal" id="account-card" hidden>
         <div class="acct-row"><span class="k">Email</span><span class="v" id="email">—</span></div>
         <div class="acct-row"><span class="k">Member since</span><span class="v" id="since">—</span></div>
       </div>
     </main>
 
+    <script type="module" src="app.js"></script>
     <script type="module">
-      import { supabase, configured, currentUser, fetchMe, openPortal, startCheckout, signOut } from "./supabase.js";
+      import { configured, currentUser, fetchMe, openPortal, startCheckout, signOut } from "./supabase.js";
 
       const msg = document.getElementById("msg");
       const show = (text, kind) => { msg.hidden = false; msg.className = "auth-msg " + kind; msg.textContent = text; };
@@ -70,12 +90,10 @@
         const user = await currentUser();
         if (!user) { window.location.href = "/login"; return; }
 
-        // Returning from Stripe checkout?
         const params = new URLSearchParams(window.location.search);
         if (params.get("checkout") === "success") show("You're all set — your plan is active. 🎉", "ok");
         if (params.get("checkout") === "cancelled") show("Checkout cancelled — no charge was made.", "info");
 
-        // Resume a checkout the visitor started from the pricing page before logging in.
         const pending = localStorage.getItem("drifterr_pending_checkout");
         if (pending && !params.get("checkout")) {
           localStorage.removeItem("drifterr_pending_checkout");
@@ -103,7 +121,7 @@
             const manage = document.getElementById("manage");
             manage.hidden = false;
             manage.addEventListener("click", (e) => { e.preventDefault(); openPortal().catch((err) => show(err.message, "error")); });
-            document.getElementById("upgrade").textContent = "Change plan";
+            document.getElementById("upgrade").innerHTML = 'Change plan <span class="arrow">→</span>';
           }
           document.getElementById("plan-card").hidden = false;
           document.getElementById("account-card").hidden = false;
