@@ -400,7 +400,16 @@ async function loadEntitlement(doc, mod, user) {
 
 export async function initAccounts(doc) {
   const mod = await authMod();
-  if (!mod || !mod.configured) return; // accounts off → no gate, panel as-is
+  if (!mod || !mod.configured) {
+    // Accounts are off, or the auth module couldn't load (e.g. offline / CDN
+    // hiccup). Either way, never leave the panel blank: undo the pre-hide and
+    // fall back to the accounts-free experience.
+    const body = doc.getElementById("app-body");
+    if (body) body.hidden = false;
+    const gate = doc.getElementById("gate");
+    if (gate) gate.hidden = true;
+    return;
+  }
   wireGate(doc, mod);
 
   const signout = doc.getElementById("acct-signout");
@@ -426,14 +435,10 @@ export async function poll(doc, fetchImpl) {
 }
 
 if (typeof document !== "undefined" && typeof window !== "undefined" && !window.__DRIFTERR_NO_AUTOSTART) {
-  // If accounts look configured, hide the body up front so the gate doesn't
-  // flash the panel before the auth check resolves. (Placeholder config keeps
-  // the body visible, so the default/test experience is unchanged.)
-  const url = window.DRIFTERR_SUPABASE_URL || "";
-  if (url && !url.includes("YOUR-PROJECT")) {
-    const body = document.getElementById("app-body");
-    if (body) body.hidden = true;
-  }
+  // The panel starts visible and `initAccounts` swaps in the login gate only
+  // once auth confirms there's no session. This way a slow/failed auth load (or
+  // an offline launch) can never leave a blank panel — worst case the user just
+  // sees the (data-free) panel until the gate resolves.
   setupUi(document);
   initAccounts(document);
   poll(document);

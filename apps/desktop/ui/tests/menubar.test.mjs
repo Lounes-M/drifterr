@@ -100,6 +100,15 @@ async function main() {
   const context = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
   const page = await context.newPage();
 
+  // Keep the test hermetic: neutralize the (production) accounts config so the
+  // login gate stays inactive and nothing reaches the network. config.js uses
+  // `??=`, so pre-setting these empty wins. This verifies the accounts-free
+  // panel behaviour; the gated path is covered by its own rendering check.
+  await page.addInitScript(() => {
+    window.DRIFTERR_SUPABASE_URL = "";
+    window.DRIFTERR_SUPABASE_ANON_KEY = "";
+  });
+
   // The route handler returns whatever `scenario` currently points at, so we
   // can flip server state between polls.
   let scenario = RED;

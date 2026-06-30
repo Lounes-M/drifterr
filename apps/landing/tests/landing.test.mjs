@@ -47,9 +47,19 @@ async function main() {
     process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}
   );
 
+  // Keep the test hermetic: neutralize the (production) accounts config so the
+  // lazily-loaded Supabase client never touches the network during the run.
+  // config.js uses `??=`, so pre-setting these empty wins.
+  const neutralizeAccounts = (page) =>
+    page.addInitScript(() => {
+      window.DRIFTERR_SUPABASE_URL = "";
+      window.DRIFTERR_SUPABASE_ANON_KEY = "";
+    });
+
   for (const [name, ua] of [["macOS", MAC_UA], ["Windows", WIN_UA]]) {
     const ctx = await browser.newContext({ userAgent: ua });
     const page = await ctx.newPage();
+    await neutralizeAccounts(page);
     await page.goto(url);
     console.log(name + " visitor:");
     const label = await page.locator("#download").textContent();
@@ -65,6 +75,7 @@ async function main() {
   // --- download hub page ---
   {
     const page = await (await browser.newContext({ userAgent: MAC_UA })).newPage();
+    await neutralizeAccounts(page);
     await page.goto(`http://127.0.0.1:${port}/download.html`);
     await page.waitForFunction(() => document.getElementById("rec-label").textContent.includes("Download"));
     console.log("download page:");
