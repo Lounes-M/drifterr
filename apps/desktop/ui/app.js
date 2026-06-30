@@ -236,9 +236,10 @@ export async function loadConfig(doc, fetchImpl) {
 
 // --- provider selector -----------------------------------------------------
 
-/// Render the provider pills from `GET /providers` ({ current, providers }).
-export function renderProviders(doc, data) {
-  const wrap = doc.getElementById("provider-select");
+/// Render the provider pills from `GET /providers` ({ current, providers }) into
+/// the given container (defaults to the settings selector).
+export function renderProviders(doc, data, containerId = "provider-select") {
+  const wrap = doc.getElementById(containerId);
   if (!wrap) return;
   wrap.innerHTML = "";
   const cur = data && data.current;
@@ -253,19 +254,20 @@ export function renderProviders(doc, data) {
   }
 }
 
-export async function loadProviders(doc, fetchImpl) {
+export async function loadProviders(doc, fetchImpl, containerId = "provider-select") {
   const f = fetchImpl || fetch;
   try {
     const res = await f(apiBase() + "/providers", { cache: "no-store" });
     if (!res.ok) throw new Error("HTTP " + res.status);
-    renderProviders(doc, await res.json());
+    renderProviders(doc, await res.json(), containerId);
   } catch (_e) {
-    const wrap = doc.getElementById("provider-select");
+    const wrap = doc.getElementById(containerId);
     if (wrap) wrap.innerHTML = "";
   }
 }
 
-/// Switch the upstream provider, remember it, and reflect it in the UI.
+/// Switch the upstream provider, remember it, and reflect it across every pill
+/// group in the document (settings + onboarding share the same state).
 async function selectProvider(doc, id) {
   try {
     const res = await fetch(apiBase() + "/provider", {
@@ -275,7 +277,7 @@ async function selectProvider(doc, id) {
     });
     if (!res.ok) return;
     try { localStorage.setItem("drifterr_provider", id); } catch (_e) { /* private mode */ }
-    for (const el of doc.querySelectorAll("#provider-select .provider-pill")) {
+    for (const el of doc.querySelectorAll(".provider-pill")) {
       el.classList.toggle("active", el.dataset.id === id);
     }
     await loadConfig(doc); // refresh the Upstream row
@@ -507,6 +509,73 @@ export async function initAccounts(doc) {
   await refreshAuth(doc, mod);
 }
 
+// --- first-run onboarding --------------------------------------------------
+//
+// A stepped, animated tour shown once on first launch: welcome → pick provider
+// → connect your tool → ready. Dismissal is remembered in localStorage.
+
+const ONB_STEPS = 4;
+let onbStep = 0;
+
+function updateOnboarding(doc) {
+  const track = doc.getElementById("onb-track");
+  if (track) track.style.transform = `translateX(-${onbStep * 100}%)`;
+  const dots = doc.getElementById("onb-dots");
+  if (dots) {
+    dots.innerHTML = "";
+    for (let i = 0; i < ONB_STEPS; i++) {
+      const d = doc.createElement("span");
+      d.className = "onb-dot" + (i === onbStep ? " on" : "");
+      dots.appendChild(d);
+    }
+  }
+  const back = doc.getElementById("onb-back");
+  if (back) back.style.visibility = onbStep === 0 ? "hidden" : "visible";
+  const next = doc.getElementById("onb-next");
+  if (next) next.textContent = onbStep === ONB_STEPS - 1 ? "Get started" : "Next";
+}
+
+export function finishOnboarding(doc) {
+  try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) { /* private mode */ }
+  const o = doc.getElementById("onboarding");
+  if (o) o.hidden = true;
+}
+
+function setupOnboarding(doc) {
+  const next = doc.getElementById("onb-next");
+  if (next) next.addEventListener("click", () => {
+    if (onbStep >= ONB_STEPS - 1) finishOnboarding(doc);
+    else { onbStep++; updateOnboarding(doc); }
+  });
+  const back = doc.getElementById("onb-back");
+  if (back) back.addEventListener("click", () => { if (onbStep > 0) { onbStep--; updateOnboarding(doc); } });
+  const skip = doc.getElementById("onb-skip");
+  if (skip) skip.addEventListener("click", () => finishOnboarding(doc));
+
+  for (const el of doc.querySelectorAll("#onboarding .onb-copy")) {
+    el.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(el.dataset.copy || "");
+        const b = el.querySelector(".onb-copy-btn");
+        if (b) { const t = b.textContent; b.textContent = "Copied!"; setTimeout(() => (b.textContent = t), 1200); }
+      } catch (_e) { /* clipboard blocked */ }
+    });
+  }
+}
+
+/// Show the tour on first launch (unless already dismissed).
+export function maybeOnboard(doc) {
+  let done = null;
+  try { done = localStorage.getItem("drifterr_onboarded"); } catch (_e) { /* ignore */ }
+  if (done) return;
+  const o = doc.getElementById("onboarding");
+  if (!o) return;
+  o.hidden = false;
+  onbStep = 0;
+  updateOnboarding(doc);
+  loadProviders(doc, undefined, "onb-provider-select");
+}
+
 // --- polling loop (browser only) -------------------------------------------
 
 export async function poll(doc, fetchImpl) {
@@ -526,8 +595,10 @@ if (typeof document !== "undefined" && typeof window !== "undefined" && !window.
   // an offline launch) can never leave a blank panel — worst case the user just
   // sees the (data-free) panel until the gate resolves.
   setupUi(document);
+  setupOnboarding(document);
   applySavedProvider();
   initAccounts(document);
+  maybeOnboard(document);
   poll(document);
   window.setInterval(() => poll(document), 1500);
 }
