@@ -30,6 +30,20 @@
       role: (el) => (el.tagName.toLowerCase() === "user-query" ? "user" : "assistant"),
       model: "gemini-1.5-pro",
     },
+    {
+      match: /(^|\.)copilot\.microsoft\.com$/,
+      items: '[data-content="user-message"], [data-content="ai-message"]',
+      role: (el) =>
+        el.getAttribute("data-content") === "user-message" ? "user" : "assistant",
+      model: "copilot",
+    },
+    {
+      match: /(^|\.)perplexity\.ai$/,
+      items: '[data-testid="user-query"], [data-testid="answer"]',
+      role: (el) =>
+        el.getAttribute("data-testid") === "user-query" ? "user" : "assistant",
+      model: "perplexity",
+    },
   ];
 
   function pickConfig(hostname) {

@@ -61,6 +61,26 @@ impl Verdict {
             .max_by_key(|e| (e.state, hard_rank(e.signal)))
     }
 
+    /// A 0–100 **display** aggregate of how far this turn has drifted. This is a
+    /// presentation metric only: the separate signals (and `triggering`) remain
+    /// the source of truth for the committed state and for naming the cause — the
+    /// score never drives a decision. Higher = more drift.
+    pub fn drift_score(&self) -> u8 {
+        let mut s: u32 = 0;
+        for e in &self.events {
+            s += match (e.signal, e.state) {
+                (_, State::Green) => 0,
+                (SignalKind::Constraint, State::Red) => 55,
+                (SignalKind::Saturation, State::Red) => 45,
+                (_, State::Red) => 35,
+                (SignalKind::Constraint, State::Amber) => 22,
+                (SignalKind::Saturation, State::Amber) => 18,
+                (_, State::Amber) => 12,
+            };
+        }
+        s.min(100) as u8
+    }
+
     /// Was any hard constraint violated this turn?
     fn has_constraint_violation(&self) -> bool {
         self.events
@@ -235,5 +255,29 @@ mod tests {
             ev(SignalKind::Constraint, State::Red),
         ]);
         assert_eq!(verdict.triggering().unwrap().signal, SignalKind::Constraint);
+    }
+
+    #[test]
+    fn drift_score_is_zero_when_all_green_and_rises_with_severity() {
+        // No events / all green → 0.
+        assert_eq!(v(vec![]).drift_score(), 0);
+        assert_eq!(
+            v(vec![ev(SignalKind::Saturation, State::Green)]).drift_score(),
+            0
+        );
+        // Amber < Red, and it accumulates across signals, capped at 100.
+        let amber = v(vec![ev(SignalKind::Saturation, State::Amber)]).drift_score();
+        let red = v(vec![ev(SignalKind::Constraint, State::Red)]).drift_score();
+        assert!(
+            amber > 0 && amber < red,
+            "amber {amber} should be below red {red}"
+        );
+        let many = v(vec![
+            ev(SignalKind::Constraint, State::Red),
+            ev(SignalKind::Saturation, State::Red),
+            ev(SignalKind::GoalAlignment, State::Red),
+        ])
+        .drift_score();
+        assert_eq!(many, 100, "stacked red signals clamp at 100");
     }
 }

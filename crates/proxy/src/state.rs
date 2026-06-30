@@ -38,6 +38,10 @@ pub struct SessionStatus {
     /// Context occupancy 0–100.
     #[serde(rename = "saturationPct")]
     pub saturation_pct: u32,
+    /// 0–100 display aggregate of drift this turn (presentation only — the
+    /// separate signals remain the source of truth for `state`/`triggering`).
+    #[serde(rename = "driftScore")]
+    pub drift_score: u8,
     /// Whether saturation is exact (proxy usage) or estimated.
     pub exact: bool,
     /// The single signal the UI should name as the cause, if not green.
@@ -241,6 +245,7 @@ impl AppCore {
                     model: conv.model.clone(),
                     state: State::Green,
                     saturation_pct: 0,
+                    drift_score: 0,
                     exact: conv.context.exact,
                     triggering: None,
                     signals: Vec::new(),
@@ -275,6 +280,7 @@ impl AppCore {
             model: conv.model.clone(),
             state: committed,
             saturation_pct: (conv.saturation_ratio() * 100.0).round() as u32,
+            drift_score: verdict.drift_score(),
             exact: conv.context.exact,
             triggering: verdict.triggering().map(view_of),
             signals: verdict.events.iter().map(view_of).collect(),

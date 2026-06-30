@@ -31,6 +31,18 @@ const CLAUDE_HTML = `
     <div class="font-claude-message">Okay, using argon2 for hashing.</div>
   </div>`;
 
+const COPILOT_HTML = `
+  <div>
+    <div data-content="user-message">Keep the API server-side</div>
+    <div data-content="ai-message">Got it, server-side only.</div>
+  </div>`;
+
+const PERPLEXITY_HTML = `
+  <div>
+    <div data-testid="user-query">Summarize this, cite sources</div>
+    <div data-testid="answer">Here is the summary with citations.</div>
+  </div>`;
+
 async function main() {
   const browser = await chromium.launch(
     process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}
@@ -72,6 +84,30 @@ async function main() {
   check(cl.turns[0].role === "user", "user-message → user");
   check(cl.turns[1].role === "assistant", "claude-message → assistant");
   check(cl.model === "claude-opus-4-x", "infers claude model");
+
+  console.log("Copilot DOM:");
+  const co = await page.evaluate(
+    ([html]) => {
+      document.body.innerHTML = html;
+      return window.DrifterrParse.extract({ hostname: "copilot.microsoft.com", doc: document, pathname: "/" });
+    },
+    [COPILOT_HTML]
+  );
+  check(co.turns.length === 2, "extracts both turns");
+  check(co.turns[0].role === "user" && co.turns[1].role === "assistant", "maps copilot roles");
+  check(co.model === "copilot", "infers copilot model");
+
+  console.log("Perplexity DOM:");
+  const px = await page.evaluate(
+    ([html]) => {
+      document.body.innerHTML = html;
+      return window.DrifterrParse.extract({ hostname: "www.perplexity.ai", doc: document, pathname: "/search/abc123" });
+    },
+    [PERPLEXITY_HTML]
+  );
+  check(px.turns.length === 2, "extracts both turns");
+  check(px.turns[0].role === "user" && px.turns[1].role === "assistant", "maps perplexity roles");
+  check(px.model === "perplexity", "infers perplexity model");
 
   console.log("Unknown host:");
   const none = await page.evaluate(() =>
