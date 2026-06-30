@@ -16,6 +16,9 @@
 //! real ONNX model (e.g. `bge-small`) is a one-place change behind a feature
 //! flag — the signal code is unchanged. See `README.md`.
 
+#[cfg(feature = "onnx")]
+mod onnx;
+
 /// Anything that maps text to a fixed-length vector.
 ///
 /// `Send + Sync` so embedders can be held across `.await` in the async judge
@@ -32,9 +35,23 @@ pub trait Embedder: Send + Sync {
 /// the local model when no model file is configured. The engine depends only on
 /// the returned `dyn Embedder`, so nothing else changes.
 pub fn default_embedder() -> Box<dyn Embedder> {
-    // Future (feature = "onnx"): if DRIFTERR_EMBED_MODEL points at a model file,
-    // return Box::new(OnnxEmbedder::load(path)?) and fall back to BagEmbedder on
-    // any error. See README.md → "Upgrading to a semantic ONNX model".
+    // With the `onnx` feature, a model directory in DRIFTERR_EMBED_MODEL selects
+    // the semantic embedder; any load error falls back to the local model so
+    // detection never breaks.
+    #[cfg(feature = "onnx")]
+    {
+        if let Ok(dir) = std::env::var("DRIFTERR_EMBED_MODEL") {
+            let dir = dir.trim();
+            if !dir.is_empty() {
+                match onnx::OnnxEmbedder::load(std::path::Path::new(dir)) {
+                    Ok(e) => return Box::new(e),
+                    Err(err) => eprintln!(
+                        "drifterr: ONNX embedder load failed ({err}); using the local embedder"
+                    ),
+                }
+            }
+        }
+    }
     Box::new(BagEmbedder::default())
 }
 
