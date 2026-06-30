@@ -165,6 +165,15 @@ async function main() {
   check((await page.locator("#dot").getAttribute("class")).includes("green"), "dot flips to green");
   check(!(await page.locator("#trigger").isVisible()), "trigger block hidden when aligned");
 
+  console.log("GATING (drift map lock):");
+  const baseCur = { sessionId: "s", model: "m", state: "green", saturationPct: 10, exact: true, driftScore: 5, history: [5, 8, 12], signals: [] };
+  scenario = { current: baseCur, sessions: [], entitlement: { plan: "free", driftMap: false }, sessionsLocked: 1 };
+  await page.waitForFunction(() => document.getElementById("drift-map-section").classList.contains("locked"), null, { timeout: 5000 });
+  check(await page.locator("#map-lock").isVisible(), "Free locks the drift map with a Pro badge");
+  scenario = { current: baseCur, sessions: [], entitlement: { plan: "pro", driftMap: true }, sessionsLocked: 0 };
+  await page.waitForFunction(() => !document.getElementById("drift-map-section").classList.contains("locked"), null, { timeout: 5000 });
+  check(!(await page.locator("#map-lock").isVisible()), "Pro unlocks the drift map");
+
   console.log("SETTINGS view:");
   await page.route("**/config*", (route) =>
     route.fulfill({
