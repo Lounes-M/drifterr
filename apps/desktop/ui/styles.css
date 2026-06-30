@@ -511,3 +511,7 @@ code { font-family: var(--mono); }
 .onb-dot.on { width: 18px; background: linear-gradient(135deg, var(--blue), var(--blue-deep)); }
 .onb-nav { display: flex; align-items: center; gap: 8px; }
 .onb-nav .reanchor-btn { padding: 9px 18px; }
+
+.onb-note { font-size: 12px; color: var(--ink-soft); margin: 14px 0 0; }
+.onb-note b { color: var(--ink); }
+.onb-slide .onb-copy { margin-top: 8px; padding: 9px 11px; }

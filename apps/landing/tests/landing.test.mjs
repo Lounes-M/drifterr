@@ -86,6 +86,19 @@ async function main() {
     check(!/github\.com/.test(html), "download page exposes no github.com link");
   }
 
+  // --- legal pages ---
+  {
+    const page = await (await browser.newContext()).newPage();
+    await neutralizeAccounts(page);
+    console.log("legal pages:");
+    for (const [path, heading] of [["/privacy.html", "Privacy Policy"], ["/terms.html", "Terms of Service"]]) {
+      await page.goto(`http://127.0.0.1:${port}${path}`);
+      check((await page.locator("h1").textContent()) === heading, `${path} renders "${heading}"`);
+      check((await page.locator('footer a[href="/privacy"]').count()) === 1, `${path} footer links Privacy`);
+      check((await page.locator('footer a[href="/terms"]').count()) === 1, `${path} footer links Terms`);
+    }
+  }
+
   await browser.close();
   server.close();
   if (failures) {
