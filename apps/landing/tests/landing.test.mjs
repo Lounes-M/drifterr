@@ -47,23 +47,32 @@ async function main() {
     process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}
   );
 
-  for (const [name, ua, want, path] of [
-    ["macOS", MAC_UA, "macOS", "/download/mac"],
-    ["Windows", WIN_UA, "Windows", "/download/win"],
-  ]) {
+  for (const [name, ua] of [["macOS", MAC_UA], ["Windows", WIN_UA]]) {
     const ctx = await browser.newContext({ userAgent: ua });
     const page = await ctx.newPage();
     await page.goto(url);
-    await page.waitForFunction(() => document.getElementById("download").textContent.includes("Download"));
     console.log(name + " visitor:");
     const label = await page.locator("#download").textContent();
-    check(label.includes(want), `download button says "${want}"`);
+    check(label.includes("Download"), "download button says Download");
     const href = await page.locator("#download").getAttribute("href");
-    check(href.endsWith(path), `download links to ${path} (own domain)`);
+    check(href.endsWith("/download"), "download links to the /download page (own domain)");
     check(!/github\.com/.test(href), "download does not point at github.com");
     check((await page.locator("h1").textContent()).length > 10, "hero headline renders");
     check((await page.locator(".card").count()) === 6, "six feature cards");
     await ctx.close();
+  }
+
+  // --- download hub page ---
+  {
+    const page = await (await browser.newContext({ userAgent: MAC_UA })).newPage();
+    await page.goto(`http://127.0.0.1:${port}/download.html`);
+    await page.waitForFunction(() => document.getElementById("rec-label").textContent.includes("Download"));
+    console.log("download page:");
+    check((await page.locator("#rec-label").textContent()).includes("macOS"), "recommended card detects macOS");
+    check((await page.locator(".dl[data-os]").count()) === 4, "four platform tiles");
+    check((await page.locator(".copy[data-cmd]").count()) === 3, "three CLI commands");
+    const html = await page.content();
+    check(!/github\.com/.test(html), "download page exposes no github.com link");
   }
 
   await browser.close();

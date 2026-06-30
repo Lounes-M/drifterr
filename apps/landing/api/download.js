@@ -13,13 +13,15 @@ const MATCHERS = {
   mac: [/universal.*\.dmg$/i, /(aarch64|arm64).*\.dmg$/i, /\.dmg$/i],
   win: [/setup\.exe$/i, /\.msi$/i, /\.exe$/i],
   linux: [/\.appimage$/i, /\.deb$/i],
+  deb: [/\.deb$/i],
 };
 
 function normalizeOS(raw) {
   const s = String(raw || "").toLowerCase();
   if (/mac|osx|darwin|apple/.test(s)) return "mac";
   if (/win/.test(s)) return "win";
-  if (/linux|appimage|deb/.test(s)) return "linux";
+  if (/deb$/.test(s)) return "deb";
+  if (/linux|appimage/.test(s)) return "linux";
   return null;
 }
 
