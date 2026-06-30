@@ -62,7 +62,13 @@ enforced — gating is a follow-up once the plumbing is proven.
 
 ## Roadmap
 
-1. **Backend foundation** (this) — schema, RLS, edge functions, setup guide.
-2. **Web** — pricing wired to checkout, `/login` `/signup` `/account` pages.
-3. **Desktop** — login gate on first launch, plan selector, account view.
+1. ✅ **Backend foundation** — schema, RLS, edge functions, setup guide.
+2. ✅ **Web** — pricing wired to checkout, `/login` `/signup` `/account` pages.
+3. ✅ **Desktop** — login gate on launch, account view, plan pill + upgrade
+   nudge; plan changes open the hosted web checkout/portal in the browser.
+   Configure via `apps/desktop/ui/config.js` (same keys as the web).
 4. **Gating** — enforce `plans.features` (decide what Pro/Team actually unlock).
+
+Until `config.js` is filled with a real Supabase project, both clients run
+**accounts-free** — the desktop app skips the login gate and the site points at
+the free download, so nothing breaks before the backend is provisioned.

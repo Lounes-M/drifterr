@@ -286,6 +286,132 @@ function setupUi(doc) {
   }
 }
 
+// --- accounts: login gate + plan ------------------------------------------
+//
+// auth.js (and the Supabase client it pulls from a CDN) is imported lazily so
+// it can never block the core panel. When accounts aren't configured (the
+// shipped default until config.js is filled), none of this runs and the panel
+// behaves exactly as before.
+
+let _auth = null;
+function authMod() {
+  return (_auth ??= import("./auth.js").catch(() => null));
+}
+
+let gateMode = "signin"; // "signin" | "signup"
+
+function applyGateMode(doc) {
+  const signup = gateMode === "signup";
+  setText(doc, "gate-title", signup ? "Create your account" : "Sign in to Drifterr");
+  setText(doc, "gate-sub", signup
+    ? "Free to start. Pick a plan after you sign in."
+    : "Connect your account to start tracking drift.");
+  setText(doc, "gate-submit", signup ? "Create account" : "Sign in");
+  setText(doc, "gate-alt-text", signup ? "Already have an account?" : "New here?");
+  setText(doc, "gate-toggle", signup ? "Sign in" : "Create an account");
+  const nameField = doc.getElementById("gate-name-field");
+  if (nameField) nameField.hidden = !signup;
+}
+
+function gateMessage(doc, text, kind) {
+  const msg = doc.getElementById("gate-msg");
+  if (!msg) return;
+  msg.hidden = !text;
+  msg.className = "gate-msg " + (kind || "");
+  msg.textContent = text || "";
+}
+
+async function submitGate(doc, mod) {
+  const email = (doc.getElementById("gate-email").value || "").trim();
+  const password = doc.getElementById("gate-password").value || "";
+  const name = (doc.getElementById("gate-name")?.value || "").trim();
+  const btn = doc.getElementById("gate-submit");
+  if (!email || !password) return gateMessage(doc, "Enter your email and password.", "error");
+  btn.disabled = true;
+  try {
+    if (gateMode === "signup") {
+      const data = await mod.signUp(email, password, name);
+      if (data.session) await refreshAuth(doc, mod);
+      else gateMessage(doc, "Check your email to confirm, then sign in.", "ok");
+    } else {
+      await mod.signIn(email, password);
+      await refreshAuth(doc, mod);
+    }
+  } catch (err) {
+    gateMessage(doc, err.message || "Something went wrong.", "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function wireGate(doc, mod) {
+  const toggle = doc.getElementById("gate-toggle");
+  if (toggle) toggle.addEventListener("click", (e) => {
+    e.preventDefault();
+    gateMode = gateMode === "signin" ? "signup" : "signin";
+    gateMessage(doc, "", "");
+    applyGateMode(doc);
+  });
+  const submit = doc.getElementById("gate-submit");
+  if (submit) submit.addEventListener("click", () => submitGate(doc, mod));
+  applyGateMode(doc);
+}
+
+/// Show the gate (logged out) or the panel body (logged in).
+export async function refreshAuth(doc, mod) {
+  const user = await mod.currentUser();
+  const gate = doc.getElementById("gate");
+  const body = doc.getElementById("app-body");
+  if (!user) {
+    if (gate) gate.hidden = false;
+    if (body) body.hidden = true;
+    return;
+  }
+  if (gate) gate.hidden = true;
+  if (body) body.hidden = false;
+  await loadEntitlement(doc, mod, user);
+}
+
+async function loadEntitlement(doc, mod, user) {
+  const block = doc.getElementById("account-block");
+  if (block) block.hidden = false;
+  setText(doc, "acct-email", user.email || "");
+
+  let isFree = true, planName = "Free";
+  try {
+    const me = await mod.fetchMe();
+    const ent = me.entitlement || {};
+    planName = ent.plan_name || "Free";
+    isFree = (ent.plan_id || "free") === "free";
+  } catch (_e) { /* keep Free defaults */ }
+
+  setText(doc, "acct-plan", planName);
+  const pill = doc.getElementById("plan-pill");
+  if (pill) { pill.hidden = false; pill.textContent = planName; pill.classList.toggle("free", isFree); }
+  const nudge = doc.getElementById("upgrade-nudge");
+  if (nudge) nudge.hidden = !isFree;
+
+  const planBtn = doc.getElementById("acct-plan-btn");
+  if (planBtn) {
+    planBtn.textContent = isFree ? "Choose plan" : "Manage billing";
+    planBtn.onclick = () => mod.openExternal(mod.SITE_URL + (isFree ? "/#pricing" : "/account"));
+  }
+}
+
+export async function initAccounts(doc) {
+  const mod = await authMod();
+  if (!mod || !mod.configured) return; // accounts off → no gate, panel as-is
+  wireGate(doc, mod);
+
+  const signout = doc.getElementById("acct-signout");
+  if (signout) signout.addEventListener("click", async () => { await mod.signOut(); await refreshAuth(doc, mod); });
+  const upgrade = doc.getElementById("upgrade-btn");
+  if (upgrade) upgrade.addEventListener("click", () => mod.openExternal(mod.SITE_URL + "/#pricing"));
+
+  if (mod.supabase) mod.supabase.auth.onAuthStateChange(() => refreshAuth(doc, mod));
+  await refreshAuth(doc, mod);
+}
+
 // --- polling loop (browser only) -------------------------------------------
 
 export async function poll(doc, fetchImpl) {
@@ -300,7 +426,16 @@ export async function poll(doc, fetchImpl) {
 }
 
 if (typeof document !== "undefined" && typeof window !== "undefined" && !window.__DRIFTERR_NO_AUTOSTART) {
+  // If accounts look configured, hide the body up front so the gate doesn't
+  // flash the panel before the auth check resolves. (Placeholder config keeps
+  // the body visible, so the default/test experience is unchanged.)
+  const url = window.DRIFTERR_SUPABASE_URL || "";
+  if (url && !url.includes("YOUR-PROJECT")) {
+    const body = document.getElementById("app-body");
+    if (body) body.hidden = true;
+  }
   setupUi(document);
+  initAccounts(document);
   poll(document);
   window.setInterval(() => poll(document), 1500);
 }
