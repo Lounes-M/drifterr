@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Confirm your new email</title>
+  </head>
+  <body style="margin:0;padding:0;background:#07060d;">
+    <span style="display:none;max-height:0;overflow:hidden;opacity:0;color:#07060d;">Confirm your new email address.</span>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#07060d;padding:40px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px;background:#15131f;border:1px solid rgba(255,255,255,0.09);border-radius:20px;overflow:hidden;">
+            <tr>
+              <td style="padding:34px 36px 0 36px;" align="left">
+                <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+                  <td style="vertical-align:middle;">
+                    <img src="https://drifterr.app/assets/favicon/favicon-48.png" width="30" height="30" alt="Drifterr" style="display:block;border-radius:8px;" />
+                  </td>
+                  <td style="vertical-align:middle;padding-left:10px;">
+                    <span style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:18px;font-weight:700;color:#ffffff;letter-spacing:-0.5px;">drifterr</span>
+                  </td>
+                </tr></table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:26px 36px 0 36px;" align="left">
+                <h1 style="margin:0 0 12px 0;font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:24px;line-height:1.2;font-weight:700;color:#ffffff;">Confirm your new email</h1>
+                <p style="margin:0 0 24px 0;font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#b6b4c6;">Tap the button below to confirm this as the new email address for your Drifterr account.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 36px 4px 36px;" align="left">
+                <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+                  <td bgcolor="#ff5a5f" style="border-radius:12px;background-image:linear-gradient(135deg,#ff7847,#ff3d81);">
+                    <a href="{{ .ConfirmationURL }}" target="_blank" style="display:inline-block;padding:13px 30px;font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px;">Confirm new email</a>
+                  </td>
+                </tr></table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:22px 36px 0 36px;" align="left">
+                <p style="margin:0;font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:12.5px;line-height:1.6;color:#6f6d82;">Or paste this link into your browser:<br/>
+                  <a href="{{ .ConfirmationURL }}" target="_blank" style="color:#ff8a64;word-break:break-all;">{{ .ConfirmationURL }}</a>
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:26px 36px 34px 36px;border-top:1px solid rgba(255,255,255,0.07);margin-top:24px;" align="left">
+                <p style="margin:18px 0 0 0;font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#6f6d82;">
+                  Drifterr keeps your AI chats on track — local-first. If you didn't request this, you can safely ignore this email.
+                </p>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:18px 0 0 0;font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:11px;color:#46455a;">© Drifterr · drifterr.app</p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
