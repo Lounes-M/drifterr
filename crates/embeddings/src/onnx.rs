@@ -76,24 +76,27 @@ impl OnnxEmbedder {
         let mask_arr = Array2::from_shape_vec((1, n), mask.clone())?;
 
         let mut session = self.session.lock().unwrap();
+        // `ort::inputs!` builds the input vec directly (it is not fallible).
         let outputs = if self.wants_token_types {
             let types = Array2::<i64>::zeros((1, n));
             session.run(ort::inputs![
                 "input_ids" => Value::from_array(id_arr)?,
                 "attention_mask" => Value::from_array(mask_arr)?,
                 "token_type_ids" => Value::from_array(types)?,
-            ]?)?
+            ])?
         } else {
             session.run(ort::inputs![
                 "input_ids" => Value::from_array(id_arr)?,
                 "attention_mask" => Value::from_array(mask_arr)?,
-            ]?)?
+            ])?
         };
 
         // Take the token-level hidden states (first output for encoder models).
-        let (shape, data) = outputs[0].try_extract_raw_tensor::<f32>()?;
+        // `try_extract_tensor` yields (&Shape, &[T]); Shape derefs to [i64].
+        let (shape, data) = outputs[0].try_extract_tensor::<f32>()?;
+        let dims: &[i64] = shape;
         // Expected shape: [1, seq, hidden].
-        let (seq, hidden) = match shape.as_slice() {
+        let (seq, hidden) = match dims {
             [_, s, h] => (*s as usize, *h as usize),
             _ => return Err("unexpected model output shape".into()),
         };
@@ -101,8 +104,8 @@ impl OnnxEmbedder {
         // Mean-pool over tokens, weighted by the attention mask.
         let mut pooled = vec![0.0f32; hidden];
         let mut denom = 0.0f32;
-        for t in 0..seq.min(n) {
-            let m = mask[t] as f32;
+        for (t, &mi) in mask.iter().enumerate().take(seq.min(n)) {
+            let m = mi as f32;
             if m == 0.0 {
                 continue;
             }
