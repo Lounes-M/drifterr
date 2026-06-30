@@ -180,6 +180,7 @@ async function main() {
       contentType: "application/json",
       body: JSON.stringify({
         version: "0.0.1",
+        provider: "OpenRouter",
         openaiUpstream: "https://openrouter.ai/api",
         anthropicUpstream: "https://api.anthropic.com",
         persisted: false,
@@ -198,6 +199,7 @@ async function main() {
     (await page.locator("#cfg-upstream").textContent()).includes("openrouter.ai"),
     "settings shows OpenRouter upstream"
   );
+  check((await page.locator("#cfg-provider").textContent()) === "OpenRouter", "settings names the active provider");
   check((await page.locator("#cfg-storage").textContent()) === "In-memory", "settings shows storage mode");
   check((await page.locator("#cfg-judge").textContent()).includes("gpt-4o-mini"), "settings shows judge model");
   await page.locator("#gear").click();

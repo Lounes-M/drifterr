@@ -207,6 +207,7 @@ function clampPct(n) {
 /// Render the effective config into the settings view. `cfg` is the `/config`
 /// payload, or `null` when it couldn't be fetched.
 export function renderConfig(doc, cfg) {
+  setText(doc, "cfg-provider", cfg && cfg.provider ? cfg.provider : "—");
   setText(doc, "cfg-upstream", cfg ? cfg.openaiUpstream : "—");
   setText(doc, "cfg-judge", cfg ? cfg.judge : "—");
   setText(doc, "cfg-storage", cfg ? (cfg.persisted ? "SQLite (persisted)" : "In-memory") : "—");

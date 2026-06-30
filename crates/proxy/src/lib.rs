@@ -25,6 +25,7 @@ pub mod dashboard;
 pub mod entitlement;
 pub mod provider;
 pub mod state;
+pub mod upstreams;
 
 use axum::body::Body;
 use axum::extract::{Path as AxPath, Query, Request, State};
@@ -54,13 +55,19 @@ const MAX_BODY: usize = 64 * 1024 * 1024;
 pub struct ProxyConfig {
     pub openai_upstream: String,
     pub anthropic_upstream: String,
+    /// When the OpenAI-schema upstream carries its own path prefix (e.g. Gemini's
+    /// `/v1beta/openai`), strip the incoming `/v1` so the path joins correctly.
+    pub openai_strip_v1: bool,
 }
 
 impl Default for ProxyConfig {
     fn default() -> Self {
+        // Drifterr standardizes on OpenRouter (OpenAI schema) as the default,
+        // but any of the major providers can be selected — see `from_env`.
         Self {
-            openai_upstream: "https://api.openai.com".to_string(),
+            openai_upstream: "https://openrouter.ai/api".to_string(),
             anthropic_upstream: "https://api.anthropic.com".to_string(),
+            openai_strip_v1: false,
         }
     }
 }
@@ -71,6 +78,47 @@ impl ProxyConfig {
             Provider::OpenAI => &self.openai_upstream,
             Provider::Anthropic => &self.anthropic_upstream,
         }
+    }
+
+    /// Resolve the upstreams from the environment. `DRIFTERR_PROVIDER` selects a
+    /// built-in preset (openrouter | openai | anthropic | gemini | groq | mistral
+    /// | deepseek | xai | together); explicit `OPENAI_UPSTREAM` /
+    /// `ANTHROPIC_UPSTREAM` URLs always win for a fully custom endpoint.
+    pub fn from_env() -> Self {
+        let mut cfg = ProxyConfig::default();
+
+        if let Ok(name) = std::env::var("DRIFTERR_PROVIDER") {
+            if let Some(p) = upstreams::find(&name) {
+                if !p.openai_base.is_empty() {
+                    cfg.openai_upstream = p.openai_base.to_string();
+                    cfg.openai_strip_v1 = p.openai_strip_v1;
+                }
+                if !p.anthropic_base.is_empty() {
+                    cfg.anthropic_upstream = p.anthropic_base.to_string();
+                }
+            } else if !name.trim().is_empty() {
+                eprintln!("drifterr: unknown DRIFTERR_PROVIDER '{name}' — using default");
+            }
+        }
+
+        // Explicit URLs override the preset (custom / self-hosted endpoints).
+        if let Ok(u) = std::env::var("OPENAI_UPSTREAM") {
+            if !u.is_empty() {
+                cfg.openai_upstream = u;
+                cfg.openai_strip_v1 = false;
+            }
+        }
+        if let Ok(u) = std::env::var("ANTHROPIC_UPSTREAM") {
+            if !u.is_empty() {
+                cfg.anthropic_upstream = u;
+            }
+        }
+        cfg
+    }
+
+    /// Friendly name of the active OpenAI-schema provider, for `/config`/the UI.
+    pub fn provider_label(&self) -> &'static str {
+        upstreams::label_for_base(&self.openai_upstream)
     }
 }
 
@@ -84,6 +132,9 @@ pub struct ConfigMeta {
     pub openai_upstream: String,
     #[serde(rename = "anthropicUpstream")]
     pub anthropic_upstream: String,
+    /// Friendly name of the active OpenAI-schema provider (OpenRouter, OpenAI,
+    /// Google Gemini, …) so the UI can show what you're plugged into.
+    pub provider: String,
     /// Whether sessions are persisted to SQLite (vs in-memory only).
     pub persisted: bool,
     /// Judge backend label ("disabled", a model id, or "stub").
@@ -160,6 +211,7 @@ impl AppState {
             version: env!("CARGO_PKG_VERSION"),
             openai_upstream: cfg.openai_upstream.clone(),
             anthropic_upstream: cfg.anthropic_upstream.clone(),
+            provider: cfg.provider_label().to_string(),
             persisted: store.is_some(),
             judge: judge.label(),
             auto_reanchor,
@@ -532,8 +584,11 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
     };
 
     let provider = Provider::from_path(&path_and_query);
-    let upstream_base = app.cfg.upstream_for(provider).trim_end_matches('/');
-    let url = format!("{upstream_base}{path_and_query}");
+    let upstream_base = app.cfg.upstream_for(provider);
+    // Gemini-style upstreams carry their own `/v1beta/openai` prefix, so strip the
+    // incoming `/v1` for OpenAI-schema traffic when configured.
+    let strip = matches!(provider, Provider::OpenAI) && app.cfg.openai_strip_v1;
+    let url = upstreams::join_url(upstream_base, &path_and_query, strip);
     let parsed_req = provider::parse_request(provider, &body_bytes);
 
     // Opt-in auto-re-anchor: if this session is currently drifting (RED), inject
