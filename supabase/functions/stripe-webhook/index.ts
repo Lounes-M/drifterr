@@ -11,16 +11,15 @@ import { adminClient, stripe } from "../_shared/clients.ts";
 
 const WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
 
-// Map a Stripe Price id back to our plan id. Built once from env at boot.
-function priceToPlan(priceId: string | null | undefined): string | null {
+// Map a Stripe Price id back to our plan id, using the catalog in the database.
+async function priceToPlan(priceId: string | null | undefined): Promise<string | null> {
   if (!priceId) return null;
-  const table: Record<string, string> = {
-    [Deno.env.get("STRIPE_PRICE_PRO_MONTHLY") ?? "_"]: "pro",
-    [Deno.env.get("STRIPE_PRICE_PRO_YEARLY") ?? "_"]: "pro",
-    [Deno.env.get("STRIPE_PRICE_TEAM_MONTHLY") ?? "_"]: "team",
-    [Deno.env.get("STRIPE_PRICE_TEAM_YEARLY") ?? "_"]: "team",
-  };
-  return table[priceId] ?? null;
+  const { data } = await adminClient()
+    .from("plans")
+    .select("id")
+    .or(`stripe_price_monthly.eq.${priceId},stripe_price_yearly.eq.${priceId}`)
+    .maybeSingle();
+  return data?.id ?? null;
 }
 
 // Pull the supabase user id off the subscription/customer metadata.
@@ -47,7 +46,7 @@ async function syncSubscription(sub: Stripe.Subscription) {
 
   const item = sub.items.data[0];
   const priceId = item?.price?.id ?? null;
-  const plan = priceToPlan(priceId) ?? "free";
+  const plan = (await priceToPlan(priceId)) ?? "free";
   const canceled = sub.status === "canceled" || sub.status === "incomplete_expired";
 
   const admin = adminClient();

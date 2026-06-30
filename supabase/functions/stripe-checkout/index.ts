@@ -9,15 +9,9 @@
 // once Stripe confirms payment.
 
 import { preflight, json } from "../_shared/cors.ts";
-import { getUser, ensureStripeCustomer, stripe } from "../_shared/clients.ts";
+import { getUser, userClient, ensureStripeCustomer, stripe } from "../_shared/clients.ts";
 
 const SITE_URL = Deno.env.get("SITE_URL") ?? "https://drifterr.app";
-
-// Map (plan, interval) → the Stripe Price env var. Keeps price ids out of code.
-const PRICE_ENV: Record<string, Record<string, string>> = {
-  pro: { month: "STRIPE_PRICE_PRO_MONTHLY", year: "STRIPE_PRICE_PRO_YEARLY" },
-  team: { month: "STRIPE_PRICE_TEAM_MONTHLY", year: "STRIPE_PRICE_TEAM_YEARLY" },
-};
 
 Deno.serve(async (req) => {
   const pre = preflight(req);
@@ -37,13 +31,20 @@ Deno.serve(async (req) => {
   }
 
   const plan = body.plan ?? "";
-  const interval = body.interval ?? "month";
+  const interval = body.interval === "year" ? "year" : "month";
   const quantity = Math.max(1, Math.min(500, Number(body.quantity) || 1));
 
-  const priceEnv = PRICE_ENV[plan]?.[interval];
-  if (!priceEnv) return json({ error: "unknown plan or interval" }, 400, origin);
-  const priceId = Deno.env.get(priceEnv);
-  if (!priceId) return json({ error: `price not configured (${priceEnv})` }, 500, origin);
+  if (plan !== "pro" && plan !== "team") return json({ error: "unknown plan" }, 400, origin);
+
+  // Resolve the Stripe price from the public catalog (plans are RLS-readable),
+  // so the price ids live in the database, not in function secrets.
+  const { data: planRow } = await userClient(req)
+    .from("plans")
+    .select("stripe_price_monthly, stripe_price_yearly")
+    .eq("id", plan)
+    .single();
+  const priceId = interval === "year" ? planRow?.stripe_price_yearly : planRow?.stripe_price_monthly;
+  if (!priceId) return json({ error: "price not configured for this plan" }, 500, origin);
 
   try {
     const customer = await ensureStripeCustomer(user.id, user.email);

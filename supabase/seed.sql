@@ -5,13 +5,14 @@
 -- Apply with `supabase db reset` (local) or `supabase db push` then run this
 -- file via the SQL editor / `psql` in production.
 
-insert into public.plans (id, name, blurb, price_monthly_cents, price_yearly_cents, features, sort)
+insert into public.plans (id, name, blurb, price_monthly_cents, price_yearly_cents, stripe_price_monthly, stripe_price_yearly, features, sort)
 values
   (
     'free',
     'Free',
     'For trying drift detection on one chat.',
     0, 0,
+    null, null,
     '{
       "sessions": 1,
       "drift_score": true,
@@ -30,6 +31,8 @@ values
     'Pro',
     'For people who live in AI chats.',
     900, 8100,   -- $9/mo, $81/yr (~25% off => $6.75/mo billed annually)
+    'price_1To3SqCyJUAgn3MDYGqagelU',   -- pro monthly
+    'price_1To3T6CyJUAgn3MDGlHSFYSD',   -- pro yearly
     '{
       "sessions": null,
       "drift_score": true,
@@ -49,6 +52,8 @@ values
     'Team',
     'Shared anchors for whole squads.',
     1600, 14400,  -- $16/seat/mo, $144/seat/yr (~25% off => $12/seat/mo annually)
+    'price_1To3TVCyJUAgn3MDtfsNzJRF',   -- team monthly
+    'price_1To3TsCyJUAgn3MDCjPXb5B3',   -- team yearly
     '{
       "sessions": null,
       "drift_score": true,
@@ -65,9 +70,11 @@ values
     2
   )
 on conflict (id) do update set
-  name                = excluded.name,
-  blurb               = excluded.blurb,
-  price_monthly_cents = excluded.price_monthly_cents,
-  price_yearly_cents  = excluded.price_yearly_cents,
-  features            = excluded.features,
-  sort                = excluded.sort;
+  name                 = excluded.name,
+  blurb                = excluded.blurb,
+  price_monthly_cents  = excluded.price_monthly_cents,
+  price_yearly_cents   = excluded.price_yearly_cents,
+  stripe_price_monthly = excluded.stripe_price_monthly,
+  stripe_price_yearly  = excluded.stripe_price_yearly,
+  features             = excluded.features,
+  sort                 = excluded.sort;
