@@ -98,6 +98,30 @@ pub fn infer_rejected_decisions(text: &str) -> Vec<String> {
     out
 }
 
+/// A broad EN/FR cue that a user message *states a constraint* on the
+/// assistant's work — imperative "must/only/always/never", prohibitions
+/// ("don't", "no ", "avoid"), or explicit constraint words. Used as a cheap
+/// local gate so we only spend an LLM extraction call on turns that plausibly
+/// carry a rule, never on every message.
+///
+/// This is deliberately *recall-oriented* (unlike [`infer_rules`], which is
+/// precision-oriented): a false positive here only costs one judge call that
+/// returns `[]`, whereas a miss would silently drop a real fuzzy constraint. The
+/// judge is the precision stage.
+pub fn has_constraint_cue(text: &str) -> bool {
+    constraint_cue_re().is_match(text)
+}
+
+fn constraint_cue_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?:must(?:\s+not)?|only|always|never|do\s+not|don'?t|no\s+\w|without|avoid|ensure|make\s+sure|keep\s+it|stick\s+to|limit|at\s+most|at\s+least|constraint|require[ds]?|forbid|prohibit|toujours|jamais|uniquement|seulement|sans|évite|assure|limite|au\s+plus|au\s+moins|pas\s+de|ne\s+pas)\b",
+        )
+        .unwrap()
+    })
+}
+
 /// A stable human label and category for an inferred rule, used when the
 /// extractor synthesizes a [`crate::baseline::Constraint`] from a bare rule.
 pub fn describe(rule: &Rule) -> (&'static str, crate::baseline::ConstraintType) {
@@ -137,6 +161,19 @@ mod tests {
         );
         // Plain prose with no rejection phrasing → nothing.
         assert!(infer_rejected_decisions("we should ship this feature soon").is_empty());
+    }
+
+    #[test]
+    fn constraint_cue_recall() {
+        // Imperatives / prohibitions / explicit constraint words fire (EN + FR).
+        assert!(has_constraint_cue("Keep it under 200 words please"));
+        assert!(has_constraint_cue("You must always cite your sources"));
+        assert!(has_constraint_cue("don't use any external libraries"));
+        assert!(has_constraint_cue("réponds uniquement en français"));
+        assert!(has_constraint_cue("sans jamais utiliser de jargon"));
+        // Plain task requests with no rule phrasing stay quiet.
+        assert!(!has_constraint_cue("can you help me write a poem"));
+        assert!(!has_constraint_cue("what is the capital of France"));
     }
 
     #[test]

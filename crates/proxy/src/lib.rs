@@ -765,16 +765,60 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
             core.decisions_for(&session_id)
         };
 
-        // Judge phase — async, off the lock. Signal 3 (decision coherence).
-        if app2.judge.enabled() && !decisions.is_empty() && !parsed_resp.assistant_text.is_empty() {
-            let last = drifterr_engine::conversation::Turn {
-                index: parsed_req.turns.len(),
-                role: drifterr_engine::conversation::Role::Assistant,
-                content: parsed_resp.assistant_text.clone(),
-                tokens: parsed_resp.output_tokens.unwrap_or(0),
-                timestamp: 0,
+        // Judge phase — async, off the lock. It powers the *fuzzy* checks the
+        // deterministic engine can't make: Signal 3 (decision coherence) and the
+        // judge half of Signal 1 (fuzzy constraint adherence). All of it is
+        // fail-safe and AMBER-only — a judge that cries wolf can only raise a
+        // watch, never a wall.
+        if !app2.judge.enabled() || parsed_resp.assistant_text.is_empty() {
+            return;
+        }
+
+        let last = drifterr_engine::conversation::Turn {
+            index: parsed_req.turns.len(),
+            role: drifterr_engine::conversation::Role::Assistant,
+            content: parsed_resp.assistant_text.clone(),
+            tokens: parsed_resp.output_tokens.unwrap_or(0),
+            timestamp: 0,
+        };
+
+        // (a) LLM-assisted constraint extraction. Gate on a cheap local cue so we
+        // only spend a call on the newest user turn when it plausibly states a
+        // rule; add whatever fuzzy constraints it yields to the baseline.
+        if let Some(user_msg) = parsed_req
+            .turns
+            .iter()
+            .rev()
+            .find(|t| t.role == drifterr_engine::conversation::Role::User)
+        {
+            if drifterr_engine::infer::has_constraint_cue(&user_msg.content) {
+                let extracted = app2.judge.extract_constraints(&user_msg.content).await;
+                if !extracted.is_empty() {
+                    if let Ok(mut core) = app2.core.lock() {
+                        core.add_judge_constraints(&session_id, extracted);
+                    }
+                }
+            }
+        }
+
+        // (b) Run both judge signals against the new assistant turn, then merge
+        // their events in one pass so the status updates once.
+        let judge_constraints = {
+            let Ok(core) = app2.core.lock() else {
+                return;
             };
-            let embedder = drifterr_embeddings::BagEmbedder::default();
+            core.judge_constraints_for(&session_id)
+        };
+        let embedder = drifterr_embeddings::BagEmbedder::default();
+
+        let mut extra = drifterr_judge::constraint::constraint_adherence(
+            &last,
+            &judge_constraints,
+            &app2.judge,
+        )
+        .await;
+
+        if !decisions.is_empty() {
             if let Some(event) = drifterr_judge::decision::decision_coherence(
                 &last,
                 &decisions,
@@ -783,9 +827,13 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
             )
             .await
             {
-                if let Ok(mut core) = app2.core.lock() {
-                    core.apply_extra_events(&session_id, vec![event]);
-                }
+                extra.push(event);
+            }
+        }
+
+        if !extra.is_empty() {
+            if let Ok(mut core) = app2.core.lock() {
+                core.apply_extra_events(&session_id, extra);
             }
         }
     });

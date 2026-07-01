@@ -213,6 +213,104 @@ async fn mock_bcrypt(req: Request) -> Response {
         .unwrap()
 }
 
+/// Mock upstream whose reply is informal ("lol") — for the fuzzy-constraint test.
+async fn mock_lol(req: Request) -> Response {
+    if req
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        != Some(AUTH)
+    {
+        return Response::builder()
+            .status(401)
+            .body(Body::from("no auth"))
+            .unwrap();
+    }
+    let chunks = vec![
+        "data: {\"choices\":[{\"delta\":{\"content\":\"lol yeah sure whatever you want\"}}]}\n\n".to_string(),
+        "data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":40,\"completion_tokens\":7}}\n\n".to_string(),
+        "data: [DONE]\n\n".to_string(),
+    ];
+    let stream = futures_util::stream::iter(
+        chunks
+            .into_iter()
+            .map(|s| Ok::<_, std::convert::Infallible>(Bytes::from(s))),
+    );
+    Response::builder()
+        .status(200)
+        .header("content-type", "text/event-stream")
+        .body(Body::from_stream(stream))
+        .unwrap()
+}
+
+/// End-to-end proof of the fuzzy-constraint pipeline: a user states a rule in
+/// prose ("must keep the tone formal") → the cue gate fires → the judge extracts
+/// it as a judge-checkable constraint → the judge finds the informal reply
+/// violates it → an AMBER `constraint` signal is attached off the response path.
+#[tokio::test]
+async fn judge_extracts_and_flags_fuzzy_constraint() {
+    use drifterr_judge::{Judge, StubJudge};
+
+    let mock = spawn(Router::new().fallback(mock_lol)).await;
+    let base = format!("http://{mock}");
+    let cfg = ProxyConfig {
+        openai_upstream: base.clone(),
+        anthropic_upstream: base,
+        openai_strip_v1: false,
+    };
+    // Stub judge extracts one fuzzy constraint and flags any reply with "lol".
+    let judge = Judge::Stub(StubJudge::new(&["lol"]).with_extracts(&["Keep the tone formal"]));
+    let state = AppState::with_judge(cfg, None, judge);
+    let proxy = spawn(proxy_router(state.clone())).await;
+    let control = spawn(control_router(state)).await;
+    let client = client();
+
+    client
+        .post(format!("http://{proxy}/v1/chat/completions"))
+        .header("authorization", AUTH)
+        .json(&serde_json::json!({
+            "model": "gpt-4o",
+            "stream": true,
+            "messages": [{"role": "user", "content": "Draft the client email. You must keep the tone formal."}]
+        }))
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+
+    // Poll until the async judge phase attaches an AMBER constraint signal from
+    // the extracted fuzzy constraint (constraint id, not a deterministic span).
+    let url = format!("http://{control}/status");
+    let mut found = None;
+    for _ in 0..150 {
+        let v: serde_json::Value = client.get(&url).send().await.unwrap().json().await.unwrap();
+        let cur = &v["current"];
+        if !cur.is_null() {
+            if let Some(sigs) = cur["signals"].as_array() {
+                if let Some(s) = sigs
+                    .iter()
+                    .find(|s| s["signal"] == "constraint" && s["state"] == "amber")
+                {
+                    found = Some((cur.clone(), s.clone()));
+                    break;
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let (cur, sig) = found.expect("fuzzy constraint signal should appear");
+    assert_eq!(
+        cur["state"], "amber",
+        "fuzzy constraint lifts green → amber"
+    );
+    assert!(sig["detail"]
+        .as_str()
+        .unwrap()
+        .contains("Keep the tone formal"));
+}
+
 #[tokio::test]
 async fn judge_flags_reintroduced_rejected_decision() {
     use drifterr_judge::{Judge, StubJudge};

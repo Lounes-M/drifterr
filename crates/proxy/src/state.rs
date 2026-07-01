@@ -106,6 +106,41 @@ impl AppCore {
             .unwrap_or_default()
     }
 
+    /// The active judge-checkable (fuzzy) constraints for a session (clone), for
+    /// the async judge phase.
+    pub fn judge_constraints_for(
+        &self,
+        session_id: &str,
+    ) -> Vec<drifterr_engine::baseline::Constraint> {
+        self.sessions
+            .get(session_id)
+            .map(|s| s.baseline.judge_constraints().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Merge LLM-extracted fuzzy constraints into a session's baseline (deduped).
+    /// Persists the updated baseline best-effort. Returns the texts that were
+    /// newly added, so the caller can log/act only on genuinely new rules.
+    pub fn add_judge_constraints(&mut self, session_id: &str, texts: Vec<String>) -> Vec<String> {
+        let Some(session) = self.sessions.get_mut(session_id) else {
+            return Vec::new();
+        };
+        let mut added = Vec::new();
+        for t in texts {
+            if session.baseline.add_judge_constraint(&t) {
+                added.push(t);
+            }
+        }
+        if !added.is_empty() {
+            if let Some(store) = &self.store {
+                if let Ok(mut s) = store.lock() {
+                    let _ = s.save_baseline(session_id, &session.baseline);
+                }
+            }
+        }
+        added
+    }
+
     /// Merge late, out-of-band signal events (e.g. the async judge's Signal 3)
     /// into a session's status. These are AMBER support signals: they append to
     /// the signal list, can lift a GREEN session to AMBER, and never downgrade a
@@ -572,6 +607,46 @@ mod tests {
             {"role":"assistant","content":"ok"},
             {"role":"user","content":"more"}]}"#);
         assert_eq!(session_id_for(&a), session_id_for(&b));
+    }
+
+    #[test]
+    fn judge_constraints_round_trip_and_dedup() {
+        let mut core = AppCore::new(None);
+        let r = req(
+            br#"{"model":"gpt-4o","messages":[{"role":"user","content":"write me a report"}]}"#,
+        );
+        let id = session_id_for(&r);
+        let resp = ParsedResponse {
+            assistant_text: "Here is the report.".into(),
+            input_tokens: Some(10),
+            output_tokens: Some(5),
+        };
+        core.record_turn(&id, &r, &resp);
+
+        // No fuzzy constraints yet.
+        assert!(core.judge_constraints_for(&id).is_empty());
+
+        // Extraction adds two; a case-insensitive duplicate is dropped.
+        let added = core.add_judge_constraints(
+            &id,
+            vec![
+                "Keep the tone formal".into(),
+                "keep the TONE formal".into(),
+                "No bullet points".into(),
+            ],
+        );
+        assert_eq!(added.len(), 2);
+        let cs = core.judge_constraints_for(&id);
+        assert_eq!(cs.len(), 2);
+        assert!(cs
+            .iter()
+            .all(|c| c.checkable == drifterr_engine::baseline::Checkable::Judge && c.active));
+
+        // Unknown session ids are inert, not a panic.
+        assert!(core.judge_constraints_for("nope").is_empty());
+        assert!(core
+            .add_judge_constraints("nope", vec!["x".into()])
+            .is_empty());
     }
 
     #[test]
