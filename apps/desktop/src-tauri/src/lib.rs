@@ -34,6 +34,39 @@ const TRAY_UNKNOWN: &[u8] = include_bytes!("../icons/tray-unknown.png");
 
 const TRAY_ID: &str = "drifterr";
 
+/// Anchor the panel to the tray icon so it pops up beside it (bottom-right on
+/// Windows, top-right on macOS) instead of at a default cascade position. We
+/// place the window's bottom-right corner just inside the click point on the
+/// tray, then clamp into the icon's monitor work area so it never spills
+/// off-screen or under the taskbar.
+fn anchor_to_tray(win: &tauri::WebviewWindow, cursor: tauri::PhysicalPosition<f64>) {
+    let size = win
+        .outer_size()
+        .unwrap_or(tauri::PhysicalSize::new(360, 540));
+    let (w, h) = (size.width as f64, size.height as f64);
+    let margin = 12.0;
+
+    // Default: window sits up-and-left of the cursor (menubar-style).
+    let mut x = cursor.x - w + margin;
+    let mut y = cursor.y - h - margin;
+
+    // Keep it on the monitor under the tray.
+    if let Ok(Some(monitor)) = win.monitor_from_point(cursor.x, cursor.y) {
+        let mp = monitor.position();
+        let ms = monitor.size();
+        let (min_x, min_y) = (mp.x as f64, mp.y as f64);
+        let max_x = min_x + ms.width as f64 - w;
+        let max_y = min_y + ms.height as f64 - h;
+        x = x.clamp(min_x, max_x.max(min_x));
+        y = y.clamp(min_y, max_y.max(min_y));
+    } else {
+        x = x.max(0.0);
+        y = y.max(0.0);
+    }
+
+    let _ = win.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+}
+
 /// Listen addresses for the embedded proxy (overridable via env).
 fn proxy_addr() -> std::net::SocketAddr {
     std::env::var("DRIFTERR_PROXY_ADDR")
@@ -99,6 +132,7 @@ pub fn run() {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
+                        position,
                         ..
                     } = event
                     {
@@ -106,6 +140,7 @@ pub fn run() {
                             if win.is_visible().unwrap_or(false) {
                                 let _ = win.hide();
                             } else {
+                                anchor_to_tray(&win, position);
                                 let _ = win.show();
                                 let _ = win.set_focus();
                             }
