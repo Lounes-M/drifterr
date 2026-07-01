@@ -16,6 +16,7 @@
 
 use serde::Serialize;
 
+pub mod constraint;
 pub mod decision;
 
 /// A judge's answer to a binary question.
@@ -92,18 +93,55 @@ impl Judge {
             Judge::OpenRouter(j) => j.check(question, context).await,
         }
     }
+
+    /// Given a list of constraint texts, decide which the `message` violates —
+    /// in a **single** batched call. Returns one `bool` per input constraint,
+    /// aligned by index. Fail-safe: disabled judge, network error, or an
+    /// unparseable reply all yield "nothing violated" (all `false`). Never RED:
+    /// the caller emits AMBER, because a fuzzy call must under-claim.
+    pub async fn violations(&self, constraints: &[String], message: &str) -> Vec<bool> {
+        if constraints.is_empty() {
+            return Vec::new();
+        }
+        match self {
+            Judge::Disabled => vec![false; constraints.len()],
+            Judge::Stub(s) => s.violations(constraints, message),
+            Judge::OpenRouter(j) => j.violations(constraints, message).await,
+        }
+    }
+
+    /// Extract short, checkable constraint statements the user placed on the
+    /// assistant's work from a single user message (one call). Fail-safe:
+    /// disabled/error/unparseable → empty. The caller gates this behind a cheap
+    /// local cue so we don't spend a call on every turn.
+    pub async fn extract_constraints(&self, user_message: &str) -> Vec<String> {
+        match self {
+            Judge::Disabled => Vec::new(),
+            Judge::Stub(s) => s.extract_constraints(),
+            Judge::OpenRouter(j) => j.extract_constraints(user_message).await,
+        }
+    }
 }
 
 /// Deterministic test double.
 pub struct StubJudge {
     pub yes_if_contains: Vec<String>,
+    /// Constraints this stub "extracts" from any user message — for testing the
+    /// extraction path without a network.
+    pub extracts: Vec<String>,
 }
 
 impl StubJudge {
     pub fn new(yes_if_contains: &[&str]) -> Self {
         Self {
             yes_if_contains: yes_if_contains.iter().map(|s| s.to_lowercase()).collect(),
+            extracts: Vec::new(),
         }
+    }
+    /// Builder: make this stub return `extracts` from `extract_constraints`.
+    pub fn with_extracts(mut self, extracts: &[&str]) -> Self {
+        self.extracts = extracts.iter().map(|s| s.to_string()).collect();
+        self
     }
     fn check(&self, _question: &str, context: &str) -> JudgeAnswer {
         let lc = context.to_lowercase();
@@ -115,6 +153,16 @@ impl StubJudge {
             },
             None => JudgeAnswer::no(),
         }
+    }
+    /// A constraint "looks violated" when the message contains any configured
+    /// substring — enough to drive deterministic tests of the batched path.
+    fn violations(&self, constraints: &[String], message: &str) -> Vec<bool> {
+        let lc = message.to_lowercase();
+        let hit = self.yes_if_contains.iter().any(|s| lc.contains(s));
+        vec![hit; constraints.len()]
+    }
+    fn extract_constraints(&self) -> Vec<String> {
+        self.extracts.clone()
     }
 }
 
@@ -143,6 +191,20 @@ const SYSTEM: &str = "You are a strict reviewer. Answer ONLY with a JSON object 
 of the form {\"yes\": <true|false>, \"reason\": \"<short>\"}. Say yes only when \
 you are confident; when unsure, say no.";
 
+const VIOLATIONS_SYSTEM: &str = "You are a strict reviewer. You are given a \
+numbered list of constraints and one assistant message. Return ONLY a JSON \
+array of the 1-based indices of the constraints the message CLEARLY violates, \
+e.g. [1,3]. If none are violated, return []. Flag a constraint only when you \
+are confident; when unsure, leave it out.";
+
+const EXTRACT_SYSTEM: &str = "You extract the explicit constraints a user \
+placed on an AI assistant's work — durable rules the output must obey (style, \
+format, tone, scope, technology, or things to avoid). Return ONLY a JSON array \
+of short, self-contained constraint strings, each phrased as a checkable \
+imperative, e.g. [\"Do not use external libraries\", \"Keep answers under 200 \
+words\"]. Extract only genuine, lasting constraints; ignore the task request \
+itself and one-off questions. If there are none, return [].";
+
 impl OpenRouterJudge {
     pub fn new(base_url: String, model: String, api_key: String) -> Self {
         let client = reqwest::Client::builder()
@@ -157,22 +219,24 @@ impl OpenRouterJudge {
         }
     }
 
-    async fn check(&self, question: &str, context: &str) -> JudgeAnswer {
-        let user = format!("{question}\n\n---\n{context}");
+    /// One chat completion. Returns the message content, or `None` on any
+    /// transport/parse error — the single fail-safe seam every judge call flows
+    /// through.
+    async fn complete(&self, system: &str, user: &str, max_tokens: u32) -> Option<String> {
         let body = ChatBody {
             model: &self.model,
             messages: vec![
                 ChatMsg {
                     role: "system",
-                    content: SYSTEM,
+                    content: system,
                 },
                 ChatMsg {
                     role: "user",
-                    content: &user,
+                    content: user,
                 },
             ],
             temperature: 0.0,
-            max_tokens: 200,
+            max_tokens,
         };
         let url = format!("{}/v1/chat/completions", self.base_url);
         let resp = self
@@ -181,19 +245,84 @@ impl OpenRouterJudge {
             .bearer_auth(&self.api_key)
             .json(&body)
             .send()
-            .await;
-        let Ok(resp) = resp else {
-            return JudgeAnswer::no();
-        };
-        let Ok(v) = resp.json::<serde_json::Value>().await else {
-            return JudgeAnswer::no();
-        };
-        let content = v
-            .pointer("/choices/0/message/content")
+            .await
+            .ok()?;
+        let v = resp.json::<serde_json::Value>().await.ok()?;
+        v.pointer("/choices/0/message/content")
             .and_then(|c| c.as_str())
-            .unwrap_or("");
-        parse_judge_content(content)
+            .map(|s| s.to_string())
     }
+
+    async fn check(&self, question: &str, context: &str) -> JudgeAnswer {
+        let user = format!("{question}\n\n---\n{context}");
+        match self.complete(SYSTEM, &user, 200).await {
+            Some(content) => parse_judge_content(&content),
+            None => JudgeAnswer::no(),
+        }
+    }
+
+    async fn violations(&self, constraints: &[String], message: &str) -> Vec<bool> {
+        let mut list = String::new();
+        for (i, c) in constraints.iter().enumerate() {
+            list.push_str(&format!("{}. {}\n", i + 1, c));
+        }
+        let user = format!("Constraints:\n{list}\n---\nAssistant message:\n{message}");
+        let mut out = vec![false; constraints.len()];
+        let Some(content) = self.complete(VIOLATIONS_SYSTEM, &user, 100).await else {
+            return out;
+        };
+        for idx in parse_index_array(&content) {
+            if (1..=constraints.len()).contains(&idx) {
+                out[idx - 1] = true;
+            }
+        }
+        out
+    }
+
+    async fn extract_constraints(&self, user_message: &str) -> Vec<String> {
+        match self.complete(EXTRACT_SYSTEM, user_message, 300).await {
+            Some(content) => parse_string_array(&content),
+            None => Vec::new(),
+        }
+    }
+}
+
+/// Parse a JSON array of positive integers embedded anywhere in `content`
+/// (1-based constraint indices). Anything unparseable → empty (fail-safe).
+pub fn parse_index_array(content: &str) -> Vec<usize> {
+    let (Some(start), Some(end)) = (content.find('['), content.rfind(']')) else {
+        return Vec::new();
+    };
+    if end <= start {
+        return Vec::new();
+    }
+    serde_json::from_str::<Vec<i64>>(&content[start..=end])
+        .map(|v| {
+            v.into_iter()
+                .filter(|n| *n > 0)
+                .map(|n| n as usize)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Parse a JSON array of non-empty strings embedded anywhere in `content`.
+/// Anything unparseable → empty (fail-safe).
+pub fn parse_string_array(content: &str) -> Vec<String> {
+    let (Some(start), Some(end)) = (content.find('['), content.rfind(']')) else {
+        return Vec::new();
+    };
+    if end <= start {
+        return Vec::new();
+    }
+    serde_json::from_str::<Vec<String>>(&content[start..=end])
+        .map(|v| {
+            v.into_iter()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Parse a judge reply into an answer. Tries strict JSON first, then falls back
@@ -263,5 +392,59 @@ mod tests {
         // Garbage / ambiguous → no.
         assert!(!parse_judge_content("hmm, hard to tell").yes);
         assert!(!parse_judge_content("").yes);
+    }
+
+    #[test]
+    fn parse_index_array_variants() {
+        assert_eq!(parse_index_array("[1,3]"), vec![1, 3]);
+        assert_eq!(parse_index_array("Violated: [2] only"), vec![2]);
+        assert_eq!(parse_index_array("[]"), Vec::<usize>::new());
+        // Non-positive / garbage → dropped or empty (fail-safe).
+        assert_eq!(parse_index_array("[0, 2, -1]"), vec![2]);
+        assert_eq!(parse_index_array("nope"), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn parse_string_array_variants() {
+        assert_eq!(
+            parse_string_array(r#"["no libs", "  under 200 words  "]"#),
+            vec!["no libs".to_string(), "under 200 words".to_string()]
+        );
+        assert_eq!(parse_string_array("[]"), Vec::<String>::new());
+        // Empty strings filtered; unparseable → empty.
+        assert_eq!(
+            parse_string_array(r#"["keep", "  "]"#),
+            vec!["keep".to_string()]
+        );
+        assert_eq!(parse_string_array("garbage"), Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn disabled_violations_all_false_and_no_extracts() {
+        let j = Judge::Disabled;
+        assert_eq!(
+            j.violations(&["a".into(), "b".into()], "anything").await,
+            vec![false, false]
+        );
+        assert!(j.extract_constraints("do X, and never Y").await.is_empty());
+        // Empty input short-circuits to empty (no call).
+        assert!(j.violations(&[], "msg").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn stub_violations_and_extracts() {
+        let j = Judge::Stub(StubJudge::new(&["bcrypt"]).with_extracts(&["No comments"]));
+        assert_eq!(
+            j.violations(&["c1".into()], "let's use bcrypt").await,
+            vec![true]
+        );
+        assert_eq!(
+            j.violations(&["c1".into()], "use argon2 only").await,
+            vec![false]
+        );
+        assert_eq!(
+            j.extract_constraints("whatever").await,
+            vec!["No comments".to_string()]
+        );
     }
 }

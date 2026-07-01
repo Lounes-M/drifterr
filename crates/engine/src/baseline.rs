@@ -113,6 +113,41 @@ impl Baseline {
             .filter(|c| c.active && c.checkable == Checkable::Deterministic)
     }
 
+    /// Active judge-checkable (fuzzy) constraints — checked off the response path
+    /// by the judge, never the deterministic engine. These only ever raise AMBER.
+    pub fn judge_constraints(&self) -> impl Iterator<Item = &Constraint> {
+        self.constraints
+            .iter()
+            .filter(|c| c.active && c.checkable == Checkable::Judge)
+    }
+
+    /// Add a fuzzy, judge-checkable constraint discovered by LLM extraction.
+    /// De-duplicated case-insensitively against existing constraint texts so a
+    /// re-stated rule doesn't pile up. Returns `true` if it was newly added.
+    ///
+    /// The id follows the same `c{n}` scheme as [`absorb`](Self::absorb), so the
+    /// evidence trail is uniform across deterministic and judge constraints.
+    pub fn add_judge_constraint(&mut self, text: &str) -> bool {
+        let text = text.trim();
+        if text.is_empty() {
+            return false;
+        }
+        let lc = text.to_lowercase();
+        if self.constraints.iter().any(|c| c.text.to_lowercase() == lc) {
+            return false;
+        }
+        let id = format!("c{}", self.constraints.len() + 1);
+        self.constraints.push(Constraint {
+            id,
+            text: text.to_string(),
+            kind: ConstraintType::Other,
+            checkable: Checkable::Judge,
+            active: true,
+            rule: None,
+        });
+        true
+    }
+
     /// Extract a baseline from a conversation's turns without an LLM.
     ///
     /// Used by channels that have no externally-supplied baseline (the proxy):
@@ -235,5 +270,23 @@ mod tests {
         assert_eq!(b.constraints.len(), 1);
         b.absorb(&[user("also no comments in code")]);
         assert_eq!(b.constraints.len(), 2);
+    }
+
+    #[test]
+    fn add_judge_constraint_dedups_and_ids() {
+        let mut b = Baseline::extract(&[user("TypeScript only, no JS")]);
+        assert_eq!(b.constraints.len(), 1);
+        assert!(b.add_judge_constraint("Keep the tone formal"));
+        assert_eq!(b.constraints.len(), 2);
+        assert_eq!(b.constraints[1].id, "c2");
+        assert_eq!(b.constraints[1].checkable, Checkable::Judge);
+        // Case-insensitive dedup, and empty is ignored.
+        assert!(!b.add_judge_constraint("keep the TONE formal"));
+        assert!(!b.add_judge_constraint("   "));
+        assert_eq!(b.constraints.len(), 2);
+        // The new constraint is surfaced by judge_constraints(), not the
+        // deterministic iterator.
+        assert_eq!(b.judge_constraints().count(), 1);
+        assert_eq!(b.deterministic_constraints().count(), 1);
     }
 }
