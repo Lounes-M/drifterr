@@ -42,7 +42,7 @@ const TRAY_ID: &str = "drifterr";
 fn anchor_to_tray(win: &tauri::WebviewWindow, cursor: tauri::PhysicalPosition<f64>) {
     let size = win
         .outer_size()
-        .unwrap_or(tauri::PhysicalSize::new(360, 540));
+        .unwrap_or(tauri::PhysicalSize::new(380, 600));
     let (w, h) = (size.width as f64, size.height as f64);
     let margin = 12.0;
 
