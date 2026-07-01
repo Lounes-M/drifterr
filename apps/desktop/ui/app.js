@@ -41,11 +41,24 @@ export function saturationClass(pct) {
 
 /// Where to reach the control API. When the page is served by the control
 /// server itself, same-origin relative calls work. In the Tauri webview the
-/// origin is not http(s), so we fall back to the default localhost port. A
-/// `window.DRIFTERR_API` override wins over both.
+/// origin is the custom protocol — `tauri://localhost` on macOS but
+/// `http://tauri.localhost` on Windows/Linux — which does NOT serve the control
+/// API, so we must fall back to the default localhost port there. (A naive
+/// `startsWith("http")` check wrongly treats `http://tauri.localhost` as a
+/// servable origin, which is why the panel failed to connect on Windows/Linux.)
+/// A `window.DRIFTERR_API` override wins over both.
 export function apiBase() {
   if (typeof window !== "undefined" && window.DRIFTERR_API) return window.DRIFTERR_API;
-  if (typeof location !== "undefined" && location.origin && location.origin.startsWith("http")) {
+  const isTauri =
+    typeof window !== "undefined" && (window.__TAURI__ || window.__TAURI_INTERNALS__);
+  const host = typeof location !== "undefined" ? location.hostname : "";
+  if (
+    !isTauri &&
+    host !== "tauri.localhost" &&
+    typeof location !== "undefined" &&
+    location.origin &&
+    location.origin.startsWith("http")
+  ) {
     return location.origin;
   }
   return "http://127.0.0.1:8788";
