@@ -233,6 +233,10 @@ export function toggleSettings(doc, show) {
   if (!s) return false;
   const willShow = show === undefined ? s.hidden : show;
   s.hidden = !willShow;
+  // Settings replaces the live view (the CSS hides every other #app-body child
+  // while this class is set) so the two never stack into a giant scroll.
+  const body = doc.getElementById("app-body");
+  if (body) body.classList.toggle("settings-open", willShow);
   return willShow;
 }
 
