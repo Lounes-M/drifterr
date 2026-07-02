@@ -29,12 +29,6 @@ Drifterr measures that drift against a ground truth you own — the **goal and
 constraints you set yourself** — names the cause, and lets you re-anchor in one
 click. It runs as a quiet menubar app alongside the tools you already use.
 
-<p align="center">
-  <img src="docs/menubar-red.png" width="270" alt="Drifting" />
-  <img src="docs/menubar-green.png" width="270" alt="Aligned" />
-  <img src="docs/menubar-reanchor.png" width="270" alt="Re-anchor" />
-</p>
-
 ## Why it's trustworthy
 
 - **Local-first.** Conversations live in local SQLite. **No chat content ever
