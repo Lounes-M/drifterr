@@ -1,5 +1,5 @@
 cask "drifterr" do
-  version "0.1.4"
+  version "0.1.5"
   # The universal .dmg runs on both Apple silicon and Intel. Pin a real sha256
   # per release for a published cask; :no_check is fine for a personal tap.
   sha256 :no_check
