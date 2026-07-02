@@ -42,6 +42,11 @@ body {
 a { text-decoration: none; color: inherit; }
 h1, h2, h3 { font-family: var(--display); font-weight: 700; letter-spacing: -0.025em; line-height: 1.06; }
 [id] { scroll-margin-top: 100px; }
+/* The `hidden` attribute must always win. Without this, a class that sets its
+   own `display` (e.g. `.btn { display: inline-flex }`) overrides the UA
+   `[hidden] { display: none }` rule and the element shows anyway — which is why
+   a Free account still rendered the hidden "Manage billing" button. */
+[hidden] { display: none !important; }
 
 /* ===== background ===== */
 .bg { position: fixed; inset: 0; z-index: 0; pointer-events: none;
