@@ -166,7 +166,44 @@ async function setupNavAccount(doc) {
   } catch (_e) { /* leave as Sign in */ }
 }
 
+// --- launch splash ---------------------------------------------------------
+// Plays the branded intro once per browser session, then self-removes. Skipped
+// under prefers-reduced-motion. Fail-safe: always hides after a hard timeout so
+// it can never trap the page behind the overlay.
+function playSplash(el) {
+  try {
+    [el._d, el._h, el._s1, el._s2].forEach((t) => t && clearTimeout(t));
+    el.hidden = false;
+    el.classList.remove("sp-done", "sp-play");
+    void el.offsetWidth; // restart the CSS animations
+    el.classList.add("sp-play");
+    const st = el.querySelector(".sp-status");
+    if (st) {
+      st.textContent = "initializing…";
+      el._s1 = setTimeout(() => (st.textContent = "calibrating signals…"), 900);
+      el._s2 = setTimeout(() => (st.textContent = "ready"), 1750);
+    }
+    el._d = setTimeout(() => el.classList.add("sp-done"), 2150);
+    el._h = setTimeout(() => { el.hidden = true; }, 2850);
+  } catch (_e) {
+    el.hidden = true;
+  }
+}
+
+function setupSplash(doc) {
+  const el = doc.getElementById("splash");
+  if (!el) return;
+  const reduce =
+    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let seen = false;
+  try { seen = sessionStorage.getItem("drifterr_splash") === "1"; } catch (_e) { /* private mode */ }
+  if (reduce || seen) { el.hidden = true; return; }
+  try { sessionStorage.setItem("drifterr_splash", "1"); } catch (_e) { /* ignore */ }
+  playSplash(el);
+}
+
 if (typeof document !== "undefined" && typeof navigator !== "undefined") {
+  setupSplash(document);
   setupReveal(document);
   setupParallax(document);
   setupDriftScore(document);

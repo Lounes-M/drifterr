@@ -26,6 +26,24 @@
     <script src="config.js"></script>
   </head>
   <body>
+    <!-- Launch splash — plays once per session, self-removes. -->
+    <div id="splash" aria-hidden="true">
+      <span class="sp-blob a"></span><span class="sp-blob b"></span>
+      <div class="sp-inner">
+        <div class="sp-mark">
+          <span class="sp-halo"></span>
+          <span class="sp-ring"></span>
+          <span class="sp-anchor"></span>
+          <span class="sp-drift"></span>
+        </div>
+        <div class="sp-word">drifterr</div>
+        <div class="sp-load">
+          <div class="sp-bar"><span class="sp-bar-fill"></span></div>
+          <div class="sp-status">initializing…</div>
+        </div>
+      </div>
+    </div>
+
     <div class="bg" aria-hidden="true">
       <div class="grid"></div>
       <span class="blob a" data-depth="40"></span>
@@ -274,7 +292,7 @@
             <div class="shield" aria-hidden="true"><span class="scan"></span><svg viewBox="0 0 24 26" fill="none" stroke="#ff8a64" stroke-width="1.6"><path d="M12 1 L22 4.5 V13 C22 19 17.5 23 12 25 C6.5 23 2 19 2 13 V4.5 Z"/><path d="M8.5 13l2.5 2.5 4.5-5" stroke="#34e89e"/></svg></div>
             <div class="b-meta">
               <h3>Private by design</h3>
-              <p>Drift scoring runs locally by default. The optional judge uses your own model provider — nothing ever goes to a Drifterr server.</p>
+              <p>Drift scoring runs locally by default. Nothing ever goes to a Drifterr server.</p>
             </div>
           </div>
         </div>

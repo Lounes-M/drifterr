@@ -209,6 +209,9 @@ pub fn run() {
                                 anchor_to_tray(&win, position);
                                 let _ = win.show();
                                 let _ = win.set_focus();
+                                // Tell the panel it was opened so it replays the
+                                // launch splash on every open.
+                                let _ = tray.app_handle().emit("window://opened", ());
                             }
                         }
                     }

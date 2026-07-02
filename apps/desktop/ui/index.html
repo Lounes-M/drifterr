@@ -8,6 +8,24 @@
     <script src="config.js"></script>
   </head>
   <body>
+    <!-- Launch splash — replays each time the panel opens; self-removes. -->
+    <div id="splash" aria-hidden="true">
+      <span class="sp-blob a"></span><span class="sp-blob b"></span>
+      <div class="sp-inner">
+        <div class="sp-mark">
+          <span class="sp-halo"></span>
+          <span class="sp-ring"></span>
+          <span class="sp-anchor"></span>
+          <span class="sp-drift"></span>
+        </div>
+        <div class="sp-word">drifterr</div>
+        <div class="sp-load">
+          <div class="sp-bar"><span class="sp-bar-fill"></span></div>
+          <div class="sp-status">initializing…</div>
+        </div>
+      </div>
+    </div>
+
     <main id="panel" class="panel">
       <header class="brandbar">
         <span class="mark" aria-hidden="true"><span class="fill"></span><span class="ring"></span></span>
