@@ -5,7 +5,7 @@
   "description": "Drifterr menubar panel — static assets + headless UI tests.",
   "type": "module",
   "scripts": {
-    "test": "node tests/menubar.test.mjs"
+    "test": "node tests/config.test.mjs && node tests/menubar.test.mjs"
   },
   "devDependencies": {
     "playwright": "^1.49.0"

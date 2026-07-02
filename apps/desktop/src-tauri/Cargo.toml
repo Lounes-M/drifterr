@@ -10,6 +10,13 @@ license = "MIT"
 name = "drifterr_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Off by default. Ships the semantic (ONNX) embedder: build with
+# `cargo tauri build --features semantic` and bundle a model dir (see
+# scripts/fetch-model.sh + tauri.conf.json resources). Without it — and without
+# a model present — the app runs on the local lexical embedder, unchanged.
+semantic = ["drifterr-proxy/semantic"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
