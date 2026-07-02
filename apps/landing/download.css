@@ -8,6 +8,8 @@
   --ease: cubic-bezier(.16,1,.3,1);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
+/* `hidden` must beat any class that sets its own display (e.g. .btn). */
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; }
 body { font-family: var(--sans); color: var(--ink); background: #07060d; -webkit-font-smoothing: antialiased; min-height: 100vh; position: relative; overflow-x: hidden; }
 a { text-decoration: none; color: inherit; }
