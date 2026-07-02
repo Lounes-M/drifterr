@@ -592,3 +592,68 @@ code { font-family: var(--mono); }
 .onb-note { font-size: 12px; color: var(--ink-soft); margin: 14px 0 0; }
 .onb-note b { color: var(--ink); }
 .onb-slide .onb-copy { margin-top: 8px; padding: 9px 11px; }
+
+/* ===== launch splash ===================================================== */
+/* Branded intro replayed each time the tray panel opens. Compact timing so a
+   frequently-opened panel stays snappy. Self-removes; skipped for reduced motion. */
+#splash {
+  position: fixed; inset: 0; z-index: 9999;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(120% 100% at 50% 40%, #0e0d1c 0%, #08070f 55%, #050409 100%);
+  overflow: hidden; opacity: 1; transition: opacity 0.5s ease;
+}
+#splash.sp-done { opacity: 0; pointer-events: none; }
+#splash[hidden] { display: none !important; }
+
+.sp-blob { position: absolute; border-radius: 50%; filter: blur(22px); pointer-events: none; }
+.sp-blob.a { top: 10%; left: 8%; width: 62%; height: 40%;
+  background: radial-gradient(circle, rgba(255,120,71,.22), transparent 62%); }
+.sp-blob.b { bottom: 8%; right: 6%; width: 58%; height: 38%;
+  background: radial-gradient(circle, rgba(255,61,129,.2), transparent 62%); }
+
+.sp-inner { position: relative; display: flex; flex-direction: column; align-items: center; gap: 26px; }
+
+.sp-mark { position: relative; width: 118px; height: 108px; display: flex; align-items: center; justify-content: center; }
+.sp-play .sp-mark { animation: sp-float 4s ease-in-out infinite; }
+.sp-halo { position: absolute; width: 104px; height: 104px; border-radius: 50%; opacity: .4;
+  background: radial-gradient(circle, rgba(255,61,129,.5), transparent 64%); filter: blur(16px); }
+.sp-play .sp-halo { animation: sp-halo 3s ease-in-out infinite; }
+.sp-ring { position: absolute; left: 12px; top: 40px; width: 50px; height: 50px; border-radius: 50%;
+  border: 2px solid rgba(255,120,71,.6); opacity: 0; }
+.sp-play .sp-ring { animation: sp-ring-expand 0.7s ease-out 0.35s; }
+.sp-anchor { position: absolute; left: 12px; top: 40px; width: 50px; height: 50px; border-radius: 50%;
+  background: linear-gradient(135deg,#ff7847,#ff3d81); opacity: 0; transform: scale(.4);
+  box-shadow: 0 0 24px rgba(255,61,129,.7), inset 0 0 9px rgba(255,255,255,.4); }
+.sp-play .sp-anchor { animation: sp-anchor-in 0.5s cubic-bezier(.34,1.56,.64,1) 0.12s forwards; }
+.sp-drift { position: absolute; right: 12px; top: 6px; width: 50px; height: 50px; border-radius: 50%;
+  border: 3px solid rgba(255,255,255,.92); box-shadow: 0 0 14px rgba(255,255,255,.25); opacity: 0; }
+.sp-play .sp-drift { animation: sp-drift-in 0.7s cubic-bezier(.5,0,.2,1) 0.4s forwards; }
+
+.sp-word { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 30px; letter-spacing: -.03em;
+  color: #f3f2f8; opacity: 0; transform: translateY(9px); }
+.sp-play .sp-word { animation: sp-word-in 0.5s cubic-bezier(.16,1,.3,1) 0.72s forwards; }
+
+.sp-load { display: flex; flex-direction: column; align-items: center; gap: 11px; opacity: 0; }
+.sp-play .sp-load { animation: sp-fade-in 0.4s ease 0.95s forwards; }
+.sp-bar { width: 190px; height: 4px; border-radius: 3px; background: rgba(255,255,255,.09); overflow: hidden; }
+.sp-bar-fill { display: block; height: 100%; width: 100%; border-radius: 3px;
+  background: linear-gradient(90deg,#ff7847,#ff3d81); transform: translateX(-100%); }
+.sp-play .sp-bar-fill { animation: sp-load-fill 0.7s cubic-bezier(.4,0,.2,1) 1s forwards; }
+.sp-status { font-family: "JetBrains Mono", monospace; font-size: 11px; letter-spacing: .08em; color: #8a889c; }
+
+@keyframes sp-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes sp-halo { 0%,100% { opacity: .4; transform: scale(.9); } 50% { opacity: .95; transform: scale(1.2); } }
+@keyframes sp-anchor-in { to { opacity: 1; transform: scale(1); } }
+@keyframes sp-ring-expand { 0% { transform: scale(.4); opacity: .7; } 100% { transform: scale(2.4); opacity: 0; } }
+@keyframes sp-drift-in { 0% { opacity: 0; transform: translate(-34px,32px) scale(.6); } 100% { opacity: 1; transform: translate(0,0) scale(1); } }
+@keyframes sp-word-in { to { opacity: 1; transform: translateY(0); } }
+@keyframes sp-fade-in { to { opacity: 1; } }
+@keyframes sp-load-fill { to { transform: translateX(0); } }
+
+@media (prefers-reduced-motion: reduce) { #splash { display: none !important; } }
+
+/* Safety net: if JS never dismisses the splash (e.g. a script error), auto-hide
+   it so a full-screen overlay can never permanently block the UI. Normal
+   dismissal happens ~2–3s earlier via JS. */
+#splash { animation: sp-safety 0s linear 6s forwards; }
+@keyframes sp-safety { to { opacity: 0; visibility: hidden; pointer-events: none; } }

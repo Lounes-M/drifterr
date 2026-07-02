@@ -593,6 +593,44 @@ export function maybeOnboard(doc) {
   loadProviders(doc, undefined, "onb-provider-select");
 }
 
+// --- launch splash ---------------------------------------------------------
+// Branded intro shown on load and replayed each time the tray opens the panel
+// (the native shell emits `window://opened`). Self-removing and fail-safe, so it
+// can never trap the panel behind the overlay. Skipped under reduced motion.
+function playSplash(el) {
+  try {
+    [el._d, el._h, el._s1, el._s2].forEach((t) => t && clearTimeout(t));
+    el.hidden = false;
+    el.classList.remove("sp-done", "sp-play");
+    void el.offsetWidth; // restart the CSS animations
+    el.classList.add("sp-play");
+    const st = el.querySelector(".sp-status");
+    if (st) {
+      st.textContent = "initializing…";
+      el._s1 = setTimeout(() => (st.textContent = "calibrating signals…"), 600);
+      el._s2 = setTimeout(() => (st.textContent = "ready"), 1200);
+    }
+    el._d = setTimeout(() => el.classList.add("sp-done"), 1650);
+    el._h = setTimeout(() => { el.hidden = true; }, 2200);
+  } catch (_e) {
+    el.hidden = true;
+  }
+}
+
+export function setupSplash(doc) {
+  const el = doc.getElementById("splash");
+  if (!el) return;
+  const reduce =
+    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce) { el.hidden = true; return; }
+  playSplash(el);
+  // Replay each time the tray opens the panel.
+  const T = typeof window !== "undefined" ? window.__TAURI__ : null;
+  if (T && T.event) {
+    T.event.listen("window://opened", () => playSplash(el));
+  }
+}
+
 // --- auto-update (Tauri app only) ------------------------------------------
 //
 // The native shell checks for updates on launch and emits `update://available`
@@ -662,6 +700,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined" && !window.
   // once auth confirms there's no session. This way a slow/failed auth load (or
   // an offline launch) can never leave a blank panel — worst case the user just
   // sees the (data-free) panel until the gate resolves.
+  setupSplash(document);
   setupUi(document);
   setupOnboarding(document);
   setupUpdater(document);
