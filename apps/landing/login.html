@@ -39,12 +39,18 @@
           <button class="btn btn-lg btn-full" type="submit" id="submit">Sign in</button>
         </form>
 
+        <div class="divider">or</div>
+        <div class="oauth">
+          <button type="button" data-provider="google">Continue with Google</button>
+          <button type="button" data-provider="github">Continue with GitHub</button>
+        </div>
+
         <p class="auth-alt">No account yet? <a id="signup-link" href="/signup">Create one</a></p>
       </div>
     </div>
 
     <script type="module">
-      import { supabase, configured, qp } from "./supabase.js";
+      import { supabase, configured, signInWithProvider, qp } from "./supabase.js";
 
       const msg = document.getElementById("msg");
       const show = (text, kind) => { msg.hidden = false; msg.className = "auth-msg " + kind; msg.textContent = text; };
@@ -75,6 +81,13 @@
           btn.disabled = false; btn.textContent = "Sign in";
         }
       });
+
+      document.querySelectorAll(".oauth button").forEach((b) =>
+        b.addEventListener("click", () => {
+          if (!configured) { window.location.href = "/download"; return; }
+          signInWithProvider(b.dataset.provider, "/account").catch((e) => show(e.message, "error"));
+        })
+      );
     </script>
   </body>
 </html>
