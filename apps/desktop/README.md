@@ -3,9 +3,6 @@
 The menubar app: a tray icon whose color tracks your session state, and a
 dropdown panel that **names the triggering signal**.
 
-![Drifting state](../../docs/menubar-red.png)
-![Aligned state](../../docs/menubar-green.png)
-
 ## Layout
 
 ```
