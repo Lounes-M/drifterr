@@ -5,7 +5,23 @@
 //
 // Runs on Vercel (Node serverless). vercel.json rewrites /download/<os> here.
 
+import { Readable } from "node:stream";
+
 const REPO = "Lounes-M/drifterr";
+
+// Clean, human filenames the visitor's browser saves — instead of the bundler's
+// Drifterr_0.1.4_x64-setup.exe. Keyed by normalized OS.
+const CLEAN_NAME = {
+  mac: "Drifterr.dmg",
+  win: "Drifterr-Setup.exe",
+  linux: "Drifterr.AppImage",
+  deb: "Drifterr.deb",
+};
+
+// Stream files up to this size through the function (to rename them); larger
+// ones (the Linux AppImage) are 302'd to avoid the serverless size/time limit —
+// they keep the release's own filename, which is an acceptable trade-off.
+const STREAM_MAX_BYTES = 45 * 1024 * 1024;
 
 // Pick the right asset for an OS from a release's asset list. Order = preference:
 // the first matcher that hits wins (universal > Apple silicon > Intel, etc.).
@@ -82,9 +98,30 @@ export default async function handler(req, res) {
 
     // Short cache so a freshly cut release shows up quickly but we don't hammer the API.
     res.setHeader("Cache-Control", "public, max-age=300, s-maxage=300");
-    res.statusCode = 302;
-    res.setHeader("Location", asset.browser_download_url);
-    return res.end();
+
+    const cleanName = CLEAN_NAME[os];
+    // Big files (AppImage) → plain redirect, keeping the release's own name.
+    if (!cleanName || (asset.size && asset.size > STREAM_MAX_BYTES)) {
+      res.statusCode = 302;
+      res.setHeader("Location", asset.browser_download_url);
+      return res.end();
+    }
+
+    // Stream the installer through with a clean download filename.
+    const upstream = await fetch(asset.browser_download_url, {
+      headers: { "User-Agent": "drifterr-landing" },
+    });
+    if (!upstream.ok || !upstream.body) {
+      // Streaming failed — fall back to a redirect so the download still works.
+      res.statusCode = 302;
+      res.setHeader("Location", asset.browser_download_url);
+      return res.end();
+    }
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${cleanName}"`);
+    if (asset.size) res.setHeader("Content-Length", String(asset.size));
+    return Readable.fromWeb(upstream.body).pipe(res);
   } catch {
     res.statusCode = 502;
     res.setHeader("content-type", "text/plain; charset=utf-8");

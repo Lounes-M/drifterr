@@ -24,8 +24,9 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
+use tauri_plugin_updater::UpdaterExt;
 
 const TRAY_GREEN: &[u8] = include_bytes!("../icons/tray-green.png");
 const TRAY_AMBER: &[u8] = include_bytes!("../icons/tray-amber.png");
@@ -119,13 +120,65 @@ fn start_embedded_proxy(app: &tauri::App) {
     });
 }
 
+/// Background update check, run shortly after launch. When a newer release is
+/// published (verified against the bundled pubkey), tell the panel so it can
+/// show its in-app "Update available" banner. Best-effort and silent on failure
+/// — a network hiccup or no-update must never disturb the app.
+async fn check_for_update(handle: tauri::AppHandle) {
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let Ok(updater) = handle.updater() else { return };
+    if let Ok(Some(update)) = updater.check().await {
+        let _ = handle.emit("update://available", update.version.clone());
+    }
+}
+
+/// Download + install the pending update, then relaunch into it — the SaaS-style
+/// "update in place, no reinstall" flow. Progress is streamed to the panel so it
+/// can animate a bar. Invoked by the panel's Update button.
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    let update = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(update) = update else {
+        // Nothing to install (already current) — tell the panel to dismiss.
+        let _ = app.emit("update://none", ());
+        return Ok(());
+    };
+
+    let progress = app.clone();
+    update
+        .download_and_install(
+            move |downloaded, total| {
+                let pct = match total {
+                    Some(t) if t > 0 => (downloaded as f64 / t as f64) * 100.0,
+                    _ => 0.0,
+                };
+                let _ = progress.emit("update://progress", pct);
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Installed — relaunch into the new version (diverges).
+    app.restart()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![install_update])
         .setup(|app| {
             // Start the bundled proxy first so the panel has data to show.
             start_embedded_proxy(app);
+
+            // Check for updates in the background; the panel shows the banner.
+            tauri::async_runtime::spawn(check_for_update(app.handle().clone()));
 
             let quit = MenuItem::with_id(app, "quit", "Quit Drifterr", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit])?;
