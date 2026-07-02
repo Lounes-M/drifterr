@@ -431,6 +431,24 @@ footer { border-top: 1px solid var(--edge-soft); }
   .track { display: none; }
   .tier.feat { order: -1; }
 }
+
+/* Phone tuning. The desktop rhythm (96px section padding, 178px hero top) reads
+   as huge dead gaps on a phone; tighten spacing and the largest type so the
+   one-column layout feels intentional rather than a squeezed desktop. Only
+   spacing/size shrink here — nothing that could introduce horizontal overflow. */
+@media (max-width: 560px) {
+  section { padding: 60px 20px; }
+  .hero { padding: 116px 20px 60px; }
+  .hero-grid { gap: 34px; }
+  .hero .lede { font-size: 17px; }
+  .features .head { margin-bottom: 36px; }
+  .bento { gap: 14px; }
+  .tiers { gap: 14px; }
+  .how-grid { gap: 22px; }
+  .nav-inner { padding: 10px 12px 10px 18px; }
+  .final { padding-top: 64px; padding-bottom: 64px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .reveal { opacity: 1; transform: none; }
