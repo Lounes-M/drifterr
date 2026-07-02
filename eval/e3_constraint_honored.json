@@ -1,0 +1,21 @@
+{
+  "name": "TS-only constraint honored (.ts, no .js) — should stay green",
+  "baseline": {
+    "goal": "Build a small CLI to rename files",
+    "constraints": [
+      { "id": "c1", "text": "TypeScript only, no JS", "type": "tech", "checkable": "deterministic" }
+    ],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "eval-e3",
+    "model": "claude-opus-4-x",
+    "turns": [
+      { "index": 0, "role": "user", "content": "Build a rename CLI in strict TypeScript, no JS.", "tokens": 12, "timestamp": 1000 },
+      { "index": 1, "role": "assistant", "content": "Here's rename.ts using node:fs/promises and a small argv parser, fully typed.", "tokens": 20, "timestamp": 2000 }
+    ],
+    "context": { "windowSize": 200000, "usedTokens": 5000, "exact": true, "toolCallCount": 0 },
+    "source": "proxy"
+  },
+  "expect": { "state": "green", "triggeringSignal": null }
+}

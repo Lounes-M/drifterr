@@ -1,0 +1,23 @@
+{
+  "name": "On-goal but reworded (checkout speed) — should stay green",
+  "baseline": {
+    "goal": "Make the checkout flow faster for users",
+    "constraints": [],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "eval-e2",
+    "model": "claude-opus-4-x",
+    "turns": [
+      { "index": 0, "role": "user", "content": "Make the checkout flow faster for users.", "tokens": 9, "timestamp": 1000 },
+      { "index": 1, "role": "assistant", "content": "I'll profile the purchase funnel end to end first.", "tokens": 12, "timestamp": 2000 },
+      { "index": 2, "role": "user", "content": "go", "tokens": 3, "timestamp": 3000 },
+      { "index": 3, "role": "assistant", "content": "Cached the payment gateway handshake and deferred receipt rendering, so the purchase completes about 600ms sooner.", "tokens": 24, "timestamp": 4000 },
+      { "index": 4, "role": "user", "content": "nice, continue", "tokens": 4, "timestamp": 5000 },
+      { "index": 5, "role": "assistant", "content": "Next I'll preconnect the address-autocomplete endpoint and lazy-load the upsell widget to cut interaction latency further.", "tokens": 25, "timestamp": 6000 }
+    ],
+    "context": { "windowSize": 200000, "usedTokens": 9000, "exact": true, "toolCallCount": 0 },
+    "source": "proxy"
+  },
+  "expect": { "state": "green", "triggeringSignal": null }
+}
