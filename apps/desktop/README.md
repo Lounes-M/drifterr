@@ -86,6 +86,32 @@ renders correctly (state color, named triggering signal, offending span,
 per-signal list, offline banner). In a sandbox that pins a specific browser,
 set `CHROMIUM_PATH` to its executable.
 
+## Semantic model (ONNX — optional, off by default)
+
+The default embedder is local + lexical (zero-network, zero-cost). For **true
+semantic** drift detection ("car" ↔ "automobile"), the app can bundle a small
+ONNX sentence-transformer. It's opt-in so the default release build pulls no
+native runtime and ships nothing extra.
+
+Three steps to ship a semantic build:
+
+```bash
+# 1. Export the model → src-tauri/models/embed/{model.onnx, tokenizer.json}
+apps/desktop/scripts/fetch-model.sh            # ~33 MB, bge-small-en-v1.5
+
+# 2. Bundle it as a resource: add to src-tauri/tauri.conf.json → bundle:
+#      "resources": ["models/embed/*"]
+#    (left out of the committed config so the default build stays clean)
+
+# 3. Build with the feature on:
+cd apps/desktop/src-tauri && cargo tauri build --features semantic
+```
+
+At launch the app auto-detects `models/embed/model.onnx` in its resource dir and
+points the embedder at it (`start_embedded_proxy`); if it's absent, or the app
+was built without `--features semantic`, it silently uses the lexical embedder —
+detection never breaks. See [`crates/embeddings/README.md`](../../crates/embeddings/README.md).
+
 ## Regenerate icons
 
 ```bash

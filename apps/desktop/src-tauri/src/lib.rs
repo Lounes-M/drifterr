@@ -85,6 +85,19 @@ fn control_addr() -> std::net::SocketAddr {
 /// when available. Best-effort: if the ports are taken (an external proxy is
 /// already running), the menubar simply attaches to that one.
 fn start_embedded_proxy(app: &tauri::App) {
+    // If a semantic model was bundled as a resource (models/embed/model.onnx)
+    // and the user hasn't pointed DRIFTERR_EMBED_MODEL somewhere else, use it.
+    // No-op when absent, or when the app wasn't built with `--features semantic`
+    // (the embedder simply falls back to the local lexical model).
+    if std::env::var_os("DRIFTERR_EMBED_MODEL").is_none() {
+        if let Ok(res) = app.path().resource_dir() {
+            let model = res.join("models").join("embed");
+            if model.join("model.onnx").exists() {
+                std::env::set_var("DRIFTERR_EMBED_MODEL", &model);
+            }
+        }
+    }
+
     let db = app
         .path()
         .app_data_dir()

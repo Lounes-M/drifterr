@@ -12,6 +12,13 @@ path = "src/main.rs"
 name = "drifterr_proxy"
 path = "src/lib.rs"
 
+[features]
+# Off by default. Turns on the semantic (ONNX) embedder in drifterr-embeddings,
+# selected at runtime when DRIFTERR_EMBED_MODEL points at a model dir; otherwise
+# it falls back to the local lexical embedder. Pulls a native runtime, so it is
+# kept out of the default build / CI. See crates/embeddings/README.md.
+semantic = ["drifterr-embeddings/onnx"]
+
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "fs"] }
 axum = "0.8"
