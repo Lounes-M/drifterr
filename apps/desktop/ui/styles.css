@@ -480,6 +480,49 @@ code { font-family: var(--mono); }
   box-shadow: 0 4px 16px rgba(255, 61, 129, 0.35);
 }
 
+/* --- auto-update banner --------------------------------------------------- */
+.update-banner {
+  border-radius: 14px;
+  padding: 11px 12px;
+  background: linear-gradient(180deg, rgba(255, 120, 71, 0.12), rgba(255, 61, 129, 0.08));
+  border: 1px solid rgba(255, 120, 71, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  animation: reveal 0.34s var(--spring);
+}
+.upd-main { display: flex; align-items: center; gap: 10px; }
+.upd-spark {
+  width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--blue-bright);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--blue-bright) 60%, transparent);
+  animation: breathe 2.2s ease-in-out infinite;
+}
+.upd-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.upd-text b { font-size: 12.5px; font-weight: 700; }
+.upd-sub { font-size: 11px; color: var(--ink-soft); overflow-wrap: anywhere; }
+.upd-btn {
+  flex: 0 0 auto;
+  background: linear-gradient(135deg, var(--blue), var(--blue-deep));
+  color: #fff; border: none; border-radius: 999px;
+  padding: 7px 15px; font-size: 12px; font-weight: 700; cursor: pointer;
+  box-shadow: 0 6px 16px rgba(255, 61, 129, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transition: transform 0.18s var(--spring), filter 0.18s ease;
+}
+.upd-btn:hover { transform: translateY(-1px); filter: brightness(1.07); }
+.upd-btn:active { transform: translateY(0) scale(0.97); }
+.upd-btn:disabled { opacity: 0.7; cursor: default; transform: none; filter: none; }
+.upd-bar {
+  height: 6px; border-radius: 99px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.1);
+}
+.upd-bar-fill {
+  height: 100%; width: 0%; border-radius: 99px;
+  background: linear-gradient(90deg, var(--blue), var(--blue-deep));
+  transition: width 0.3s var(--spring);
+}
+
 /* --- first-run onboarding ------------------------------------------------- */
 .onboarding {
   position: fixed; inset: 0; z-index: 50;

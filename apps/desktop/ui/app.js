@@ -593,6 +593,57 @@ export function maybeOnboard(doc) {
   loadProviders(doc, undefined, "onb-provider-select");
 }
 
+// --- auto-update (Tauri app only) ------------------------------------------
+//
+// The native shell checks for updates on launch and emits `update://available`
+// with the new version. We show an in-app banner; clicking Update invokes the
+// `install_update` command, which downloads + installs + relaunches — no manual
+// reinstall. In the browser dashboard `window.__TAURI__` is absent, so this is
+// a no-op. All best-effort: a failure just leaves the app running as-is.
+
+export function setupUpdater(doc) {
+  const T = typeof window !== "undefined" ? window.__TAURI__ : null;
+  if (!T || !T.event || !T.core) return; // not the native app
+
+  const banner = doc.getElementById("update-banner");
+  const sub = doc.getElementById("upd-sub");
+  const title = doc.getElementById("upd-title");
+  const btn = doc.getElementById("upd-install");
+  const bar = doc.getElementById("upd-bar");
+  const fill = doc.getElementById("upd-bar-fill");
+  if (!banner || !btn) return;
+
+  T.event.listen("update://available", (e) => {
+    if (sub) sub.textContent = e.payload ? `Version ${e.payload}` : "A new version is ready";
+    banner.hidden = false;
+  });
+  T.event.listen("update://none", () => { banner.hidden = true; });
+  T.event.listen("update://progress", (e) => {
+    if (bar) bar.hidden = false;
+    const pct = Math.max(0, Math.min(100, Math.round(Number(e.payload) || 0)));
+    if (fill) fill.style.width = pct + "%";
+    if (title) title.textContent = pct >= 100 ? "Installing…" : "Downloading update…";
+  });
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.textContent = "Updating…";
+    if (title) title.textContent = "Downloading update…";
+    if (bar) bar.hidden = false;
+    try {
+      // Resolves only if there was nothing to install; on success the app
+      // relaunches into the new version and this page goes away.
+      await T.core.invoke("install_update");
+    } catch (_e) {
+      if (title) title.textContent = "Update failed";
+      if (sub) sub.textContent = "Please try again later.";
+      btn.disabled = false;
+      btn.textContent = "Retry";
+      if (bar) bar.hidden = true;
+    }
+  });
+}
+
 // --- polling loop (browser only) -------------------------------------------
 
 export async function poll(doc, fetchImpl) {
@@ -613,6 +664,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined" && !window.
   // sees the (data-free) panel until the gate resolves.
   setupUi(document);
   setupOnboarding(document);
+  setupUpdater(document);
   applySavedProvider();
   initAccounts(document);
   maybeOnboard(document);
