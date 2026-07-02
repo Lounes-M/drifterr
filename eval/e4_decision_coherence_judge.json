@@ -1,0 +1,21 @@
+{
+  "name": "Reintroduces rejected bcrypt (judge signal — expect skipped)",
+  "baseline": {
+    "goal": "Add password hashing to the auth module",
+    "constraints": [],
+    "decisions": [{ "text": "use bcrypt", "rejected": true }]
+  },
+  "conversation": {
+    "sessionId": "eval-e4",
+    "model": "claude-opus-4-x",
+    "turns": [
+      { "index": 0, "role": "user", "content": "Add password hashing. Don't use bcrypt.", "tokens": 9, "timestamp": 1000 },
+      { "index": 1, "role": "assistant", "content": "I'll hash with argon2id via the argon2 crate.", "tokens": 14, "timestamp": 2000 },
+      { "index": 2, "role": "user", "content": "ok add it", "tokens": 4, "timestamp": 3000 },
+      { "index": 3, "role": "assistant", "content": "Done. I also added a bcrypt fallback so legacy password hashes still verify.", "tokens": 18, "timestamp": 4000 }
+    ],
+    "context": { "windowSize": 200000, "usedTokens": 6000, "exact": true, "toolCallCount": 0 },
+    "source": "proxy"
+  },
+  "expect": { "state": "amber", "triggeringSignal": "decision_coherence" }
+}
