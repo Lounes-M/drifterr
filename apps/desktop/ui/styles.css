@@ -37,6 +37,13 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
+/* The root element's background paints the WHOLE canvas (full scroll height).
+   Body's gradient is `background-attachment: fixed`, so it only covers the
+   viewport and does NOT propagate past it — without a base on <html>, any content
+   taller than the window leaves the area below the fold unpainted (white). This
+   dark base (the gradient's outer stop) guarantees the canvas is always dark, at
+   any height, scroll position, or overscroll. */
+html { background: #050409; }
 
 body {
   min-height: 100vh;
