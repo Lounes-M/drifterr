@@ -1,33 +1,40 @@
 #!/usr/bin/env bash
-# Export the semantic embedding model Drifterr can bundle for true semantic
-# drift detection ("car" ↔ "automobile"), which the default lexical embedder
-# can't do. Off by default — see the "Semantic model" section in
-# apps/desktop/README (and crates/embeddings/README.md).
+# Fetch the semantic embedding model Drifterr can bundle for true semantic drift
+# detection ("car" ↔ "automobile") — the thing the default lexical embedder
+# can't do. Off by default; see the "Semantic model" section in apps/desktop/README.
 #
-# Output: apps/desktop/src-tauri/models/embed/{model.onnx, tokenizer.json}
-# Then build with:  cargo tauri build --features semantic
+# Downloads a pre-exported ONNX bge-small-en-v1.5 (no Python/optimum needed) into
+#   apps/desktop/src-tauri/models/embed/{model.onnx, tokenizer.json}
+# This is the exact model measured in crates/embeddings/README.md (goal↔drift
+# separation 0.05 → 0.26; eval accuracy 66.7% → 100%).
 #
-# Requires Python + optimum. ~33 MB for bge-small-en-v1.5.
+# Then build the semantic app (the committed default config is untouched — the
+# model is injected as a resource only for this build):
+#   cd apps/desktop/src-tauri
+#   cargo tauri build --features semantic \
+#     --config '{"bundle":{"resources":["models/embed/*"]}}'
 set -euo pipefail
 
-MODEL="${1:-BAAI/bge-small-en-v1.5}"
+REPO="Xenova/bge-small-en-v1.5"
+BASE="https://huggingface.co/${REPO}/resolve/main"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$HERE/../src-tauri/models/embed"
 
-echo "Exporting $MODEL → $OUT"
 mkdir -p "$OUT"
+echo "Fetching $REPO → $OUT"
 
-if ! python3 -c "import optimum" 2>/dev/null; then
-  echo "Installing optimum exporters (one-time)…"
-  python3 -m pip install --quiet "optimum[exporters]"
-fi
+curl -fSL --retry 3 -o "$OUT/tokenizer.json" "$BASE/tokenizer.json"
+curl -fSL --retry 3 -o "$OUT/model.onnx"     "$BASE/onnx/model.onnx"
 
-python3 -m optimum.exporters.onnx --model "$MODEL" --task feature-extraction "$OUT"
-
-if [[ -f "$OUT/model.onnx" && -f "$OUT/tokenizer.json" ]]; then
-  echo "✓ Model ready at $OUT"
-  echo "  Now build the semantic app:  cargo tauri build --features semantic"
+if [[ -s "$OUT/model.onnx" && -s "$OUT/tokenizer.json" ]]; then
+  sz=$(du -h "$OUT/model.onnx" | cut -f1)
+  echo "✓ Model ready ($sz) at $OUT"
+  echo
+  echo "Next — build the semantic app (default release config unchanged):"
+  echo "  cd apps/desktop/src-tauri"
+  echo "  cargo tauri build --features semantic \\"
+  echo "    --config '{\"bundle\":{\"resources\":[\"models/embed/*\"]}}'"
 else
-  echo "✗ Export did not produce model.onnx + tokenizer.json" >&2
+  echo "✗ Download did not produce model.onnx + tokenizer.json" >&2
   exit 1
 fi
