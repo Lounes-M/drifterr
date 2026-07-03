@@ -18,20 +18,21 @@ on:
         required: true
         default: "v0.2.0"
       semantic:
-        description: "Bundle the ONNX semantic model (true = real semantic detection, +~130MB)"
+        description: "Bundle the ONNX semantic model (+~130MB). OFF by default — the ONNX build currently fails to link on Windows (LNK2038 CRT mismatch); leave unchecked until that's fixed."
         type: boolean
         required: false
-        default: true
+        default: false
 
 jobs:
   release:
     permissions:
       contents: write
-    # Semantic ON by default: tag pushes always build the semantic app; a manual
-    # run can opt out by unchecking the input (falls back to the lexical build if
-    # the ONNX path ever misbehaves — no workflow edit needed).
+    # Semantic is OFF by default (both tag pushes and manual runs) because the
+    # ONNX build does not yet link on Windows. Only a manual run with the box
+    # explicitly checked builds semantic. This keeps every default release on the
+    # proven lexical path.
     env:
-      SEMANTIC: ${{ github.event_name != 'workflow_dispatch' || inputs.semantic }}
+      SEMANTIC: ${{ github.event_name == 'workflow_dispatch' && inputs.semantic }}
     strategy:
       fail-fast: false
       matrix:

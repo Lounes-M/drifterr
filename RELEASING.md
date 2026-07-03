@@ -69,12 +69,13 @@ git push origin v0.1.0
 ```
 
 This runs the release workflow across macOS (Apple silicon + Intel), Linux and
-Windows. **The semantic (ONNX) model is bundled automatically** — each runner
-downloads it (gitignored, never committed) and the build injects it as a resource
-via `semantic.conf.json`, so shipped apps do real semantic drift detection out of
-the box (+~130 MB). To cut a plain lexical build instead, run the workflow
-manually (**Actions → Release → Run workflow**) and uncheck **Bundle the ONNX
-semantic model** — no workflow edit needed.
+Windows on the **lexical** build path (default).
+
+> **Semantic (ONNX) is OFF by default and currently Windows-broken.** The ONNX
+> runtime fails to link on the Windows runner (`LNK2038`: `ort_sys` builds the
+> CRT as `/MD` while `esaxx-rs` builds it `/MT`). Until that's resolved, leave
+> the **Bundle the ONNX semantic model** box unchecked. macOS/Linux semantic
+> builds work, but a release needs all three platforms, so ship lexical.
 
 It creates a **draft** release with:
 
