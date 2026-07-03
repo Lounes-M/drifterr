@@ -148,6 +148,64 @@ impl Baseline {
         true
     }
 
+    /// Apply a **user-declared** intent: an explicit goal and a list of
+    /// constraint phrases the user typed themselves (onboarding / the intent
+    /// editor). This is the highest-authority baseline — unlike [`extract`], the
+    /// goal isn't guessed from turn 1, it's stated.
+    ///
+    /// Each phrase becomes a constraint: a [`Checkable::Deterministic`] one when a
+    /// rule can be inferred from it (so it can drive RED, like any hard
+    /// constraint), otherwise a [`Checkable::Judge`] fuzzy one (AMBER-only).
+    /// De-duplicated against existing constraints so re-declaring is idempotent.
+    /// An empty `goal` leaves the existing goal untouched; empty phrases are
+    /// skipped. Declared constraints are marked so later [`absorb`](Self::absorb)
+    /// passes never retire them.
+    pub fn declare(&mut self, goal: &str, constraints: &[String]) {
+        let goal = goal.trim();
+        if !goal.is_empty() {
+            self.goal = goal.to_string();
+        }
+        for phrase in constraints {
+            self.declare_constraint(phrase);
+        }
+    }
+
+    /// Add one user-declared constraint phrase, choosing deterministic vs judge
+    /// by whether a rule can be inferred. Returns `true` if newly added.
+    pub fn declare_constraint(&mut self, phrase: &str) -> bool {
+        let phrase = phrase.trim();
+        if phrase.is_empty() {
+            return false;
+        }
+        let lc = phrase.to_lowercase();
+        // Dedup on either the visible text or an equivalent inferred rule.
+        let rule = crate::infer::infer_rule(phrase);
+        let dup = self
+            .constraints
+            .iter()
+            .any(|c| c.text.to_lowercase() == lc || (rule.is_some() && c.rule == rule));
+        if dup {
+            return false;
+        }
+        let (text, kind, checkable) = match &rule {
+            Some(r) => {
+                let (t, k) = crate::infer::describe(r);
+                (t.to_string(), k, Checkable::Deterministic)
+            }
+            None => (phrase.to_string(), ConstraintType::Other, Checkable::Judge),
+        };
+        let id = format!("c{}", self.constraints.len() + 1);
+        self.constraints.push(Constraint {
+            id,
+            text,
+            kind,
+            checkable,
+            active: true,
+            rule,
+        });
+        true
+    }
+
     /// Extract a baseline from a conversation's turns without an LLM.
     ///
     /// Used by channels that have no externally-supplied baseline (the proxy):
@@ -270,6 +328,27 @@ mod tests {
         assert_eq!(b.constraints.len(), 1);
         b.absorb(&[user("also no comments in code")]);
         assert_eq!(b.constraints.len(), 2);
+    }
+
+    #[test]
+    fn declare_sets_goal_and_classifies_constraints() {
+        let mut b = Baseline::extract(&[user("hi")]);
+        b.declare(
+            "Ship the billing API",
+            &[
+                "TypeScript only, no JS".to_string(), // → deterministic (rule)
+                "Keep the tone formal".to_string(),   // → judge (fuzzy)
+            ],
+        );
+        assert_eq!(b.goal, "Ship the billing API");
+        assert_eq!(b.deterministic_constraints().count(), 1);
+        assert_eq!(b.judge_constraints().count(), 1);
+        // Idempotent: re-declaring the same phrases adds nothing.
+        let n = b.constraints.len();
+        b.declare("", &["TypeScript only, no JS".to_string()]);
+        assert_eq!(b.constraints.len(), n, "no duplicate on re-declare");
+        // Empty goal leaves the declared goal intact.
+        assert_eq!(b.goal, "Ship the billing API");
     }
 
     #[test]

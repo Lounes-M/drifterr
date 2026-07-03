@@ -115,6 +115,33 @@ async function main() {
   );
   check(none === null, "returns null on unsupported host");
 
+  console.log("Re-anchor inject:");
+  // Textarea composer (ChatGPT-style): prepends the preamble to whatever's there.
+  const injField = await page.evaluate(() => {
+    document.body.innerHTML = '<textarea id="prompt-textarea">my draft</textarea>';
+    const ok = window.DrifterrParse.inject("[re-anchor] stay in TS", { hostname: "chatgpt.com", doc: document });
+    return { ok, value: document.getElementById("prompt-textarea").value };
+  });
+  check(injField.ok === true, "inject finds the textarea composer");
+  check(injField.value.startsWith("[re-anchor] stay in TS"), "preamble is prepended");
+  check(injField.value.includes("my draft"), "existing draft is preserved");
+
+  // Contenteditable composer (Claude-style) into an empty box.
+  const injCE = await page.evaluate(() => {
+    document.body.innerHTML = '<div contenteditable="true" class="ProseMirror"></div>';
+    const ok = window.DrifterrParse.inject("[re-anchor] honor constraints", { hostname: "claude.ai", doc: document });
+    return { ok, text: document.querySelector(".ProseMirror").textContent };
+  });
+  check(injCE.ok === true, "inject finds the contenteditable composer");
+  check(injCE.text === "[re-anchor] honor constraints", "sets contenteditable text");
+
+  // No composer present → returns false, never throws.
+  const injNone = await page.evaluate(() => {
+    document.body.innerHTML = "<div></div>";
+    return window.DrifterrParse.inject("x", { hostname: "chatgpt.com", doc: document });
+  });
+  check(injNone === false, "inject returns false when no composer is found");
+
   await browser.close();
   if (failures) {
     console.error(`\n${failures} check(s) failed`);

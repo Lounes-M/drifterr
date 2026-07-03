@@ -8,8 +8,10 @@
 //! 2. toggles the panel window open/closed on tray click, like a real menubar
 //!    dropdown.
 //!
-//! A background task polls the control API (`/status`) every 1.5s and recolors
-//! the tray. The webview panel polls the same endpoint for its detailed view.
+//! A background task polls the control API (`/status`) every 1.5s, recolors the
+//! tray, and fires a **native notification** when a session escalates into drift
+//! (so you're warned even with the panel closed). The webview panel polls the
+//! same endpoint for its detailed view.
 //!
 //! **Fusion (M-packaging):** the app embeds the Drifterr proxy as a library and
 //! starts it in-process on launch, so installing one app gives you both the
@@ -172,6 +174,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![install_update])
         .setup(|app| {
             // Start the bundled proxy first so the panel has data to show.
@@ -234,7 +237,22 @@ pub fn run() {
         .expect("error while running Drifterr");
 }
 
-/// Poll the control API and recolor the tray to match the session state.
+/// A minimal snapshot of the current session, pulled from `/status`.
+#[derive(Default, Clone)]
+struct StatusBrief {
+    /// "green" | "amber" | "red" (absent → no active session).
+    state: Option<String>,
+    /// Session id, so an alert fires per session, not per state flip.
+    session: Option<String>,
+    /// Human label of the triggering signal (e.g. "Constraints").
+    signal: Option<String>,
+    /// Evidence detail for the triggering signal.
+    detail: Option<String>,
+}
+
+/// Poll the control API and recolor the tray to match the session state, and
+/// fire a **native notification** the moment a session crosses into drift — the
+/// whole point of "warn before the wall" when the panel is closed.
 async fn poll_loop(app: tauri::AppHandle) {
     let base = std::env::var("DRIFTERR_CONTROL")
         .unwrap_or_else(|_| "http://127.0.0.1:8788".to_string());
@@ -243,8 +261,13 @@ async fn poll_loop(app: tauri::AppHandle) {
         Err(_) => return,
     };
 
+    // Remember the last alerted (session, state) so we notify only on a genuine
+    // escalation, never every 1.5s tick.
+    let mut last_alert: Option<(String, String)> = None;
+
     loop {
-        let state = fetch_state(&client, &base).await;
+        let brief = fetch_status(&client, &base).await.unwrap_or_default();
+        let state = brief.state.clone();
         if let Some(tray) = app.tray_by_id(TRAY_ID) {
             let (icon, tip) = match state.as_deref() {
                 Some("green") => (TRAY_GREEN, "Drifterr: aligned"),
@@ -257,12 +280,67 @@ async fn poll_loop(app: tauri::AppHandle) {
             }
             let _ = tray.set_tooltip(Some(tip));
         }
+
+        maybe_notify(&app, &brief, &mut last_alert);
         tokio::time::sleep(Duration::from_millis(1500)).await;
     }
 }
 
-/// Fetch `current.state` from the control API, or `None` if unreachable / idle.
-async fn fetch_state(client: &reqwest::Client, base: &str) -> Option<String> {
+/// Decide whether a session's current state warrants a native notification, and
+/// send one if so. Fires on escalation into drift, at most once per
+/// (session, state): RED always alerts; AMBER alerts only from a calm state, so
+/// a RED→AMBER de-escalation stays quiet.
+fn maybe_notify(
+    app: &tauri::AppHandle,
+    brief: &StatusBrief,
+    last_alert: &mut Option<(String, String)>,
+) {
+    use tauri_plugin_notification::NotificationExt;
+
+    let (Some(state), Some(session)) = (brief.state.as_deref(), brief.session.as_deref()) else {
+        return;
+    };
+    // Same session already alerted at this state → nothing new to say.
+    if last_alert.as_ref() == Some(&(session.to_string(), state.to_string())) {
+        return;
+    }
+    let prev_state = last_alert
+        .as_ref()
+        .filter(|(s, _)| s == session)
+        .map(|(_, st)| st.clone());
+
+    let escalating = match state {
+        "red" => prev_state.as_deref() != Some("red"),
+        "amber" => matches!(prev_state.as_deref(), None | Some("green")),
+        _ => false, // green / unknown never alert
+    };
+    // Track the observed state regardless, so we don't re-alert on the next tick.
+    *last_alert = Some((session.to_string(), state.to_string()));
+    if !escalating {
+        return;
+    }
+
+    let signal = brief.signal.as_deref().unwrap_or("your intent");
+    let (title, body) = if state == "red" {
+        (
+            "Drifterr — off track".to_string(),
+            match brief.detail.as_deref() {
+                Some(d) if !d.is_empty() => format!("{signal}: {d}"),
+                _ => format!("This session is drifting from {signal}."),
+            },
+        )
+    } else {
+        (
+            "Drifterr — starting to drift".to_string(),
+            format!("Watch {signal} — the conversation is beginning to stray."),
+        )
+    };
+    let _ = app.notification().builder().title(title).body(body).show();
+}
+
+/// Fetch a compact snapshot of the current session, or `None` if unreachable /
+/// idle. Reads the named triggering signal so a notification can say *why*.
+async fn fetch_status(client: &reqwest::Client, base: &str) -> Option<StatusBrief> {
     let v: serde_json::Value = client
         .get(format!("{base}/status"))
         .send()
@@ -271,8 +349,37 @@ async fn fetch_state(client: &reqwest::Client, base: &str) -> Option<String> {
         .json()
         .await
         .ok()?;
-    v.get("current")?
-        .get("state")?
-        .as_str()
-        .map(|s| s.to_string())
+    let cur = v.get("current")?;
+    if cur.is_null() {
+        return Some(StatusBrief::default());
+    }
+    let trig = cur.get("triggering");
+    Some(StatusBrief {
+        state: cur.get("state").and_then(|s| s.as_str()).map(String::from),
+        session: cur
+            .get("sessionId")
+            .and_then(|s| s.as_str())
+            .map(String::from),
+        signal: trig
+            .and_then(|t| t.get("signal"))
+            .and_then(|s| s.as_str())
+            .map(signal_label),
+        detail: trig
+            .and_then(|t| t.get("detail"))
+            .and_then(|s| s.as_str())
+            .map(String::from),
+    })
+}
+
+/// Human label for a signal id (mirrors the panel's SIGNAL_LABELS).
+fn signal_label(id: &str) -> String {
+    match id {
+        "constraint" => "Constraints",
+        "saturation" => "Saturation",
+        "goal_alignment" => "Goal alignment",
+        "decision_coherence" => "Decision coherence",
+        "degradation" => "Degradation",
+        other => other,
+    }
+    .to_string()
 }

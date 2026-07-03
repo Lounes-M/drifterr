@@ -16,6 +16,7 @@
       items: "[data-message-author-role]",
       role: (el) => el.getAttribute("data-message-author-role"),
       model: "gpt-4o",
+      composer: "#prompt-textarea, textarea[data-id], form textarea",
     },
     {
       match: /(^|\.)claude\.ai$/,
@@ -23,12 +24,14 @@
       role: (el) =>
         el.getAttribute("data-testid") === "user-message" ? "user" : "assistant",
       model: "claude-opus-4-x",
+      composer: 'div[contenteditable="true"].ProseMirror, div[contenteditable="true"]',
     },
     {
       match: /(^|\.)gemini\.google\.com$/,
       items: "user-query, model-response",
       role: (el) => (el.tagName.toLowerCase() === "user-query" ? "user" : "assistant"),
       model: "gemini-1.5-pro",
+      composer: 'rich-textarea .ql-editor, .ql-editor[contenteditable="true"], textarea',
     },
     {
       match: /(^|\.)copilot\.microsoft\.com$/,
@@ -36,6 +39,7 @@
       role: (el) =>
         el.getAttribute("data-content") === "user-message" ? "user" : "assistant",
       model: "copilot",
+      composer: "textarea#userInput, textarea",
     },
     {
       match: /(^|\.)perplexity\.ai$/,
@@ -43,6 +47,7 @@
       role: (el) =>
         el.getAttribute("data-testid") === "user-query" ? "user" : "assistant",
       model: "perplexity",
+      composer: 'textarea[placeholder], div[contenteditable="true"]',
     },
   ];
 
@@ -108,7 +113,39 @@
     };
   }
 
-  const api = { extract };
+  /// Inject re-anchor text into the page's chat composer — the browser-channel
+  /// equivalent of "one-click re-anchor". Best-effort: finds the host's composer,
+  /// prepends `text` to whatever's there, and dispatches an `input` event so the
+  /// site's framework registers the change. Returns true if it found a composer.
+  function inject(text, opts) {
+    opts = opts || {};
+    const doc = opts.doc || (typeof document !== "undefined" ? document : null);
+    const hostname =
+      opts.hostname || (typeof location !== "undefined" ? location.hostname : "");
+    if (!doc || !text) return false;
+    const cfg = pickConfig(hostname);
+    if (!cfg || !cfg.composer) return false;
+    const box = doc.querySelector(cfg.composer);
+    if (!box) return false;
+
+    const isField = box.tagName === "TEXTAREA" || box.tagName === "INPUT";
+    const existing = (isField ? box.value : box.textContent) || "";
+    const combined = existing.trim() ? text + "\n\n" + existing : text;
+    if (isField) {
+      box.value = combined;
+    } else {
+      box.textContent = combined;
+    }
+    try {
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    } catch (_e) {
+      /* no Event constructor in some test envs */
+    }
+    if (typeof box.focus === "function") box.focus();
+    return true;
+  }
+
+  const api = { extract, inject };
   if (typeof window !== "undefined") window.DrifterrParse = api;
   if (typeof globalThis !== "undefined") globalThis.DrifterrParse = api;
 })();

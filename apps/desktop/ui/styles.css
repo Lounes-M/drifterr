@@ -321,6 +321,61 @@ code { font-family: var(--mono); }
   font-size: 11px; line-height: 1.55; white-space: pre-wrap; color: var(--ink-soft);
 }
 
+/* --- intent (goal + constraints) ----------------------------------------- */
+.intent {
+  display: flex; flex-direction: column; gap: 9px;
+  background: var(--glass-sub); border: 1px solid var(--hairline);
+  border-radius: 16px; padding: 12px 13px;
+}
+.intent-head { display: flex; align-items: center; justify-content: space-between; }
+.intent-view { display: flex; flex-direction: column; gap: 8px; }
+.intent-goal {
+  margin: 0; font-size: 13px; font-weight: 600; color: var(--ink);
+  line-height: 1.4; overflow-wrap: anywhere;
+}
+.intent-goal.muted { font-weight: 500; }
+.intent-constraints { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.intent-constraint { display: flex; gap: 8px; align-items: flex-start; }
+.intent-badge {
+  flex: 0 0 auto; font-size: 9.5px; font-weight: 700; letter-spacing: 0.03em;
+  text-transform: uppercase; padding: 2px 7px; border-radius: 999px; margin-top: 1px;
+}
+.intent-badge.hard { background: rgba(255, 61, 129, 0.16); color: var(--blue-deep); }
+.intent-badge.soft { background: rgba(255, 178, 62, 0.16); color: var(--amber); }
+.intent-constraint-text { font-size: 12px; color: var(--ink-soft); overflow-wrap: anywhere; }
+.intent-editor { display: flex; flex-direction: column; gap: 9px; }
+.intent-field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--ink-soft); }
+.intent-field textarea,
+.intent-field input {
+  width: 100%; resize: vertical; font-family: var(--sans); font-size: 12.5px;
+  color: var(--ink); background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--edge); border-radius: 10px; padding: 8px 10px;
+  line-height: 1.45;
+}
+.intent-field textarea:focus,
+.intent-field input:focus { outline: none; border-color: var(--blue); }
+.intent-actions { display: flex; gap: 8px; align-items: center; }
+.intent-actions .reanchor-btn { flex: 1 1 auto; }
+
+/* --- toggle switch -------------------------------------------------------- */
+.toggle-row { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.toggle-input { position: absolute; opacity: 0; width: 0; height: 0; }
+.toggle-track {
+  position: relative; flex: 0 0 auto; width: 38px; height: 22px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14); border: 1px solid var(--edge);
+  transition: background 0.22s ease;
+}
+.toggle-knob {
+  position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.22s var(--spring);
+}
+.toggle-input:checked + .toggle-track { background: linear-gradient(90deg, var(--blue), var(--blue-deep)); }
+.toggle-input:checked + .toggle-track .toggle-knob { transform: translateX(16px); }
+.toggle-input:disabled + .toggle-track { opacity: 0.45; }
+.toggle-input:focus-visible + .toggle-track { outline: 2px solid var(--blue-bright); outline-offset: 2px; }
+.toggle-label { font-size: 12px; color: var(--ink-soft); font-weight: 600; }
+
 /* --- saturation ----------------------------------------------------------- */
 .sat-head {
   display: flex; justify-content: space-between;
@@ -409,6 +464,20 @@ code { font-family: var(--mono); }
 /* When the settings view is open it REPLACES the live view rather than stacking
    on top of it. `!important` beats the per-poll `[hidden]` toggles in render(). */
 #app-body.settings-open > *:not(#settings) { display: none !important; }
+#app-body.history-open > *:not(#history) { display: none !important; }
+
+/* --- session history ------------------------------------------------------ */
+.history-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.history-row {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: var(--glass-sub); border: 1px solid var(--hairline);
+  border-radius: 12px; padding: 10px 12px;
+}
+.history-row .dot { width: 10px; height: 10px; margin-top: 4px; }
+.history-body { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; gap: 2px; }
+.history-goal { font-size: 12.5px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.history-goal.untitled { font-weight: 500; color: var(--ink-soft); }
+.history-meta { font-size: 11px; color: var(--ink-faint); }
 
 .gate { display: flex; flex-direction: column; gap: 10px; padding: 6px 2px 4px; }
 .gate h1 { font-family: var(--display); font-size: 19px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }

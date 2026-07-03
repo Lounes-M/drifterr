@@ -240,6 +240,81 @@ export function toggleSettings(doc, show) {
   return willShow;
 }
 
+// --- session history -------------------------------------------------------
+
+/// Show/hide the history view (mutually exclusive with settings). Like
+/// `toggleSettings`, it REPLACES the live view via a body class.
+export function toggleHistory(doc, show) {
+  const h = doc.getElementById("history");
+  if (!h) return false;
+  const willShow = show === undefined ? h.hidden : show;
+  h.hidden = !willShow;
+  const body = doc.getElementById("app-body");
+  if (body) body.classList.toggle("history-open", willShow);
+  if (willShow) toggleSettings(doc, false); // never stack the two views
+  return willShow;
+}
+
+/// Compact "time ago" for a ms timestamp (0/absent → "").
+export function timeAgo(ms, nowMs) {
+  const t = Number(ms) || 0;
+  if (!t) return "";
+  const now = nowMs || Date.now();
+  const s = Math.max(0, Math.round((now - t) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return m + "m ago";
+  const h = Math.round(m / 60);
+  if (h < 24) return h + "h ago";
+  const d = Math.round(h / 24);
+  return d + "d ago";
+}
+
+/// Render the history list from `GET /history` (array of items).
+export function renderHistory(doc, items, nowMs) {
+  const list = doc.getElementById("history-list");
+  const empty = doc.getElementById("history-empty");
+  const rows = Array.isArray(items) ? items : [];
+  if (empty) empty.hidden = rows.length > 0;
+  if (!list) return;
+  list.innerHTML = "";
+  for (const it of rows) {
+    const li = doc.createElement("li");
+    li.className = "history-row";
+    const dot = doc.createElement("span");
+    dot.className = "dot " + (stateInfo(it.state).cls);
+    const body = doc.createElement("div");
+    body.className = "history-body";
+    const goal = doc.createElement("span");
+    const hasGoal = it.goal && it.goal.trim();
+    goal.className = "history-goal" + (hasGoal ? "" : " untitled");
+    goal.textContent = hasGoal ? it.goal.trim() : "Untitled session";
+    const meta = doc.createElement("span");
+    meta.className = "history-meta";
+    const bits = [it.model || "?"];
+    if (it.turns) bits.push(it.turns + " turn" + (it.turns > 1 ? "s" : ""));
+    const ago = timeAgo(it.lastActivity, nowMs);
+    if (ago) bits.push(ago);
+    meta.textContent = bits.join(" · ");
+    body.appendChild(goal);
+    body.appendChild(meta);
+    li.appendChild(dot);
+    li.appendChild(body);
+    list.appendChild(li);
+  }
+}
+
+export async function loadHistory(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/history", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderHistory(doc, await res.json());
+  } catch (_e) {
+    renderHistory(doc, []);
+  }
+}
+
 export async function loadConfig(doc, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
@@ -249,6 +324,61 @@ export async function loadConfig(doc, fetchImpl) {
   } catch (_e) {
     renderConfig(doc, null);
   }
+}
+
+// --- judge (fuzzy signals) config ------------------------------------------
+//
+// Lets the user turn on the judge with their own OpenRouter key, no restart. The
+// key is write-only here: it's POSTed to the local proxy (in-memory) and never
+// stored in the browser or echoed back.
+
+/// Render the judge status label from `GET /judge` ({ enabled, label }).
+export function renderJudge(doc, data) {
+  const status = doc.getElementById("judge-status");
+  if (!status) return;
+  if (data && data.enabled) status.textContent = "On · " + (data.label || "");
+  else status.textContent = "Off";
+}
+
+export async function loadJudge(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/judge", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderJudge(doc, await res.json());
+  } catch (_e) {
+    renderJudge(doc, null);
+  }
+}
+
+export async function saveJudge(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  const keyEl = doc.getElementById("judge-key");
+  const modelEl = doc.getElementById("judge-model");
+  const btn = doc.getElementById("judge-save");
+  const apiKey = keyEl ? keyEl.value : "";
+  const model = modelEl ? modelEl.value.trim() : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
+  try {
+    const res = await f(apiBase() + "/judge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey, model }),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderJudge(doc, await res.json());
+    if (keyEl) keyEl.value = ""; // never keep the secret sitting in the DOM
+    await loadConfig(doc); // refresh the Judge row
+  } catch (_e) {
+    renderJudge(doc, null);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Save judge"; }
+  }
+}
+
+function setupJudge(doc) {
+  const save = doc.getElementById("judge-save");
+  if (save) save.addEventListener("click", () => saveJudge(doc));
 }
 
 // --- provider selector -----------------------------------------------------
@@ -343,14 +473,160 @@ export async function loadReanchor(doc, fetchImpl) {
   }
 }
 
+// --- intent (goal + constraints the user declares) -------------------------
+//
+// Drift is measured against the user's *stated* intent. This card shows the
+// current goal + constraints and lets the user edit them. GET/POST /intent on
+// the control API. Kept pure-ish so tests can drive it with a fake fetch.
+
+/// The last intent payload we rendered, so "Edit" can prefill the form and we
+/// know whether a save will attach to a live session or seed the next one.
+let currentIntent = null;
+
+/// Badge text for a constraint's enforcement strength.
+function checkableBadge(c) {
+  return c && c.checkable === "deterministic" ? "Hard" : "Soft";
+}
+
+/// Render the intent payload (or null → empty state) into the view. Pure w.r.t.
+/// the network. Always reveals the card so the user can set intent even with no
+/// live session.
+export function renderIntent(doc, data) {
+  currentIntent = data;
+  const section = doc.getElementById("intent");
+  if (section) section.hidden = false;
+
+  const goalEl = doc.getElementById("intent-goal");
+  const list = doc.getElementById("intent-constraints");
+  const empty = doc.getElementById("intent-empty");
+  const hasGoal = !!(data && data.goal && data.goal.trim());
+  const cs = (data && Array.isArray(data.constraints) ? data.constraints : []).filter(
+    (c) => c && c.text
+  );
+  const has = hasGoal || cs.length > 0;
+
+  if (empty) empty.hidden = has;
+  if (goalEl) {
+    goalEl.hidden = !has;
+    goalEl.textContent = hasGoal ? data.goal.trim() : "(no goal set yet)";
+    goalEl.classList.toggle("muted", !hasGoal);
+  }
+  if (list) {
+    list.hidden = !has;
+    list.innerHTML = "";
+    for (const c of cs) {
+      const li = doc.createElement("li");
+      li.className = "intent-constraint";
+      const badge = doc.createElement("span");
+      badge.className = "intent-badge " + (c.checkable === "deterministic" ? "hard" : "soft");
+      badge.textContent = checkableBadge(c);
+      const text = doc.createElement("span");
+      text.className = "intent-constraint-text";
+      text.textContent = c.text;
+      li.appendChild(badge);
+      li.appendChild(text);
+      list.appendChild(li);
+    }
+  }
+}
+
+export async function loadIntent(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/intent", { cache: "no-store" });
+    if (res.status === 404) {
+      renderIntent(doc, null); // no session and nothing pending yet
+      return null;
+    }
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    renderIntent(doc, data);
+    return data;
+  } catch (_e) {
+    // Proxy unreachable — leave whatever's shown; the status poll surfaces the error.
+    return null;
+  }
+}
+
+/// Open the editor, prefilled from the current intent.
+function openIntentEditor(doc) {
+  const goalInput = doc.getElementById("intent-goal-input");
+  const csInput = doc.getElementById("intent-constraints-input");
+  if (goalInput) goalInput.value = currentIntent && currentIntent.goal ? currentIntent.goal : "";
+  if (csInput) {
+    const cs = currentIntent && Array.isArray(currentIntent.constraints) ? currentIntent.constraints : [];
+    csInput.value = cs.map((c) => c.text).join("\n");
+  }
+  const pending = doc.getElementById("intent-pending");
+  if (pending) pending.hidden = !(currentIntent && currentIntent.pending) && currentIntent !== null;
+  doc.getElementById("intent-view").hidden = true;
+  doc.getElementById("intent-editor").hidden = false;
+}
+
+function closeIntentEditor(doc) {
+  doc.getElementById("intent-editor").hidden = true;
+  doc.getElementById("intent-view").hidden = false;
+}
+
+export async function saveIntent(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  const goal = (doc.getElementById("intent-goal-input")?.value || "").trim();
+  const constraints = (doc.getElementById("intent-constraints-input")?.value || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const btn = doc.getElementById("intent-save");
+  if (btn) btn.disabled = true;
+  try {
+    const res = await f(apiBase() + "/intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal, constraints }),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderIntent(doc, await res.json());
+    closeIntentEditor(doc);
+  } catch (_e) {
+    // Keep the editor open so the user doesn't lose their input.
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function setupIntent(doc) {
+  const edit = doc.getElementById("intent-edit");
+  if (edit) edit.addEventListener("click", () => openIntentEditor(doc));
+  const cancel = doc.getElementById("intent-cancel");
+  if (cancel) cancel.addEventListener("click", () => closeIntentEditor(doc));
+  const save = doc.getElementById("intent-save");
+  if (save) save.addEventListener("click", () => saveIntent(doc));
+}
+
+/// Is the intent editor currently open? (So the poll loop doesn't clobber edits.)
+function intentEditorOpen(doc) {
+  const ed = doc.getElementById("intent-editor");
+  return !!(ed && !ed.hidden);
+}
+
 function setupUi(doc) {
   const gear = doc.getElementById("gear");
   if (gear) {
     gear.addEventListener("click", async () => {
       const showing = toggleSettings(doc);
-      if (showing) { await loadConfig(doc); await loadProviders(doc); }
+      if (showing) { toggleHistory(doc, false); await loadConfig(doc); await loadProviders(doc); await loadAutoReanchor(doc); await loadJudge(doc); }
     });
   }
+
+  const histBtn = doc.getElementById("history-btn");
+  if (histBtn) {
+    histBtn.addEventListener("click", async () => {
+      const showing = toggleHistory(doc);
+      if (showing) await loadHistory(doc);
+    });
+  }
+
+  setupIntent(doc);
+  setupJudge(doc);
 
   const reanchorBtn = doc.getElementById("reanchor-btn");
   if (reanchorBtn) {
@@ -365,18 +641,73 @@ function setupUi(doc) {
     });
   }
 
-  const copyBtn = doc.getElementById("reanchor-copy");
-  if (copyBtn) {
-    copyBtn.addEventListener("click", async () => {
-      const text = currentReanchor ? currentReanchor.snapshot : "";
-      try {
-        await navigator.clipboard.writeText(text);
-        copyBtn.textContent = "Copied!";
-      } catch (_e) {
-        copyBtn.textContent = "Copy failed";
-      }
-      setTimeout(() => (copyBtn.textContent = "Copy"), 1500);
+  wireCopyButton(doc, "reanchor-copy", "Copy snapshot", () =>
+    currentReanchor ? currentReanchor.snapshot : ""
+  );
+  wireCopyButton(doc, "reanchor-copy-preamble", "Copy preamble", () =>
+    currentReanchor ? currentReanchor.preamble : ""
+  );
+
+  const autoToggle = doc.getElementById("auto-reanchor-toggle");
+  if (autoToggle) {
+    autoToggle.addEventListener("change", () => setAutoReanchor(doc, autoToggle.checked));
+  }
+}
+
+/// Wire a copy-to-clipboard button that copies whatever `getText()` returns,
+/// with a transient "Copied!" label. Shared by the snapshot + preamble buttons.
+function wireCopyButton(doc, id, label, getText) {
+  const btn = doc.getElementById(id);
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(getText() || "");
+      btn.textContent = "Copied!";
+    } catch (_e) {
+      btn.textContent = "Copy failed";
+    }
+    setTimeout(() => (btn.textContent = label), 1500);
+  });
+}
+
+// --- auto re-anchor toggle (settings) --------------------------------------
+
+/// Render the auto-re-anchor switch from `GET /auto-reanchor`
+/// ({ on, allowed, effective }). Shows the Pro hint when the plan doesn't allow.
+export function renderAutoReanchor(doc, data) {
+  const toggle = doc.getElementById("auto-reanchor-toggle");
+  const label = doc.getElementById("auto-reanchor-label");
+  const hint = doc.getElementById("auto-reanchor-hint");
+  const on = !!(data && data.on);
+  const allowed = !!(data && data.allowed);
+  if (toggle) { toggle.checked = on; toggle.disabled = !allowed; }
+  if (hint) hint.hidden = allowed;
+  if (label) label.textContent = !allowed ? "Pro" : on ? "On" : "Off";
+}
+
+export async function loadAutoReanchor(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/auto-reanchor", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderAutoReanchor(doc, await res.json());
+  } catch (_e) {
+    renderAutoReanchor(doc, null);
+  }
+}
+
+async function setAutoReanchor(doc, on, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/auto-reanchor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ on }),
     });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderAutoReanchor(doc, await res.json());
+  } catch (_e) {
+    await loadAutoReanchor(doc); // resync to the real state on failure
   }
 }
 
@@ -531,7 +862,7 @@ export async function initAccounts(doc) {
 // A stepped, animated tour shown once on first launch: welcome → pick provider
 // → connect your tool → ready. Dismissal is remembered in localStorage.
 
-const ONB_STEPS = 4;
+const ONB_STEPS = 5;
 let onbStep = 0;
 
 function updateOnboarding(doc) {
@@ -554,6 +885,18 @@ function updateOnboarding(doc) {
 
 export function finishOnboarding(doc) {
   try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) { /* private mode */ }
+  // Persist the intent the user declared during onboarding (seeds their next
+  // session). Best-effort — a proxy hiccup never blocks finishing the tour.
+  const goal = (doc.getElementById("onb-goal-input")?.value || "").trim();
+  const constraints = (doc.getElementById("onb-constraints-input")?.value || "")
+    .split("\n").map((s) => s.trim()).filter(Boolean);
+  if (goal || constraints.length) {
+    fetch(apiBase() + "/intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal, constraints }),
+    }).then(() => loadIntent(doc)).catch(() => { /* proxy not up yet */ });
+  }
   const o = doc.getElementById("onboarding");
   if (o) o.hidden = true;
 }
@@ -690,6 +1033,9 @@ export async function poll(doc, fetchImpl) {
     const res = await f(apiBase() + "/status", { cache: "no-store" });
     if (!res.ok) throw new Error("HTTP " + res.status);
     render(doc, await res.json());
+    // Keep the intent card fresh (goal/constraints can change mid-session), but
+    // never overwrite the form while the user is editing it.
+    if (!intentEditorOpen(doc)) await loadIntent(doc, f);
   } catch (_e) {
     renderError(doc, "Drifterr proxy not reachable (is it running on " + apiBase() + "?)");
   }

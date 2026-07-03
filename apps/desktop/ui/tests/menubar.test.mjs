@@ -157,6 +157,11 @@ async function main() {
   check(true, "copy button copies to clipboard");
   const clip = await page.evaluate(() => navigator.clipboard.readText());
   check(clip.includes("# Re-anchor"), "clipboard holds the snapshot");
+  // Copy preamble → clipboard holds the short in-thread reminder, not the snapshot.
+  await page.locator("#reanchor-copy-preamble").click();
+  await page.waitForFunction(() => document.getElementById("reanchor-copy-preamble").textContent === "Copied!");
+  const clipP = await page.evaluate(() => navigator.clipboard.readText());
+  check(clipP.includes("Binding constraints"), "Copy preamble copies the preamble");
   await page.locator("#reanchor-close").click();
   check(!(await page.locator("#reanchor").isVisible()), "close hides the snapshot");
 
@@ -209,6 +214,19 @@ async function main() {
     switchedTo = JSON.parse(route.request().postData() || "{}").id;
     route.fulfill({ contentType: "application/json", body: JSON.stringify({ provider: switchedTo }) });
   });
+  // Auto re-anchor toggle: starts off+allowed; POST flips it on.
+  let autoOn = false;
+  await page.route("**/auto-reanchor*", (route) => {
+    if (route.request().method() === "POST") autoOn = JSON.parse(route.request().postData() || "{}").on;
+    route.fulfill({ contentType: "application/json", body: JSON.stringify({ on: autoOn, allowed: true, effective: autoOn }) });
+  });
+  // Judge: starts disabled; POST with a key enables it (key never sent back).
+  let judgePosted = null;
+  await page.route("**/judge*", (route) => {
+    if (route.request().method() === "POST") judgePosted = JSON.parse(route.request().postData() || "{}");
+    const on = !!(judgePosted && judgePosted.apiKey);
+    route.fulfill({ contentType: "application/json", body: JSON.stringify({ enabled: on, label: on ? (judgePosted.model || "openai/gpt-4o-mini") : "disabled" }) });
+  });
   check(!(await page.locator("#settings").isVisible()), "settings hidden by default");
   await page.locator("#gear").click();
   await page.waitForFunction(() => !document.getElementById("settings").hidden);
@@ -222,6 +240,25 @@ async function main() {
   );
   check((await page.locator("#cfg-storage").textContent()) === "In-memory", "settings shows storage mode");
   check((await page.locator("#cfg-judge").textContent()).includes("gpt-4o-mini"), "settings shows judge model");
+
+  console.log("AUTO RE-ANCHOR toggle:");
+  await page.waitForFunction(() => document.getElementById("auto-reanchor-label").textContent === "Off");
+  check(!(await page.locator("#auto-reanchor-toggle").isChecked()), "auto re-anchor starts off");
+  await page.locator("#auto-reanchor-toggle + .toggle-track").click();
+  await page.waitForFunction(() => document.getElementById("auto-reanchor-label").textContent === "On");
+  check(autoOn === true, "toggling posts on=true to the proxy");
+  check(await page.locator("#auto-reanchor-toggle").isChecked(), "toggle reflects the on state");
+
+  console.log("JUDGE config:");
+  await page.waitForFunction(() => document.getElementById("judge-status").textContent === "Off");
+  check((await page.locator("#judge-status").textContent()) === "Off", "judge starts off");
+  await page.locator("#judge-key").fill("sk-or-secret");
+  await page.locator("#judge-model").fill("openai/gpt-4o-mini");
+  await page.locator("#judge-save").click();
+  await page.waitForFunction(() => document.getElementById("judge-status").textContent.startsWith("On"));
+  check(judgePosted && judgePosted.apiKey === "sk-or-secret", "save posts the api key to the proxy");
+  check((await page.locator("#judge-key").inputValue()) === "", "key field is cleared after save");
+  check((await page.locator("#judge-status").textContent()).includes("gpt-4o-mini"), "status shows the active model");
 
   console.log("PROVIDER selector:");
   await page.waitForFunction(() => document.querySelectorAll("#provider-select .provider-pill").length === 3);
@@ -271,8 +308,9 @@ async function main() {
     await op.waitForFunction(() => !document.getElementById("onboarding").hidden);
     check(await op.locator("#onboarding").isVisible(), "first run shows the onboarding tour");
     check((await op.locator("#onb-provider-select .provider-pill").count()) > 0, "tour embeds the provider selector");
-    // Walk to the end: Next ×3 → Get started.
-    for (let i = 0; i < 3; i++) await op.locator("#onb-next").click();
+    // Walk to the end: Next ×4 → Get started (5 steps: welcome, provider, tool,
+    // intent, ready).
+    for (let i = 0; i < 4; i++) await op.locator("#onb-next").click();
     check((await op.locator("#onb-next").textContent()) === "Get started", "last step shows Get started");
     await op.locator("#onb-next").click();
     await op.waitForFunction(() => document.getElementById("onboarding").hidden);
@@ -282,6 +320,93 @@ async function main() {
     await op.waitForFunction(() => typeof document.getElementById("onboarding") !== "undefined");
     check(await op.locator("#onboarding").isHidden(), "tour does not reappear after completion");
     await octx.close();
+  }
+
+  console.log("INTENT (declare / edit):");
+  {
+    const ictx = await browser.newContext();
+    const ip = await ictx.newPage();
+    await ip.addInitScript(() => {
+      window.DRIFTERR_SUPABASE_URL = "";
+      window.DRIFTERR_SUPABASE_ANON_KEY = "";
+      try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) {}
+    });
+    await ip.route("**/status*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(GREEN) }));
+    let posted = null;
+    await ip.route("**/intent*", (route) => {
+      const req = route.request();
+      if (req.method() === "POST") {
+        posted = JSON.parse(req.postData() || "{}");
+        route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({
+            goal: posted.goal,
+            constraints: (posted.constraints || []).map((t, i) => ({
+              id: "c" + (i + 1), text: t, kind: "other",
+              checkable: /no js|typescript/i.test(t) ? "deterministic" : "judge", active: true,
+            })),
+            pending: false,
+          }),
+        });
+      } else {
+        route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({
+            goal: "Ship the billing API",
+            constraints: [
+              { id: "c1", text: "TypeScript only, no JS", kind: "tech", checkable: "deterministic", active: true },
+              { id: "c2", text: "Keep the tone formal", kind: "tone", checkable: "judge", active: true },
+            ],
+            pending: false,
+          }),
+        });
+      }
+    });
+    await ip.goto(url);
+    await ip.waitForFunction(() => document.getElementById("intent-goal")?.textContent?.includes("billing"));
+    check((await ip.locator("#intent-goal").textContent()).includes("Ship the billing API"), "intent card shows the goal");
+    check((await ip.locator(".intent-badge.hard").count()) === 1, "deterministic constraint shows a Hard badge");
+    check((await ip.locator(".intent-badge.soft").count()) === 1, "judge constraint shows a Soft badge");
+
+    // Edit → change goal → save → POST body carries the new intent.
+    await ip.locator("#intent-edit").click();
+    check(await ip.locator("#intent-editor").isVisible(), "Edit opens the editor prefilled");
+    await ip.locator("#intent-goal-input").fill("Refactor auth, no JS files");
+    await ip.locator("#intent-constraints-input").fill("no JS\nbe concise");
+    await ip.locator("#intent-save").click();
+    await ip.waitForFunction(() => document.getElementById("intent-editor").hidden);
+    check(posted && posted.goal === "Refactor auth, no JS files", "save POSTs the edited goal");
+    check(posted && posted.constraints.length === 2, "save POSTs the constraint lines");
+    await ictx.close();
+  }
+
+  console.log("HISTORY view:");
+  {
+    const hctx = await browser.newContext();
+    const hp = await hctx.newPage();
+    await hp.addInitScript(() => {
+      window.DRIFTERR_SUPABASE_URL = "";
+      window.DRIFTERR_SUPABASE_ANON_KEY = "";
+      try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) {}
+    });
+    await hp.route("**/status*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(GREEN) }));
+    await hp.route("**/history*", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify([
+          { sessionId: "s2", model: "gpt-4o", goal: "Ship billing API", state: "red", turns: 12, lastActivity: Date.now() - 3600000 },
+          { sessionId: "s1", model: "claude-opus-4-x", goal: "", state: "green", turns: 3, lastActivity: Date.now() - 86400000 },
+        ]),
+      })
+    );
+    await hp.goto(url);
+    await hp.locator("#history-btn").click();
+    await hp.waitForFunction(() => document.querySelectorAll("#history-list .history-row").length === 2);
+    check((await hp.locator("#history-list .history-row").count()) === 2, "history lists past sessions");
+    check((await hp.locator(".history-goal").first().textContent()) === "Ship billing API", "shows the session goal");
+    check((await hp.locator(".history-goal.untitled").count()) === 1, "goalless session shows as Untitled");
+    check((await hp.locator(".history-row .dot.red").count()) === 1, "state dot reflects the session state");
+    await hctx.close();
   }
 
   await browser.close();

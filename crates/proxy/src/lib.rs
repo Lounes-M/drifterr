@@ -43,6 +43,7 @@ use serde::Serialize;
 use state::{AppCore, SessionStatus};
 use std::future::IntoFuture;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::net::TcpListener;
 
@@ -167,10 +168,14 @@ pub struct AppState {
     pub client: reqwest::Client,
     pub core: Arc<Mutex<AppCore>>,
     pub meta: Arc<ConfigMeta>,
-    pub judge: Arc<drifterr_judge::Judge>,
+    /// The judge backend. `RwLock` so the settings panel can swap it in at
+    /// runtime (enter an API key → judge on) without a restart.
+    pub judge: Arc<RwLock<drifterr_judge::Judge>>,
     /// Opt-in: inject the re-anchor preamble into outgoing requests when the
     /// session is drifting (RED). Off by default — it modifies user requests.
-    pub auto_reanchor: bool,
+    /// Runtime-toggleable (the panel's Auto re-anchor switch) via an atomic, so
+    /// the choice takes effect without a restart.
+    pub auto_reanchor: Arc<AtomicBool>,
     /// Current plan entitlement, set by the desktop app after login. Defaults to
     /// Free so the proxy works standalone. Gates paid capabilities (drift map,
     /// extra sessions, auto-re-anchor).
@@ -200,9 +205,15 @@ impl AppState {
     }
 
     /// Enable/disable auto-re-anchor (used by tests).
-    pub fn with_auto_reanchor(mut self, on: bool) -> Self {
-        self.auto_reanchor = on;
+    pub fn with_auto_reanchor(self, on: bool) -> Self {
+        self.auto_reanchor.store(on, Ordering::Relaxed);
         self
+    }
+
+    /// Whether auto-re-anchor injection is currently on (the toggle only; the
+    /// plan entitlement is the second gate, checked at inject time).
+    pub fn auto_reanchor_on(&self) -> bool {
+        self.auto_reanchor.load(Ordering::Relaxed)
     }
 
     /// Set the active plan entitlement (used by tests and the app embedder).
@@ -234,6 +245,7 @@ impl AppState {
             judge: judge.label(),
             auto_reanchor,
         };
+        let judge = Arc::new(RwLock::new(judge));
         let upstream = ActiveUpstream {
             openai_upstream: cfg.openai_upstream.clone(),
             anthropic_upstream: cfg.anthropic_upstream.clone(),
@@ -246,8 +258,8 @@ impl AppState {
             client,
             core: Arc::new(Mutex::new(AppCore::new(store))),
             meta: Arc::new(meta),
-            judge: Arc::new(judge),
-            auto_reanchor,
+            judge,
+            auto_reanchor: Arc::new(AtomicBool::new(auto_reanchor)),
             entitlement: Arc::new(RwLock::new(Entitlement::default())),
             upstream: Arc::new(RwLock::new(upstream)),
         }
@@ -290,6 +302,13 @@ pub fn control_router(state: AppState) -> Router {
             get(entitlement_handler).post(set_entitlement_handler),
         )
         .route("/reanchor", get(reanchor_handler))
+        .route("/intent", get(get_intent_handler).post(set_intent_handler))
+        .route("/judge", get(get_judge_handler).post(set_judge_handler))
+        .route(
+            "/auto-reanchor",
+            get(get_auto_reanchor_handler).post(set_auto_reanchor_handler),
+        )
+        .route("/history", get(history_handler))
         .route("/standing-orders", get(standing_orders_handler))
         .route("/standing-orders/promote", post(promote_handler))
         .route("/ingest", post(ingest_handler))
@@ -418,6 +437,12 @@ async fn config_handler(State(app): State<AppState>) -> Json<ConfigMeta> {
         meta.anthropic_upstream = u.anthropic_upstream.clone();
         meta.provider = u.provider_label.clone();
     }
+    // Reflect the live auto-re-anchor toggle, not just the boot value.
+    meta.auto_reanchor = app.auto_reanchor_on();
+    // Reflect the live (possibly runtime-configured) judge, not just the boot one.
+    if let Ok(j) = app.judge.read() {
+        meta.judge = j.label();
+    }
     Json(meta)
 }
 
@@ -491,6 +516,43 @@ struct StandingOrderView {
     candidate: bool,
 }
 
+/// One past session for the history view.
+#[derive(Serialize)]
+struct HistoryItem {
+    #[serde(rename = "sessionId")]
+    session_id: String,
+    model: String,
+    goal: String,
+    /// "green" | "amber" | "red" | "" (unknown).
+    state: String,
+    turns: i64,
+    #[serde(rename = "lastActivity")]
+    last_activity: i64,
+}
+
+/// Recent sessions (newest first) for the history/timeline view. Reads the local
+/// store only — nothing leaves the machine.
+async fn history_handler(State(app): State<AppState>) -> Json<Vec<HistoryItem>> {
+    let sessions = app
+        .core
+        .lock()
+        .map(|c| c.session_history(50))
+        .unwrap_or_default();
+    Json(
+        sessions
+            .into_iter()
+            .map(|s| HistoryItem {
+                session_id: s.session_id,
+                model: s.model,
+                goal: s.goal.unwrap_or_default(),
+                state: s.status.unwrap_or_default(),
+                turns: s.turns,
+                last_activity: s.last_ts,
+            })
+            .collect(),
+    )
+}
+
 async fn standing_orders_handler(State(app): State<AppState>) -> Json<Vec<StandingOrderView>> {
     let orders = app
         .core
@@ -547,6 +609,138 @@ async fn reanchor_handler(State(app): State<AppState>, Query(q): Query<ReanchorQ
         Some(r) => Json(r).into_response(),
         None => (StatusCode::NOT_FOUND, "no active session to re-anchor").into_response(),
     }
+}
+
+/// The user-declared intent for a session (`POST /intent`). An empty `goal`
+/// leaves the existing goal untouched; `constraints` are full phrases the user
+/// typed (deterministic when a rule can be inferred, fuzzy/judge otherwise).
+#[derive(Deserialize)]
+struct SetIntentBody {
+    #[serde(default)]
+    session: Option<String>,
+    #[serde(default)]
+    goal: String,
+    #[serde(default)]
+    constraints: Vec<String>,
+}
+
+/// Read the current intent (goal + constraints) for a session — powers the
+/// intent editor and the onboarding "your intent" step.
+async fn get_intent_handler(
+    State(app): State<AppState>,
+    Query(q): Query<ReanchorQuery>,
+) -> Response {
+    match app
+        .core
+        .lock()
+        .ok()
+        .and_then(|core| core.intent_of(q.session.as_deref()))
+    {
+        Some(view) => Json(view).into_response(),
+        None => (StatusCode::NOT_FOUND, "no session yet").into_response(),
+    }
+}
+
+/// Declare/replace the intent for a session (or seed the next one when none is
+/// live). Returns the resolved intent so the UI can render exactly what stuck.
+async fn set_intent_handler(
+    State(app): State<AppState>,
+    Json(body): Json<SetIntentBody>,
+) -> Response {
+    if let Ok(mut core) = app.core.lock() {
+        let view = core.set_intent(body.session.as_deref(), &body.goal, &body.constraints);
+        return Json(view).into_response();
+    }
+    (StatusCode::INTERNAL_SERVER_ERROR, "busy").into_response()
+}
+
+/// Judge status for the settings panel — never echoes the key back.
+#[derive(Serialize)]
+struct JudgeState {
+    /// True when a judge backend is active (fuzzy signals run).
+    enabled: bool,
+    /// Backend label: "disabled", "stub", or the model id.
+    label: String,
+}
+
+impl JudgeState {
+    fn of(app: &AppState) -> Self {
+        let (enabled, label) = app
+            .judge
+            .read()
+            .map(|j| (j.enabled(), j.label()))
+            .unwrap_or((false, "disabled".to_string()));
+        JudgeState { enabled, label }
+    }
+}
+
+async fn get_judge_handler(State(app): State<AppState>) -> Json<JudgeState> {
+    Json(JudgeState::of(&app))
+}
+
+/// Configure the judge at runtime from the user's own OpenRouter key + model.
+/// The key lives only in the proxy's memory (never persisted here, never echoed
+/// back). An empty key disables the judge. This is the "turn on the fuzzy
+/// signals in one field" path — no restart, no env var.
+#[derive(Deserialize)]
+struct SetJudge {
+    #[serde(default, rename = "apiKey")]
+    api_key: String,
+    #[serde(default)]
+    model: Option<String>,
+}
+
+async fn set_judge_handler(State(app): State<AppState>, Json(body): Json<SetJudge>) -> Response {
+    let new_judge = drifterr_judge::Judge::openrouter(&body.api_key, body.model.as_deref());
+    match app.judge.write() {
+        Ok(mut j) => *j = new_judge,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "busy").into_response(),
+    }
+    Json(JudgeState::of(&app)).into_response()
+}
+
+/// Auto-re-anchor toggle state for the panel switch.
+#[derive(Serialize)]
+struct AutoReanchorState {
+    /// Whether the user has the switch on.
+    on: bool,
+    /// Whether the current plan actually permits injection (the second gate).
+    allowed: bool,
+    /// `on && allowed` — whether injection will really happen while drifting.
+    effective: bool,
+}
+
+impl AutoReanchorState {
+    fn of(app: &AppState) -> Self {
+        let on = app.auto_reanchor_on();
+        let allowed = app.entitlement().auto_reanchor;
+        AutoReanchorState {
+            on,
+            allowed,
+            effective: on && allowed,
+        }
+    }
+}
+
+async fn get_auto_reanchor_handler(State(app): State<AppState>) -> Json<AutoReanchorState> {
+    Json(AutoReanchorState::of(&app))
+}
+
+#[derive(Deserialize)]
+struct SetAutoReanchor {
+    on: bool,
+}
+
+/// Toggle auto-re-anchor injection at runtime (the panel's switch). The plan
+/// entitlement is still enforced at inject time, so turning it on with a Free
+/// plan is accepted but simply won't inject until upgraded — the response says
+/// so via `effective`.
+async fn set_auto_reanchor_handler(
+    State(app): State<AppState>,
+    Json(body): Json<SetAutoReanchor>,
+) -> Json<AutoReanchorState> {
+    app.auto_reanchor.store(body.on, Ordering::Relaxed);
+    Json(AutoReanchorState::of(&app))
 }
 
 /// Add permissive CORS headers and short-circuit preflight requests.
@@ -696,7 +890,7 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
     // the re-anchor preamble into the outgoing request. Idempotent and best-
     // effort — on any doubt we relay the original bytes unchanged.
     let mut body_to_send = body_bytes.to_vec();
-    if app.auto_reanchor && app.entitlement().auto_reanchor {
+    if app.auto_reanchor_on() && app.entitlement().auto_reanchor {
         let session_id = state::session_id_for(&parsed_req);
         let preamble = app
             .core
@@ -770,7 +964,13 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
         // judge half of Signal 1 (fuzzy constraint adherence). All of it is
         // fail-safe and AMBER-only — a judge that cries wolf can only raise a
         // watch, never a wall.
-        if !app2.judge.enabled() || parsed_resp.assistant_text.is_empty() {
+        // Snapshot the judge (cheap clone) so the runtime-swappable RwLock isn't
+        // held across the awaits below.
+        let judge = match app2.judge.read() {
+            Ok(j) => j.clone(),
+            Err(_) => return,
+        };
+        if !judge.enabled() || parsed_resp.assistant_text.is_empty() {
             return;
         }
 
@@ -792,7 +992,7 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
             .find(|t| t.role == drifterr_engine::conversation::Role::User)
         {
             if drifterr_engine::infer::has_constraint_cue(&user_msg.content) {
-                let extracted = app2.judge.extract_constraints(&user_msg.content).await;
+                let extracted = judge.extract_constraints(&user_msg.content).await;
                 if !extracted.is_empty() {
                     if let Ok(mut core) = app2.core.lock() {
                         core.add_judge_constraints(&session_id, extracted);
@@ -811,21 +1011,14 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
         };
         let embedder = drifterr_embeddings::BagEmbedder::default();
 
-        let mut extra = drifterr_judge::constraint::constraint_adherence(
-            &last,
-            &judge_constraints,
-            &app2.judge,
-        )
-        .await;
+        let mut extra =
+            drifterr_judge::constraint::constraint_adherence(&last, &judge_constraints, &judge)
+                .await;
 
         if !decisions.is_empty() {
-            if let Some(event) = drifterr_judge::decision::decision_coherence(
-                &last,
-                &decisions,
-                &embedder,
-                &app2.judge,
-            )
-            .await
+            if let Some(event) =
+                drifterr_judge::decision::decision_coherence(&last, &decisions, &embedder, &judge)
+                    .await
             {
                 extra.push(event);
             }

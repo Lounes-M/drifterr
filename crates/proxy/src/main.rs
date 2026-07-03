@@ -60,7 +60,7 @@ async fn main() {
     );
 
     let state = AppState::new(cfg, store);
-    if state.auto_reanchor {
+    if state.auto_reanchor_on() {
         eprintln!("drifterr re-anchor → ON (injects the preamble into drifting requests)");
     }
 
