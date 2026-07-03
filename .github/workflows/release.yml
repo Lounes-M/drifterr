@@ -96,17 +96,19 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # --- macOS code signing + notarization ---------------------------------
-          # Turnkey: these resolve to empty strings until you add the secrets, and
-          # tauri-action skips signing when APPLE_CERTIFICATE is empty (so builds
-          # stay unsigned, exactly as before). The moment you add the six secrets
-          # (see RELEASING.md), the macOS build is signed AND notarized — no
-          # further workflow change. Only the macos job reads these.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # DISABLED for now: passing these (even resolving to empty) made
+          # tauri-action attempt `security import` and fail the macOS build
+          # ("failed to import keychain certificate") — likely an inherited
+          # org/environment secret. With the vars absent, tauri-action skips
+          # signing entirely and macOS ships UNSIGNED (Gatekeeper right-click →
+          # Open), same as v0.1.5. To enable signing later, uncomment these and
+          # add the six repo secrets (see RELEASING.md).
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/desktop/src-tauri
           tagName: ${{ inputs.version || github.ref_name }}
