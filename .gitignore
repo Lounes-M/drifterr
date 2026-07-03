@@ -19,3 +19,6 @@ apps/desktop/src-tauri/gen/
 # Supabase CLI local state (keep config.toml, migrations, functions tracked)
 supabase/.branches/
 supabase/.temp/
+
+# Bundled semantic model (fetched on demand — never committed)
+apps/desktop/src-tauri/models/
