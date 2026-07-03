@@ -4,6 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Off by default. Forwards to the semantic (ONNX) embedder so the eval harness
+# can measure detection with real semantics: `cargo run --example eval
+# --features onnx` with DRIFTERR_EMBED_MODEL set. Pulls a native runtime, so it
+# is opt-in and out of the default build / CI.
+onnx = ["drifterr-embeddings/onnx"]
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true

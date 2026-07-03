@@ -21,11 +21,44 @@ matching private key as repo secrets:
 > **both** the `pubkey` in `tauri.conf.json` and these secrets, or existing
 > installs won't accept updates.
 
-macOS notarization / Windows code-signing are optional and **off for v0.1** —
-the installers are unsigned, so users see a Gatekeeper / SmartScreen warning on
-first launch (right-click → Open on macOS; "More info → Run anyway" on Windows).
-The `APPLE_*` env block in the workflow is where notarization would be wired
-later.
+## Code signing & notarization (removes the install warning)
+
+Unsigned builds trigger a Gatekeeper (macOS) / SmartScreen (Windows) warning on
+first launch. The workflow is **already wired** for both — it stays unsigned
+until you add the secrets, then signs automatically with no workflow change.
+
+### macOS — signed + notarized (highest impact; Gatekeeper is strict)
+
+Prereq: an **Apple Developer account** ($99/yr) with a *Developer ID
+Application* certificate.
+
+1. In **Keychain Access**, export your "Developer ID Application" cert **and its
+   private key** as a `.p12` (set a password). Base64-encode it:
+   `base64 -i cert.p12 | pbcopy`.
+2. Create an **app-specific password** at <https://appleid.apple.com> → Sign-In &
+   Security → App-Specific Passwords.
+3. Add these six repo secrets (**Settings → Secrets and variables → Actions**):
+   | Secret | Value |
+   |---|---|
+   | `APPLE_CERTIFICATE` | the base64 `.p12` from step 1 |
+   | `APPLE_CERTIFICATE_PASSWORD` | the `.p12` password |
+   | `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Your Name (TEAMID)` |
+   | `APPLE_ID` | your Apple ID email |
+   | `APPLE_PASSWORD` | the app-specific password from step 2 |
+   | `APPLE_TEAM_ID` | your 10-char Team ID |
+4. Cut a release. tauri-action signs the universal `.app`/`.dmg` and notarizes it;
+   the warning is gone. (First notarization can add a few minutes to the job.)
+
+### Windows — SmartScreen
+
+Unsigned `.exe` shows SmartScreen ("More info → Run anyway"). To remove it you
+need a code-signing certificate (an OV/EV cert from a CA, or **Azure Trusted
+Signing** — cheapest for indies). Two routes, both configured in
+`tauri.conf.json` under `bundle.windows`:
+- **Thumbprint**: import the cert on the runner, set `"certificateThumbprint"`.
+- **Azure Trusted Signing**: set a `"signCommand"` that calls their signer.
+Not wired yet (no CA cert); the SmartScreen tip on the download page covers users
+until then. Reputation also builds automatically as more people run the app.
 
 ## Cut a release
 
