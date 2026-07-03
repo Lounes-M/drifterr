@@ -14,9 +14,11 @@
       { "index": 2, "role": "user", "content": "good, what else can we do", "tokens": 8, "timestamp": 3000 },
       { "index": 3, "role": "assistant", "content": "Enable provisioned concurrency and move heavy imports below the handler so they don't run on every init.", "tokens": 24, "timestamp": 4000 },
       { "index": 4, "role": "user", "content": "ok keep going", "tokens": 6, "timestamp": 5000 },
-      { "index": 5, "role": "assistant", "content": "Actually, let's redesign the landing page hero and pick a fresh brand colour palette for the marketing site.", "tokens": 24, "timestamp": 6000 }
+      { "index": 5, "role": "assistant", "content": "Actually, let's redesign the landing page hero and pick a fresh brand colour palette for the marketing site.", "tokens": 24, "timestamp": 6000 },
+      { "index": 6, "role": "user", "content": "sure", "tokens": 4, "timestamp": 7000 },
+      { "index": 7, "role": "assistant", "content": "For the marketing site I'll draft the pricing page copy and add a customer testimonials carousel.", "tokens": 22, "timestamp": 8000 }
     ],
-    "context": { "windowSize": 200000, "usedTokens": 9000, "exact": true, "toolCallCount": 0 },
+    "context": { "windowSize": 200000, "usedTokens": 12000, "exact": true, "toolCallCount": 0 },
     "source": "proxy"
   },
   "expect": { "state": "amber", "triggeringSignal": "goal_alignment" }

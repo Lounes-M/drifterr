@@ -30,6 +30,31 @@ points at a model directory, and falls back to `BagEmbedder` on any load error �
 so detection never breaks. It's local-first: the model is read from disk, nothing
 is auto-downloaded at runtime.
 
+### Measured impact (why it's worth bundling)
+
+Probed with `examples/similarity.rs` on the eval's semantic-drift case (a
+Lambda-latency goal drifting to a marketing redesign):
+
+| | goal · on-topic | goal · drift | separation |
+|---|---|---|---|
+| lexical (`BagEmbedder`) | 0.22 | 0.17 | **0.05** — too small to trip any threshold |
+| ONNX `bge-small-en-v1.5` | 0.62 | 0.36 | **0.26** — clean |
+
+That separation is decisive end-to-end: on the harder eval set
+(`cargo run -p drifterr-engine --features onnx --example eval -- eval/`, with
+`DRIFTERR_EMBED_MODEL` set) the goal-alignment signal goes from **missing** the
+drift with the lexical model (66.7% state accuracy) to **catching** it with ONNX
+(**100%**, macro-F1 1.00). The soft-signal thresholds are tuned for a real
+embedder's value range, so the lexical fallback is deliberately conservative —
+the semantic model is what makes goal drift reliably detectable.
+
+Reproduce the probe:
+
+```bash
+DRIFTERR_EMBED_MODEL=/path/to/bge cargo run -p drifterr-embeddings \
+  --features onnx --example similarity
+```
+
 **Recommended model:** `bge-small-en-v1.5` (384-dim, ~33 MB) for English, or
 `paraphrase-multilingual-MiniLM-L12-v2` for FR/EN parity.
 
