@@ -17,11 +17,21 @@ on:
         description: "Release tag to build (e.g. v0.1.5)"
         required: true
         default: "v0.1.5"
+      semantic:
+        description: "Bundle the ONNX semantic model (true = real semantic detection, +~130MB)"
+        type: boolean
+        required: false
+        default: true
 
 jobs:
   release:
     permissions:
       contents: write
+    # Semantic ON by default: tag pushes always build the semantic app; a manual
+    # run can opt out by unchecking the input (falls back to the lexical build if
+    # the ONNX path ever misbehaves — no workflow edit needed).
+    env:
+      SEMANTIC: ${{ github.event_name != 'workflow_dispatch' || inputs.semantic }}
     strategy:
       fail-fast: false
       matrix:
@@ -53,6 +63,28 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri
 
+      # Download the ONNX sentence-transformer onto the runner (gitignored, never
+      # committed) so it can be bundled as a Tauri resource. curl ships on every
+      # GitHub runner incl. Windows; the script writes into src-tauri/models/embed.
+      - name: Fetch semantic model
+        if: env.SEMANTIC == 'true'
+        shell: bash
+        run: bash apps/desktop/scripts/fetch-model.sh
+
+      # Final build args = per-platform target (+ the semantic feature and the
+      # resource-injecting config overlay when semantic is on). Keeps the
+      # committed tauri.conf.json untouched — the overlay only adds the model
+      # resource for this build.
+      - name: Assemble build args
+        id: buildargs
+        shell: bash
+        run: |
+          ARGS="${{ matrix.args }}"
+          if [ "$SEMANTIC" = "true" ]; then
+            ARGS="$ARGS --features semantic --config semantic.conf.json"
+          fi
+          echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+
       - name: Build & release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -80,4 +112,4 @@ jobs:
           releaseName: "Drifterr ${{ inputs.version || github.ref_name }}"
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }}
+          args: ${{ steps.buildargs.outputs.args }}
