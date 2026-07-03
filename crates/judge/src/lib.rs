@@ -14,7 +14,7 @@
 //! violation**. A judge that cries wolf is worse than one that stays quiet, and
 //! it must never break detection.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub mod constraint;
 pub mod decision;
@@ -32,6 +32,26 @@ impl JudgeAnswer {
             yes: false,
             reason: String::new(),
         }
+    }
+}
+
+/// An AI-inferred session intent — the goal the user is driving toward and the
+/// durable constraints they've imposed, synthesized from the conversation. Used
+/// by the opt-in Auto-intent feature so the user never has to type it. Advisory:
+/// the goal only ever feeds the soft signal, and constraints are treated as
+/// fuzzy (AMBER) unless they map to a deterministic rule.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct InferredIntent {
+    #[serde(default)]
+    pub goal: String,
+    #[serde(default)]
+    pub constraints: Vec<String>,
+}
+
+impl InferredIntent {
+    /// Nothing usable was inferred.
+    pub fn is_empty(&self) -> bool {
+        self.goal.trim().is_empty() && self.constraints.iter().all(|c| c.trim().is_empty())
     }
 }
 
@@ -144,6 +164,18 @@ impl Judge {
             Judge::OpenRouter(j) => j.extract_constraints(user_message).await,
         }
     }
+
+    /// Infer the session's goal + durable constraints from the conversation, in a
+    /// single call — the engine behind opt-in Auto-intent. Fail-safe:
+    /// disabled/error/unparseable → `None`, so nothing is ever fabricated on
+    /// failure. `conversation` is the rendered transcript (recent turns).
+    pub async fn synthesize_intent(&self, conversation: &str) -> Option<InferredIntent> {
+        match self {
+            Judge::Disabled => None,
+            Judge::Stub(s) => s.synth.clone(),
+            Judge::OpenRouter(j) => j.synthesize_intent(conversation).await,
+        }
+    }
 }
 
 /// Deterministic test double.
@@ -153,6 +185,8 @@ pub struct StubJudge {
     /// Constraints this stub "extracts" from any user message — for testing the
     /// extraction path without a network.
     pub extracts: Vec<String>,
+    /// Intent this stub "synthesizes" — for testing Auto-intent without a network.
+    pub synth: Option<InferredIntent>,
 }
 
 impl StubJudge {
@@ -160,7 +194,14 @@ impl StubJudge {
         Self {
             yes_if_contains: yes_if_contains.iter().map(|s| s.to_lowercase()).collect(),
             extracts: Vec::new(),
+            synth: None,
         }
+    }
+
+    /// Builder: make this stub return `intent` from `synthesize_intent`.
+    pub fn with_synth(mut self, intent: InferredIntent) -> Self {
+        self.synth = Some(intent);
+        self
     }
     /// Builder: make this stub return `extracts` from `extract_constraints`.
     pub fn with_extracts(mut self, extracts: &[&str]) -> Self {
@@ -310,6 +351,37 @@ impl OpenRouterJudge {
             None => Vec::new(),
         }
     }
+
+    async fn synthesize_intent(&self, conversation: &str) -> Option<InferredIntent> {
+        let content = self.complete(SYNTH_SYSTEM, conversation, 400).await?;
+        let intent = parse_inferred_intent(&content)?;
+        if intent.is_empty() {
+            None
+        } else {
+            Some(intent)
+        }
+    }
+}
+
+const SYNTH_SYSTEM: &str = "You infer, from a conversation between a user and an \
+AI assistant, what the USER is trying to accomplish and the durable rules they \
+have imposed. Return ONLY a JSON object of the form {\"goal\": \"<one concise \
+sentence>\", \"constraints\": [\"<checkable imperative>\", ...]}. The goal is the \
+concrete outcome the USER is driving toward across the whole session — not the \
+assistant's latest answer, and not a single sub-question. Constraints are lasting \
+requirements the work must obey (technology, format, tone, scope, or things to \
+avoid); omit one-off asks. Be conservative: if the goal is genuinely unclear, \
+return an empty goal string. Never invent constraints that were not stated.";
+
+/// Parse a JSON `{goal, constraints}` object embedded anywhere in `content`.
+/// Fail-safe: anything unparseable → `None`.
+pub fn parse_inferred_intent(content: &str) -> Option<InferredIntent> {
+    let start = content.find('{')?;
+    let end = content.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    serde_json::from_str::<InferredIntent>(&content[start..=end]).ok()
 }
 
 /// Parse a JSON array of positive integers embedded anywhere in `content`
@@ -399,6 +471,34 @@ mod tests {
         let j = Judge::Stub(StubJudge::new(&["bcrypt"]));
         assert!(j.check("reintroduced?", "let's hash with bcrypt").await.yes);
         assert!(!j.check("reintroduced?", "use argon2 only").await.yes);
+    }
+
+    #[tokio::test]
+    async fn stub_synthesizes_intent() {
+        let intent = InferredIntent {
+            goal: "Ship the billing API".into(),
+            constraints: vec!["TypeScript only".into()],
+        };
+        let j = Judge::Stub(StubJudge::new(&[]).with_synth(intent));
+        let got = j.synthesize_intent("...transcript...").await.unwrap();
+        assert_eq!(got.goal, "Ship the billing API");
+        assert_eq!(got.constraints.len(), 1);
+        // Disabled judge never synthesizes.
+        assert!(Judge::Disabled.synthesize_intent("x").await.is_none());
+    }
+
+    #[test]
+    fn parse_inferred_intent_variants() {
+        let a =
+            parse_inferred_intent(r#"{"goal":"Refactor auth","constraints":["no JS"]}"#).unwrap();
+        assert_eq!(a.goal, "Refactor auth");
+        assert_eq!(a.constraints, vec!["no JS".to_string()]);
+        // Embedded in prose, and missing constraints defaults to empty.
+        let b = parse_inferred_intent(r#"Here: {"goal":"Write a report"} done"#).unwrap();
+        assert_eq!(b.goal, "Write a report");
+        assert!(b.constraints.is_empty());
+        // Garbage → None (fail-safe).
+        assert!(parse_inferred_intent("no json here").is_none());
     }
 
     #[test]

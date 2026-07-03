@@ -71,6 +71,27 @@ impl IntentView {
     }
 }
 
+/// Where a session's goal came from — governs whether Auto-intent may overwrite
+/// it and when it must instead ask the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GoalSource {
+    /// Only the weak "first user message" heuristic so far — freely replaceable.
+    Heuristic,
+    /// The AI (Auto-intent) inferred it — refined silently, big shifts confirmed.
+    Inferred,
+    /// The user typed/confirmed it — never overwritten; a big shift is surfaced
+    /// as a "did your goal change?" prompt, not a silent change.
+    Declared,
+}
+
+/// A detected goal shift awaiting the user's call: is the new direction a
+/// deliberate pivot (adopt it) or drift (keep the old goal, let it read red)?
+#[derive(Debug, Clone, Serialize)]
+pub struct IntentShift {
+    pub from: String,
+    pub to: String,
+}
+
 /// One detail line per signal, named — never a fused score.
 #[derive(Debug, Clone, Serialize)]
 pub struct SignalView {
@@ -107,6 +128,9 @@ pub struct SessionStatus {
     pub triggering: Option<SignalView>,
     /// Every signal's current view (for the expanded panel).
     pub signals: Vec<SignalView>,
+    /// A pending Auto-intent goal shift the user needs to confirm/deny, if any.
+    #[serde(rename = "intentShift", skip_serializing_if = "Option::is_none")]
+    pub intent_shift: Option<IntentShift>,
     #[serde(rename = "updatedAt")]
     pub updated_at: i64,
 }
@@ -121,6 +145,14 @@ pub struct SessionState {
     bumped: std::collections::HashSet<String>,
     /// Rolling drift-score history (oldest→newest) for the session drift map.
     history: Vec<u8>,
+    /// Provenance of `baseline.goal` — gates Auto-intent overwrites.
+    goal_source: GoalSource,
+    /// A goal shift Auto-intent detected, awaiting the user's confirm/deny.
+    pending_shift: Option<IntentShift>,
+    /// Turns observed so far, and the count at the last synthesis attempt — used
+    /// to rate-limit Auto-intent's LLM calls.
+    turns_seen: usize,
+    last_synth_at: usize,
 }
 
 /// The proxy's shared core: every live session plus an optional durable store.
@@ -164,6 +196,13 @@ impl AppCore {
         match target.and_then(|id| self.sessions.get_mut(&id).map(|s| (id, s))) {
             Some((id, session)) => {
                 session.baseline.declare(goal, constraints);
+                // Typing a goal makes it authoritative and resolves any pending
+                // Auto-intent shift prompt.
+                if !goal.trim().is_empty() {
+                    session.goal_source = GoalSource::Declared;
+                    session.pending_shift = None;
+                    session.status.intent_shift = None;
+                }
                 if let Some(store) = &self.store {
                     if let Ok(mut s) = store.lock() {
                         let _ = s.save_baseline(&id, &session.baseline);
@@ -360,6 +399,97 @@ impl AppCore {
         ))
     }
 
+    /// Whether Auto-intent should run an inference for this session now. Rate
+    /// limited: after ≥2 turns, then at most once every 3 turns — enough to catch
+    /// a pivot without a call per message.
+    pub fn due_for_intent_synthesis(&self, session_id: &str) -> bool {
+        self.sessions.get(session_id).is_some_and(|s| {
+            s.turns_seen >= 2 && (s.last_synth_at == 0 || s.turns_seen - s.last_synth_at >= 3)
+        })
+    }
+
+    /// Apply an AI-inferred intent to a session (Auto-intent). Constraints are
+    /// always merged as fuzzy (AMBER-only) and deduped. The goal is handled by
+    /// provenance:
+    /// * a big shift from the current goal → surfaced as a pending prompt (never a
+    ///   silent overwrite), so a deliberate pivot and drift are told apart by the
+    ///   user, not guessed;
+    /// * otherwise the goal is refined silently only when it isn't user-declared.
+    ///
+    /// Records the attempt so the rate limiter advances even when nothing changes.
+    pub fn apply_inferred_intent(
+        &mut self,
+        session_id: &str,
+        intent: &drifterr_judge::InferredIntent,
+    ) {
+        let Some(session) = self.sessions.get_mut(session_id) else {
+            return;
+        };
+        session.last_synth_at = session.turns_seen;
+
+        for c in &intent.constraints {
+            session.baseline.add_judge_constraint(c);
+        }
+
+        let new_goal = intent.goal.trim();
+        if !new_goal.is_empty() {
+            let cur = session.baseline.goal.trim().to_string();
+            match session.goal_source {
+                GoalSource::Heuristic => {
+                    // First real inference upgrades the weak first-message guess.
+                    session.baseline.goal = new_goal.to_string();
+                    session.goal_source = GoalSource::Inferred;
+                }
+                GoalSource::Inferred | GoalSource::Declared => {
+                    if !cur.is_empty() && goal_shifted(&cur, new_goal) {
+                        // Ask the user: pivot or drift?
+                        session.pending_shift = Some(IntentShift {
+                            from: cur,
+                            to: new_goal.to_string(),
+                        });
+                        session.status.intent_shift = session.pending_shift.clone();
+                    } else if session.goal_source == GoalSource::Inferred {
+                        session.baseline.goal = new_goal.to_string();
+                    }
+                }
+            }
+        }
+
+        if let Some(store) = &self.store {
+            if let Ok(mut s) = store.lock() {
+                let _ = s.save_baseline(session_id, &session.baseline);
+            }
+        }
+    }
+
+    /// Resolve a pending Auto-intent goal shift. `accept = true` adopts the new
+    /// goal (a deliberate pivot) and marks it user-confirmed; `false` keeps the
+    /// old goal (the divergence stands and correctly reads as drift). Returns the
+    /// resolved intent view, or `None` if there was no pending shift.
+    pub fn resolve_intent_shift(
+        &mut self,
+        session_id: Option<&str>,
+        accept: bool,
+    ) -> Option<IntentView> {
+        let id = match session_id {
+            Some(s) => s.to_string(),
+            None => self.last_updated.clone()?,
+        };
+        let session = self.sessions.get_mut(&id)?;
+        let shift = session.pending_shift.take()?;
+        session.status.intent_shift = None;
+        if accept {
+            session.baseline.goal = shift.to;
+            session.goal_source = GoalSource::Declared;
+            if let Some(store) = &self.store {
+                if let Ok(mut s) = store.lock() {
+                    let _ = s.save_baseline(&id, &session.baseline);
+                }
+            }
+        }
+        Some(IntentView::from_baseline(&session.baseline))
+    }
+
     /// Run detection for one completed turn and update session state.
     ///
     /// This is the whole detection pipeline behind the proxy: recover the
@@ -409,9 +539,14 @@ impl AppCore {
         let session = entry.or_insert_with(|| {
             let mut baseline = Baseline::extract(&conv.turns);
             baseline.constraints.extend(injected);
-            if let Some((goal, constraints)) = &seed_intent {
+            // A user-declared seed makes the goal authoritative; otherwise it's
+            // only the weak first-message heuristic.
+            let goal_source = if let Some((goal, constraints)) = &seed_intent {
                 baseline.declare(goal, constraints);
-            }
+                GoalSource::Declared
+            } else {
+                GoalSource::Heuristic
+            };
             SessionState {
                 baseline,
                 monitor: SessionMonitor::default(),
@@ -424,13 +559,20 @@ impl AppCore {
                     exact: conv.context.exact,
                     triggering: None,
                     signals: Vec::new(),
+                    intent_shift: None,
                     updated_at: 0,
                     history: Vec::new(),
                 },
                 bumped: std::collections::HashSet::new(),
                 history: Vec::new(),
+                goal_source,
+                pending_shift: None,
+                turns_seen: 0,
+                last_synth_at: 0,
             }
         });
+
+        session.turns_seen += 1;
 
         // Constraints / rejected decisions may be stated mid-session; keep the
         // baseline current.
@@ -468,6 +610,7 @@ impl AppCore {
             exact: conv.context.exact,
             triggering: verdict.triggering().map(view_of),
             signals: verdict.events.iter().map(view_of).collect(),
+            intent_shift: session.pending_shift.clone(),
             updated_at: now_millis(),
             history: session.history.clone(),
         };
@@ -594,6 +737,40 @@ pub fn browser_conversation(
     }
 }
 
+/// Render the most recent turns as a compact transcript for Auto-intent's
+/// inference call. Caps the tail (recent context is what matters) and each turn's
+/// length so a giant paste can't blow up the prompt.
+pub fn transcript_for(req: &ParsedRequest, resp: &ParsedResponse) -> String {
+    const MAX_TURNS: usize = 12;
+    const MAX_CHARS: usize = 800;
+    let clip = |s: &str| {
+        let t = s.trim();
+        if t.chars().count() > MAX_CHARS {
+            t.chars().take(MAX_CHARS).collect::<String>() + "…"
+        } else {
+            t.to_string()
+        }
+    };
+    let mut lines = Vec::new();
+    let start = req.turns.len().saturating_sub(MAX_TURNS);
+    for turn in &req.turns[start..] {
+        let who = match turn.role {
+            Role::User => "User",
+            Role::Assistant => "Assistant",
+            Role::Tool => "Tool",
+        };
+        let c = clip(&turn.content);
+        if !c.is_empty() {
+            lines.push(format!("{who}: {c}"));
+        }
+    }
+    let a = clip(&resp.assistant_text);
+    if !a.is_empty() {
+        lines.push(format!("Assistant: {a}"));
+    }
+    lines.join("\n")
+}
+
 /// Build the normalized conversation from the request history plus the new
 /// assistant turn, using exact provider usage for saturation when available.
 fn build_conversation(
@@ -636,6 +813,29 @@ fn build_conversation(
         },
         source: Source::Proxy,
     }
+}
+
+/// Do two goals describe a materially different objective? A deliberately simple,
+/// predictable Jaccard over content words (length ≥ 4, so "the"/"and"/"with" are
+/// ignored): a refinement of the same goal keeps most words and stays below the
+/// bar; a topic change shares almost none and trips it. Cheap and dependency-free
+/// — no embeddings, so the pivot-vs-drift prompt is deterministic.
+fn goal_shifted(old: &str, new: &str) -> bool {
+    fn words(s: &str) -> std::collections::HashSet<String> {
+        s.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| w.chars().count() >= 4)
+            .map(str::to_string)
+            .collect()
+    }
+    let a = words(old);
+    let b = words(new);
+    if a.is_empty() || b.is_empty() {
+        return false; // not enough signal to claim a shift
+    }
+    let inter = a.intersection(&b).count();
+    let union = a.union(&b).count();
+    (inter as f32 / union as f32) < 0.18
 }
 
 fn view_of(e: &SignalEvent) -> SignalView {
@@ -856,6 +1056,100 @@ mod tests {
         assert_eq!(got.goal, "Refactor auth");
         // Pending was consumed (a second new session doesn't inherit it).
         assert!(core.pending_intent.is_none());
+    }
+
+    #[test]
+    fn goal_shift_detection() {
+        // Refinement of the same objective → not a shift.
+        assert!(!goal_shifted(
+            "Ship the billing API in strict TypeScript",
+            "Ship the billing API"
+        ));
+        // Different topic → a shift.
+        assert!(goal_shifted(
+            "Ship the billing API in strict TypeScript",
+            "Redesign the marketing landing page"
+        ));
+        // Empty side → never claim a shift.
+        assert!(!goal_shifted("", "anything at all here"));
+    }
+
+    fn new_session(core: &mut AppCore, first_user: &str) -> String {
+        let body = format!(
+            r#"{{"model":"gpt-4o","messages":[{{"role":"user","content":"{first_user}"}}]}}"#
+        );
+        let r = req(body.as_bytes());
+        let id = session_id_for(&r);
+        let resp = ParsedResponse {
+            assistant_text: "ok".into(),
+            input_tokens: Some(10),
+            output_tokens: Some(5),
+        };
+        core.record_turn(&id, &r, &resp);
+        id
+    }
+
+    #[test]
+    fn auto_intent_adopts_then_prompts_on_pivot() {
+        use drifterr_judge::InferredIntent;
+        let mut core = AppCore::new(None);
+        let id = new_session(&mut core, "help me with auth");
+
+        // First inference upgrades the weak heuristic goal silently + adds fuzzy
+        // constraints.
+        core.apply_inferred_intent(
+            &id,
+            &InferredIntent {
+                goal: "Refactor the auth module to use argon2".into(),
+                constraints: vec!["Keep the tone terse".into()],
+            },
+        );
+        let v = core.intent_of(Some(&id)).unwrap();
+        assert_eq!(v.goal, "Refactor the auth module to use argon2");
+        assert!(v.constraints.iter().any(|c| c.checkable == "judge"));
+        assert!(core.current().unwrap().intent_shift.is_none());
+
+        // A big shift now → prompt, goal unchanged until resolved.
+        core.apply_inferred_intent(
+            &id,
+            &InferredIntent {
+                goal: "Build a React analytics dashboard".into(),
+                constraints: vec![],
+            },
+        );
+        let shift = core.current().unwrap().intent_shift.expect("pending shift");
+        assert_eq!(shift.to, "Build a React analytics dashboard");
+        assert_eq!(
+            core.intent_of(Some(&id)).unwrap().goal,
+            "Refactor the auth module to use argon2",
+            "goal is not silently overwritten on a big shift"
+        );
+
+        // Accept → adopt the pivot; the prompt clears.
+        let v = core.resolve_intent_shift(Some(&id), true).unwrap();
+        assert_eq!(v.goal, "Build a React analytics dashboard");
+        assert!(core.current().unwrap().intent_shift.is_none());
+    }
+
+    #[test]
+    fn auto_intent_reject_keeps_goal() {
+        use drifterr_judge::InferredIntent;
+        let mut core = AppCore::new(None);
+        let id = new_session(&mut core, "write the launch blog post");
+        // Declare a goal (authoritative), then a divergent inference → prompt.
+        core.set_intent(Some(&id), "Write the launch blog post", &[]);
+        core.apply_inferred_intent(
+            &id,
+            &InferredIntent {
+                goal: "Debug the CI pipeline".into(),
+                constraints: vec![],
+            },
+        );
+        assert!(core.current().unwrap().intent_shift.is_some());
+        // Reject → keep the declared goal; the divergence stays (reads as drift).
+        let v = core.resolve_intent_shift(Some(&id), false).unwrap();
+        assert_eq!(v.goal, "Write the launch blog post");
+        assert!(core.current().unwrap().intent_shift.is_none());
     }
 
     #[test]

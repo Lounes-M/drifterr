@@ -176,6 +176,10 @@ pub struct AppState {
     /// Runtime-toggleable (the panel's Auto re-anchor switch) via an atomic, so
     /// the choice takes effect without a restart.
     pub auto_reanchor: Arc<AtomicBool>,
+    /// Opt-in: let the judge infer the session's goal + constraints from the
+    /// conversation (Auto-intent), so the user never has to type them. Off by
+    /// default; requires the judge to be configured. Runtime-toggleable.
+    pub auto_intent: Arc<AtomicBool>,
     /// Current plan entitlement, set by the desktop app after login. Defaults to
     /// Free so the proxy works standalone. Gates paid capabilities (drift map,
     /// extra sessions, auto-re-anchor).
@@ -188,11 +192,21 @@ impl AppState {
     /// Build state with a config and an optional durable store. Judge and
     /// auto-re-anchor are configured from the environment.
     pub fn new(cfg: ProxyConfig, store: Option<drifterr_store::Store>) -> Self {
-        let auto = matches!(
-            std::env::var("DRIFTERR_AUTO_REANCHOR").as_deref(),
-            Ok("1") | Ok("true") | Ok("yes")
+        let truthy = |k: &str| {
+            matches!(
+                std::env::var(k).as_deref(),
+                Ok("1") | Ok("true") | Ok("yes")
+            )
+        };
+        let s = Self::build(
+            cfg,
+            store,
+            drifterr_judge::Judge::from_env(),
+            truthy("DRIFTERR_AUTO_REANCHOR"),
         );
-        Self::build(cfg, store, drifterr_judge::Judge::from_env(), auto)
+        s.auto_intent
+            .store(truthy("DRIFTERR_AUTO_INTENT"), Ordering::Relaxed);
+        s
     }
 
     /// Build state with an explicit judge (used by tests). Auto-re-anchor off.
@@ -214,6 +228,17 @@ impl AppState {
     /// plan entitlement is the second gate, checked at inject time).
     pub fn auto_reanchor_on(&self) -> bool {
         self.auto_reanchor.load(Ordering::Relaxed)
+    }
+
+    /// Enable/disable Auto-intent (used by tests).
+    pub fn with_auto_intent(self, on: bool) -> Self {
+        self.auto_intent.store(on, Ordering::Relaxed);
+        self
+    }
+
+    /// Whether Auto-intent inference is currently on.
+    pub fn auto_intent_on(&self) -> bool {
+        self.auto_intent.load(Ordering::Relaxed)
     }
 
     /// Set the active plan entitlement (used by tests and the app embedder).
@@ -260,6 +285,7 @@ impl AppState {
             meta: Arc::new(meta),
             judge,
             auto_reanchor: Arc::new(AtomicBool::new(auto_reanchor)),
+            auto_intent: Arc::new(AtomicBool::new(false)),
             entitlement: Arc::new(RwLock::new(Entitlement::default())),
             upstream: Arc::new(RwLock::new(upstream)),
         }
@@ -308,6 +334,11 @@ pub fn control_router(state: AppState) -> Router {
             "/auto-reanchor",
             get(get_auto_reanchor_handler).post(set_auto_reanchor_handler),
         )
+        .route(
+            "/auto-intent",
+            get(get_auto_intent_handler).post(set_auto_intent_handler),
+        )
+        .route("/intent-shift", post(resolve_intent_shift_handler))
         .route("/history", get(history_handler))
         .route("/standing-orders", get(standing_orders_handler))
         .route("/standing-orders/promote", post(promote_handler))
@@ -699,6 +730,61 @@ async fn set_judge_handler(State(app): State<AppState>, Json(body): Json<SetJudg
     Json(JudgeState::of(&app)).into_response()
 }
 
+/// Auto-intent state for the settings switch.
+#[derive(Serialize)]
+struct AutoIntentState {
+    on: bool,
+    /// Auto-intent needs the judge (it's an LLM inference); surface that so the
+    /// UI can tell the user to add their key first.
+    #[serde(rename = "judgeReady")]
+    judge_ready: bool,
+}
+
+impl AutoIntentState {
+    fn of(app: &AppState) -> Self {
+        AutoIntentState {
+            on: app.auto_intent_on(),
+            judge_ready: app.judge.read().map(|j| j.enabled()).unwrap_or(false),
+        }
+    }
+}
+
+async fn get_auto_intent_handler(State(app): State<AppState>) -> Json<AutoIntentState> {
+    Json(AutoIntentState::of(&app))
+}
+
+async fn set_auto_intent_handler(
+    State(app): State<AppState>,
+    Json(body): Json<SetAutoReanchor>,
+) -> Json<AutoIntentState> {
+    app.auto_intent.store(body.on, Ordering::Relaxed);
+    Json(AutoIntentState::of(&app))
+}
+
+/// Resolve a pending Auto-intent goal shift: accept the new goal (a pivot) or
+/// keep the old one (drift).
+#[derive(Deserialize)]
+struct ResolveShift {
+    accept: bool,
+    #[serde(default)]
+    session: Option<String>,
+}
+
+async fn resolve_intent_shift_handler(
+    State(app): State<AppState>,
+    Json(body): Json<ResolveShift>,
+) -> Response {
+    match app
+        .core
+        .lock()
+        .ok()
+        .and_then(|mut c| c.resolve_intent_shift(body.session.as_deref(), body.accept))
+    {
+        Some(view) => Json(view).into_response(),
+        None => (StatusCode::NOT_FOUND, "no pending shift").into_response(),
+    }
+}
+
 /// Auto-re-anchor toggle state for the panel switch.
 #[derive(Serialize)]
 struct AutoReanchorState {
@@ -997,6 +1083,29 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
                     if let Ok(mut core) = app2.core.lock() {
                         core.add_judge_constraints(&session_id, extracted);
                     }
+                }
+            }
+        }
+
+        // (a2) Auto-intent: infer the whole intent (goal + constraints) from the
+        // conversation so the user never has to type it. Opt-in, rate-limited, and
+        // fail-safe — an empty/failed inference just advances the rate limiter. The
+        // goal it sets only feeds the soft signal; a big goal shift is surfaced as
+        // a prompt, never a silent overwrite (see apply_inferred_intent).
+        if app2.auto_intent_on() {
+            let due = app2
+                .core
+                .lock()
+                .map(|c| c.due_for_intent_synthesis(&session_id))
+                .unwrap_or(false);
+            if due {
+                let transcript = state::transcript_for(&parsed_req, &parsed_resp);
+                let intent = judge
+                    .synthesize_intent(&transcript)
+                    .await
+                    .unwrap_or_default();
+                if let Ok(mut core) = app2.core.lock() {
+                    core.apply_inferred_intent(&session_id, &intent);
                 }
             }
         }

@@ -85,6 +85,16 @@
         </div>
       </header>
 
+      <section id="intent-shift" class="intent-shift" hidden>
+        <span class="ishift-tag">Goal shift?</span>
+        <p class="ishift-q">Your goal looks like it moved to:</p>
+        <p id="ishift-to" class="ishift-to"></p>
+        <div class="ishift-actions">
+          <button id="ishift-accept" class="reanchor-btn" type="button">Yes, update it</button>
+          <button id="ishift-reject" class="mini-btn" type="button">No, it's drift</button>
+        </div>
+      </section>
+
       <section id="settings" class="settings" hidden>
         <h2 class="section-title">Connect your tool</h2>
         <p class="muted">Point your agent at the proxy, then watch here.</p>
@@ -118,6 +128,15 @@
           <button id="judge-save" class="reanchor-btn" type="button">Save judge</button>
           <span id="judge-status" class="toggle-label">Off</span>
         </div>
+
+        <h2 class="section-title" style="margin-top:12px">Auto-intent (AI)</h2>
+        <p class="muted">Let the judge infer your goal &amp; constraints from the conversation — no typing. Uses your OpenRouter key (sends recent turns to your provider), re-checks as you go, and asks if your goal seems to change.</p>
+        <label class="toggle-row">
+          <input id="auto-intent-toggle" type="checkbox" class="toggle-input" />
+          <span class="toggle-track" aria-hidden="true"><span class="toggle-knob"></span></span>
+          <span id="auto-intent-label" class="toggle-label">Off</span>
+        </label>
+        <p id="auto-intent-hint" class="muted lock-hint" hidden>Add your OpenRouter key above to enable Auto-intent.</p>
 
         <h2 class="section-title" style="margin-top:12px">Configuration</h2>
         <div class="cfg-row"><span class="muted">Upstream</span><span id="cfg-upstream">—</span></div>

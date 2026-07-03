@@ -75,6 +75,7 @@ export function render(doc, data) {
     // No live session: hide the metric sections (empty bars/dashes would just be
     // noise) and show only the header + intent card + the empty prompt.
     if (body) body.classList.add("no-session");
+    hide(doc, "intent-shift");
     showEmpty(doc, true);
     setText(doc, "state-label", "No session");
     setText(doc, "blurb", "Waiting for activity.");
@@ -89,6 +90,19 @@ export function render(doc, data) {
   setClass(doc, "dot", "dot " + info.cls);
   setText(doc, "state-label", info.label);
   setText(doc, "blurb", info.blurb);
+
+  // Auto-intent goal-shift prompt: did the goal deliberately pivot, or is this
+  // drift? The user decides.
+  const shiftEl = doc.getElementById("intent-shift");
+  if (shiftEl) {
+    const sh = cur.intentShift;
+    if (sh && sh.to) {
+      shiftEl.hidden = false;
+      setText(doc, "ishift-to", sh.to);
+    } else {
+      shiftEl.hidden = true;
+    }
+  }
 
   // Triggering signal — the named cause.
   const trigger = doc.getElementById("trigger");
@@ -386,6 +400,70 @@ function setupJudge(doc) {
   if (save) save.addEventListener("click", () => saveJudge(doc));
 }
 
+// --- auto-intent (AI infers the intent) ------------------------------------
+
+/// Render the Auto-intent switch from `GET /auto-intent` ({on, judgeReady}).
+export function renderAutoIntent(doc, data) {
+  const toggle = doc.getElementById("auto-intent-toggle");
+  const label = doc.getElementById("auto-intent-label");
+  const hint = doc.getElementById("auto-intent-hint");
+  const on = !!(data && data.on);
+  const ready = !!(data && data.judgeReady);
+  if (toggle) { toggle.checked = on; toggle.disabled = !ready; }
+  if (hint) hint.hidden = ready;
+  if (label) label.textContent = !ready ? "Needs judge" : on ? "On" : "Off";
+}
+
+export async function loadAutoIntent(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/auto-intent", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderAutoIntent(doc, await res.json());
+  } catch (_e) {
+    renderAutoIntent(doc, null);
+  }
+}
+
+async function setAutoIntent(doc, on, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/auto-intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ on }),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderAutoIntent(doc, await res.json());
+  } catch (_e) {
+    await loadAutoIntent(doc);
+  }
+}
+
+/// Resolve a goal-shift prompt: accept the pivot or keep the current goal.
+export async function resolveIntentShift(doc, accept, fetchImpl) {
+  const f = fetchImpl || fetch;
+  const el = doc.getElementById("intent-shift");
+  if (el) el.hidden = true; // optimistic — the next poll confirms
+  try {
+    await f(apiBase() + "/intent-shift", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accept }),
+    });
+    await loadIntent(doc, f);
+  } catch (_e) { /* proxy unreachable — next poll re-surfaces if still pending */ }
+}
+
+function setupIntentShift(doc) {
+  const acc = doc.getElementById("ishift-accept");
+  if (acc) acc.addEventListener("click", () => resolveIntentShift(doc, true));
+  const rej = doc.getElementById("ishift-reject");
+  if (rej) rej.addEventListener("click", () => resolveIntentShift(doc, false));
+  const toggle = doc.getElementById("auto-intent-toggle");
+  if (toggle) toggle.addEventListener("change", () => setAutoIntent(doc, toggle.checked));
+}
+
 // --- provider selector -----------------------------------------------------
 
 /// Render the provider pills from `GET /providers` ({ current, providers }) into
@@ -622,7 +700,7 @@ function setupUi(doc) {
   if (gear) {
     gear.addEventListener("click", async () => {
       const showing = toggleSettings(doc);
-      if (showing) { toggleHistory(doc, false); await loadConfig(doc); await loadProviders(doc); await loadAutoReanchor(doc); await loadJudge(doc); }
+      if (showing) { toggleHistory(doc, false); await loadConfig(doc); await loadProviders(doc); await loadAutoReanchor(doc); await loadJudge(doc); await loadAutoIntent(doc); }
     });
   }
 
@@ -636,6 +714,7 @@ function setupUi(doc) {
 
   setupIntent(doc);
   setupJudge(doc);
+  setupIntentShift(doc);
 
   const reanchorBtn = doc.getElementById("reanchor-btn");
   if (reanchorBtn) {

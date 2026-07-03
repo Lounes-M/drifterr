@@ -227,6 +227,12 @@ async function main() {
     const on = !!(judgePosted && judgePosted.apiKey);
     route.fulfill({ contentType: "application/json", body: JSON.stringify({ enabled: on, label: on ? (judgePosted.model || "openai/gpt-4o-mini") : "disabled" }) });
   });
+  // Auto-intent: judge ready, starts off; POST flips it on.
+  let autoIntentOn = false;
+  await page.route("**/auto-intent*", (route) => {
+    if (route.request().method() === "POST") autoIntentOn = JSON.parse(route.request().postData() || "{}").on;
+    route.fulfill({ contentType: "application/json", body: JSON.stringify({ on: autoIntentOn, judgeReady: true }) });
+  });
   check(!(await page.locator("#settings").isVisible()), "settings hidden by default");
   await page.locator("#gear").click();
   await page.waitForFunction(() => !document.getElementById("settings").hidden);
@@ -259,6 +265,14 @@ async function main() {
   check(judgePosted && judgePosted.apiKey === "sk-or-secret", "save posts the api key to the proxy");
   check((await page.locator("#judge-key").inputValue()) === "", "key field is cleared after save");
   check((await page.locator("#judge-status").textContent()).includes("gpt-4o-mini"), "status shows the active model");
+
+  console.log("AUTO-INTENT toggle:");
+  await page.waitForFunction(() => document.getElementById("auto-intent-label").textContent === "Off");
+  check(!(await page.locator("#auto-intent-toggle").isChecked()), "auto-intent starts off");
+  check(await page.locator("#auto-intent-hint").isHidden(), "no 'needs judge' hint when judge is ready");
+  await page.locator("#auto-intent-toggle + .toggle-track").click();
+  await page.waitForFunction(() => document.getElementById("auto-intent-label").textContent === "On");
+  check(autoIntentOn === true, "toggling posts on=true to the proxy");
 
   console.log("PROVIDER selector:");
   await page.waitForFunction(() => document.querySelectorAll("#provider-select .provider-pill").length === 3);
@@ -378,6 +392,30 @@ async function main() {
     check(posted && posted.goal === "Refactor auth, no JS files", "save POSTs the edited goal");
     check(posted && posted.constraints.length === 2, "save POSTs the constraint lines");
     await ictx.close();
+  }
+
+  console.log("INTENT SHIFT (Auto-intent pivot prompt):");
+  {
+    const sctx = await browser.newContext();
+    const sp = await sctx.newPage();
+    await sp.addInitScript(() => {
+      window.DRIFTERR_SUPABASE_URL = ""; window.DRIFTERR_SUPABASE_ANON_KEY = "";
+      try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) {}
+    });
+    const withShift = JSON.parse(JSON.stringify(GREEN));
+    withShift.current.intentShift = { from: "Refactor the auth module", to: "Build a React analytics dashboard" };
+    await sp.route("**/status*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(withShift) }));
+    await sp.route("**/intent*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ goal: "Refactor the auth module", constraints: [], pending: false }) }));
+    let shiftPosted = null;
+    await sp.route("**/intent-shift*", (route) => { shiftPosted = JSON.parse(route.request().postData() || "{}"); route.fulfill({ contentType: "application/json", body: JSON.stringify({ goal: "Build a React analytics dashboard", constraints: [], pending: false }) }); });
+    await sp.goto(url);
+    await sp.waitForFunction(() => !document.getElementById("intent-shift").hidden);
+    check(await sp.locator("#intent-shift").isVisible(), "goal-shift banner appears when a shift is pending");
+    check((await sp.locator("#ishift-to").textContent()) === "Build a React analytics dashboard", "banner shows the proposed new goal");
+    await sp.locator("#ishift-accept").click();
+    await sp.waitForTimeout(150);
+    check(shiftPosted && shiftPosted.accept === true, "Accept posts accept=true to /intent-shift");
+    await sctx.close();
   }
 
   console.log("HISTORY view:");

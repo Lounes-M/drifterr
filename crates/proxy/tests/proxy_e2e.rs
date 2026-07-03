@@ -866,6 +866,74 @@ async fn provider_selector_switches_upstream() {
 }
 
 #[tokio::test]
+async fn auto_intent_infers_goal_through_the_proxy() {
+    use drifterr_judge::{InferredIntent, Judge, StubJudge};
+
+    let mock = spawn(Router::new().fallback(mock_handler)).await;
+    let base = format!("http://{mock}");
+    let cfg = ProxyConfig {
+        openai_upstream: base.clone(),
+        anthropic_upstream: base,
+        openai_strip_v1: false,
+    };
+    let judge = Judge::Stub(StubJudge::new(&[]).with_synth(InferredIntent {
+        goal: "Refactor the auth module to argon2".into(),
+        constraints: vec!["Keep the tests green".into()],
+    }));
+    let state = AppState::with_judge(cfg, None, judge).with_auto_intent(true);
+    let proxy = spawn(proxy_router(state.clone())).await;
+    let control = spawn(control_router(state)).await;
+    let client = client();
+
+    // Two turns of the SAME session (identical first user message = the anchor),
+    // so Auto-intent's rate limiter reaches its ≥2-turn threshold and fires.
+    for msgs in [
+        serde_json::json!([{ "role": "user", "content": "start the auth refactor" }]),
+        serde_json::json!([
+            { "role": "user", "content": "start the auth refactor" },
+            { "role": "assistant", "content": "ok" },
+            { "role": "user", "content": "keep going" }
+        ]),
+    ] {
+        client
+            .post(format!("http://{proxy}/v1/chat/completions"))
+            .header("authorization", AUTH)
+            .json(&serde_json::json!({ "model": "gpt-4o", "stream": true, "messages": msgs }))
+            .send()
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+    }
+
+    // The inferred goal should replace the weak first-message heuristic.
+    let url = format!("http://{control}/intent");
+    let mut goal = String::new();
+    for _ in 0..150 {
+        let v: serde_json::Value = client.get(&url).send().await.unwrap().json().await.unwrap();
+        goal = v["goal"].as_str().unwrap_or("").to_string();
+        if goal.contains("argon2") {
+            // Constraints inferred too, as fuzzy (judge-checkable).
+            let has = v["constraints"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .any(|c| c["text"].as_str() == Some("Keep the tests green"))
+                })
+                .unwrap_or(false);
+            assert!(has, "inferred constraint is present");
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        goal.contains("argon2"),
+        "Auto-intent set the inferred goal; got {goal:?}"
+    );
+}
+
+#[tokio::test]
 async fn judge_can_be_configured_at_runtime() {
     // Boot with the judge disabled (no env key).
     let state = AppState::with_judge(

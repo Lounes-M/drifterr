@@ -338,6 +338,22 @@ code { font-family: var(--mono); }
   font-size: 11px; line-height: 1.55; white-space: pre-wrap; color: var(--ink-soft);
 }
 
+/* --- auto-intent goal-shift prompt ---------------------------------------- */
+.intent-shift {
+  display: flex; flex-direction: column; gap: 7px;
+  background: rgba(255, 178, 62, 0.08); border: 1px solid rgba(255, 178, 62, 0.3);
+  border-left: 3px solid var(--amber); border-radius: 14px; padding: 12px 13px;
+  animation: reveal 0.34s var(--spring);
+}
+.ishift-tag {
+  align-self: flex-start; text-transform: uppercase; font-family: var(--mono);
+  font-size: 9px; letter-spacing: 0.08em; font-weight: 600; color: var(--amber);
+}
+.ishift-q { margin: 0; font-size: 11px; color: var(--ink-soft); }
+.ishift-to { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.ishift-actions { display: flex; gap: 8px; align-items: center; margin-top: 2px; }
+.ishift-actions .reanchor-btn { flex: 1 1 auto; }
+
 /* --- intent (goal + constraints) ----------------------------------------- */
 .intent {
   display: flex; flex-direction: column; gap: 9px;

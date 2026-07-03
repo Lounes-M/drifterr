@@ -121,6 +121,9 @@ async function main() {
   await shoot(browser, "05-settings", GREEN, async (p) => { await p.locator("#gear").click(); await p.waitForTimeout(300); });
   await shoot(browser, "06-history", GREEN, async (p) => { await p.locator("#history-btn").click(); await p.waitForTimeout(300); });
   await shoot(browser, "07-empty", { current: null, sessions: [], entitlement: {} });
+  const SHIFT = JSON.parse(JSON.stringify(GREEN));
+  SHIFT.current.intentShift = { from: "Refactor the auth module to argon2", to: "Build a React analytics dashboard" };
+  await shoot(browser, "10-intent-shift", SHIFT);
   // Onboarding: clear the flag first.
   {
     const ctx = await browser.newContext({ viewport: { width: 380, height: 600 }, deviceScaleFactor: 2, reducedMotion: 'reduce' });
