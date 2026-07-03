@@ -13,41 +13,67 @@
   const CONFIGS = [
     {
       match: /(^|\.)chatgpt\.com$|openai\.com$/,
-      items: "[data-message-author-role]",
-      role: (el) => el.getAttribute("data-message-author-role"),
       model: "gpt-4o",
       composer: "#prompt-textarea, textarea[data-id], form textarea",
+      // `data-message-author-role` is OpenAI's own semantic attribute — stable.
+      // Fallback reads the role off the nested attribute if the wrapper changes.
+      variants: [
+        { items: "[data-message-author-role]", role: (el) => el.getAttribute("data-message-author-role") },
+        {
+          items: "[data-testid^='conversation-turn'], article[data-testid]",
+          role: (el) => {
+            const inner = el.querySelector("[data-message-author-role]");
+            return inner ? inner.getAttribute("data-message-author-role") : "user";
+          },
+        },
+      ],
     },
     {
       match: /(^|\.)claude\.ai$/,
-      items: '[data-testid="user-message"], .font-claude-message',
-      role: (el) =>
-        el.getAttribute("data-testid") === "user-message" ? "user" : "assistant",
       model: "claude-opus-4-x",
       composer: 'div[contenteditable="true"].ProseMirror, div[contenteditable="true"]',
+      variants: [
+        {
+          items: '[data-testid="user-message"], .font-claude-message',
+          role: (el) => (el.getAttribute("data-testid") === "user-message" ? "user" : "assistant"),
+        },
+        {
+          // Fallback: user turns keep the testid; assistant turns are streamed.
+          items: '[data-testid="user-message"], [data-is-streaming], .font-claude-message',
+          role: (el) => (el.getAttribute("data-testid") === "user-message" ? "user" : "assistant"),
+        },
+      ],
     },
     {
       match: /(^|\.)gemini\.google\.com$/,
-      items: "user-query, model-response",
-      role: (el) => (el.tagName.toLowerCase() === "user-query" ? "user" : "assistant"),
       model: "gemini-1.5-pro",
       composer: 'rich-textarea .ql-editor, .ql-editor[contenteditable="true"], textarea',
+      variants: [
+        { items: "user-query, model-response", role: (el) => (el.tagName.toLowerCase() === "user-query" ? "user" : "assistant") },
+        { items: ".query-text, .model-response-text, message-content", role: (el) => (el.classList.contains("query-text") ? "user" : "assistant") },
+      ],
     },
     {
       match: /(^|\.)copilot\.microsoft\.com$/,
-      items: '[data-content="user-message"], [data-content="ai-message"]',
-      role: (el) =>
-        el.getAttribute("data-content") === "user-message" ? "user" : "assistant",
       model: "copilot",
       composer: "textarea#userInput, textarea",
+      variants: [
+        {
+          items: '[data-content="user-message"], [data-content="ai-message"]',
+          role: (el) => (el.getAttribute("data-content") === "user-message" ? "user" : "assistant"),
+        },
+      ],
     },
     {
       match: /(^|\.)perplexity\.ai$/,
-      items: '[data-testid="user-query"], [data-testid="answer"]',
-      role: (el) =>
-        el.getAttribute("data-testid") === "user-query" ? "user" : "assistant",
       model: "perplexity",
       composer: 'textarea[placeholder], div[contenteditable="true"]',
+      variants: [
+        {
+          items: '[data-testid="user-query"], [data-testid="answer"]',
+          role: (el) => (el.getAttribute("data-testid") === "user-query" ? "user" : "assistant"),
+        },
+      ],
     },
   ];
 
@@ -85,6 +111,39 @@
     return h.toString(16);
   }
 
+  /// Is `el` actually rendered? Skips display:none / hidden template nodes so we
+  /// don't scrape off-screen duplicates. Lenient: anything we can't measure is
+  /// treated as visible (never drop a real turn over a layout quirk).
+  function isVisible(el) {
+    if (el.hidden) return false;
+    const win = el.ownerDocument && el.ownerDocument.defaultView;
+    if (!win || typeof win.getComputedStyle !== "function") return true;
+    const s = win.getComputedStyle(el);
+    return s.display !== "none" && s.visibility !== "hidden";
+  }
+
+  /// Run one selector variant over the document → turns (visible, non-empty).
+  function turnsForVariant(doc, variant) {
+    const out = [];
+    let els;
+    try {
+      els = doc.querySelectorAll(variant.items);
+    } catch (_e) {
+      return out; // an unsupported selector (e.g. :has on old engines) just fails soft
+    }
+    for (const el of els) {
+      if (!isVisible(el)) continue;
+      const content = textOf(el);
+      if (!content) continue;
+      const role = normalizeRole(variant.role(el));
+      // Collapse consecutive identical turns (streaming can surface a node twice).
+      const last = out[out.length - 1];
+      if (last && last.role === role && last.content === content) continue;
+      out.push({ role, content });
+    }
+    return out;
+  }
+
   function extract(opts) {
     opts = opts || {};
     const doc = opts.doc || (typeof document !== "undefined" ? document : null);
@@ -98,11 +157,13 @@
     const cfg = pickConfig(hostname);
     if (!cfg) return null;
 
-    const turns = [];
-    for (const el of doc.querySelectorAll(cfg.items)) {
-      const content = textOf(el);
-      if (!content) continue;
-      turns.push({ role: normalizeRole(cfg.role(el)), content });
+    // Try each selector variant in order; the first that yields turns wins. This
+    // is the resilience layer — if a site changes the DOM under the primary
+    // selector, a fallback can still recover the conversation.
+    let turns = [];
+    for (const variant of cfg.variants) {
+      turns = turnsForVariant(doc, variant);
+      if (turns.length) break;
     }
     if (!turns.length) return null;
 

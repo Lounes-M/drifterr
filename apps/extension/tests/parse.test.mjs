@@ -115,6 +115,38 @@ async function main() {
   );
   check(none === null, "returns null on unsupported host");
 
+  console.log("Resilience (fallback / dedupe / visibility):");
+  // Fallback variant: Gemini's primary custom elements are absent, but the
+  // class-based fallback still recovers the turns.
+  const fb = await page.evaluate(() => {
+    document.body.innerHTML =
+      '<div class="query-text">what is drift</div><div class="model-response-text">a divergence from intent</div>';
+    return window.DrifterrParse.extract({ hostname: "gemini.google.com", doc: document, pathname: "/app/x" });
+  });
+  check(fb && fb.turns.length === 2, "falls back to the secondary selector when the primary matches nothing");
+  check(fb.turns[0].role === "user" && fb.turns[1].role === "assistant", "fallback maps roles by class");
+
+  // Dedupe: a repeated consecutive identical turn (streaming re-render) collapses.
+  const dd = await page.evaluate(() => {
+    document.body.innerHTML =
+      '<div data-message-author-role="user">hi</div>' +
+      '<div data-message-author-role="assistant">hello</div>' +
+      '<div data-message-author-role="assistant">hello</div>';
+    return window.DrifterrParse.extract({ hostname: "chatgpt.com", doc: document, pathname: "/" });
+  });
+  check(dd.turns.length === 2, "collapses consecutive identical turns");
+
+  // Visibility: a display:none node is skipped.
+  const vis = await page.evaluate(() => {
+    document.body.innerHTML =
+      '<div data-message-author-role="user" style="display:none">ghost draft</div>' +
+      '<div data-message-author-role="user">real question</div>' +
+      '<div data-message-author-role="assistant">real answer</div>';
+    return window.DrifterrParse.extract({ hostname: "chatgpt.com", doc: document, pathname: "/" });
+  });
+  check(vis.turns.length === 2, "skips hidden (display:none) nodes");
+  check(vis.turns[0].content === "real question", "keeps only the visible user turn");
+
   console.log("Re-anchor inject:");
   // Textarea composer (ChatGPT-style): prepends the preamble to whatever's there.
   const injField = await page.evaluate(() => {

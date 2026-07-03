@@ -16,11 +16,56 @@ use crate::baseline::Rule;
 use regex::Regex;
 use std::sync::OnceLock;
 
-/// "no js", "not js", "no .js", "pas de js", "sans js" — but NOT "no json"
-/// (the `\b` after `js` forbids a following word char).
+/// "no js", "not js", "avoid js", "don't use javascript", "pas de js",
+/// "sans javascript", "évite le js" — but NOT "no json" (the `\b` after
+/// `js`/`javascript` forbids a following word char).
 fn no_js_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| Regex::new(r"(?i)\b(no|not|pas de|sans)\s+\.?js\b").unwrap())
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?:no|not|avoid|don'?t\s+use|do\s+not\s+use|pas\s+de|sans|évite(?:\s+le)?)\s+\.?(?:js|javascript)\b",
+        )
+        .unwrap()
+    })
+}
+
+/// A word cap: "under 200 words", "at most 200 words", "no more than 200 words",
+/// "max 200 words", "within 200 words", "less than 200 words", plus FR "moins de
+/// 200 mots" / "au plus 200 mots". Captures the number.
+fn max_words_prefix_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?:under|below|at\s+most|no\s+more\s+than|max(?:imum)?(?:\s+of)?|within|less\s+than|fewer\s+than|moins\s+de|au\s+plus|maximum\s+de)\s+(\d{1,5})\s+(?:words?|mots?)\b",
+        )
+        .unwrap()
+    })
+}
+
+/// The suffix form: "200 words max", "200 words or fewer", "200 mots max".
+fn max_words_suffix_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(\d{1,5})\s+(?:words?|mots?)\s+(?:max|maximum|or\s+(?:fewer|less)|ou\s+moins)\b",
+        )
+        .unwrap()
+    })
+}
+
+/// The tightest inferable word cap in `text`, if any.
+fn infer_max_words(text: &str) -> Option<usize> {
+    let mut best: Option<usize> = None;
+    for re in [max_words_prefix_re(), max_words_suffix_re()] {
+        for caps in re.captures_iter(text) {
+            if let Ok(n) = caps[1].parse::<usize>() {
+                if n > 0 {
+                    best = Some(best.map_or(n, |b| b.min(n)));
+                }
+            }
+        }
+    }
+    best
 }
 
 /// "no comments", "aucun commentaire", "pas de commentaire(s)".
@@ -55,6 +100,11 @@ pub fn infer_rules(text: &str) -> Vec<Rule> {
         });
     }
 
+    // "under 200 words" / "200 words max" — a hard length cap.
+    if let Some(max) = infer_max_words(text) {
+        rules.push(Rule::MaxWords { max });
+    }
+
     rules
 }
 
@@ -86,7 +136,7 @@ pub fn infer_rejected_decisions(text: &str) -> Vec<String> {
             let object = obj.as_str().trim().trim_end_matches(['.', ',', ';']).trim();
             // Drop phrasings that the JS/comments constraint rules already cover.
             let lc = object.to_ascii_lowercase();
-            if lc == "js" || lc.starts_with("comment") {
+            if lc == "js" || lc == "javascript" || lc.starts_with("comment") {
                 continue;
             }
             let phrase = format!("use {object}");
@@ -182,5 +232,54 @@ mod tests {
         assert_eq!(infer_rules("refactor in TS, no JS").len(), 1);
         // "no json" must NOT trigger the JS rule.
         assert!(infer_rules("return no json, just text").is_empty());
+    }
+
+    #[test]
+    fn no_js_broadened_phrasings() {
+        for s in [
+            "avoid javascript entirely",
+            "don't use js here",
+            "do not use JavaScript",
+            "évite le js",
+            "sans javascript",
+        ] {
+            assert!(
+                infer_rules(s)
+                    .iter()
+                    .any(|r| matches!(r, Rule::ForbidPattern { .. })),
+                "should infer no-JS from: {s}"
+            );
+        }
+        // "jsonify" / "no json" still must not fire.
+        assert!(infer_rules("please jsonify the output").is_empty());
+    }
+
+    #[test]
+    fn word_limit_inference() {
+        let cases = [
+            ("keep it under 200 words", 200),
+            ("at most 50 words please", 50),
+            ("no more than 1000 words", 1000),
+            ("answer in 30 words max", 30),
+            ("réponds en moins de 100 mots", 100),
+            ("120 mots max", 120),
+        ];
+        for (text, expect) in cases {
+            let max = infer_rules(text).into_iter().find_map(|r| match r {
+                Rule::MaxWords { max } => Some(max),
+                _ => None,
+            });
+            assert_eq!(max, Some(expect), "for: {text}");
+        }
+        // The tightest cap wins when several are stated.
+        let max = infer_rules("under 500 words, ideally 200 words max")
+            .into_iter()
+            .find_map(|r| match r {
+                Rule::MaxWords { max } => Some(max),
+                _ => None,
+            });
+        assert_eq!(max, Some(200));
+        // Numbers unrelated to a word cap don't fire.
+        assert!(infer_rules("use port 8080 and 3 retries").is_empty());
     }
 }
