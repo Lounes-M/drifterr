@@ -7,13 +7,24 @@ and a background service worker posts it to the local Drifterr proxy
 file channels. 100% local; nothing leaves your machine except your own provider
 calls.
 
+It also closes the **re-anchor loop** in the browser: when the local engine
+reports the session is drifting, the background worker fetches the re-anchor
+preamble and the content script shows a one-click **⚓ Re-anchor** pill that
+injects it into the chat composer (`DrifterrParse.inject`). The toolbar popup
+shows live session state.
+
 ```
-src/parse.js       per-host DOM → normalized turns (window.DrifterrParse)
-src/content.js     scrape loop in the page → message the background worker
-src/background.js  POST to the local proxy (off the page CSP)
+src/parse.js       per-host DOM → normalized turns + composer inject (window.DrifterrParse)
+src/content.js     scrape loop + in-page re-anchor pill
+src/background.js  POST to the local proxy; fetch /reanchor on drift (off the page CSP)
+src/popup.html/js  toolbar popup: live session state
 manifest.json      MV3 manifest
-tests/             headless parser verification (Playwright)
+icons/             toolbar/store icons (generated: scripts/gen_icons.py)
+scripts/           gen_icons.py, package.sh (store zip)
+tests/             headless parser + inject verification (Playwright)
 ```
+
+Supported hosts: claude.ai, ChatGPT, Gemini, Copilot, Perplexity.
 
 ## Load it (dev)
 
@@ -31,6 +42,18 @@ npm install
 npx playwright install   # first time
 npm test
 ```
+
+## Package for the store
+
+```
+apps/extension/scripts/package.sh   # → drifterr-extension-<version>.zip
+```
+
+Bundles only the runtime files (manifest, `src/*`, `icons/`) — no `node_modules`,
+tests or scripts — and regenerates the icons first. Upload the zip to the
+**Chrome Web Store** (chrome.google.com/webstore/devconsole) or **Firefox
+Add-ons** (addons.mozilla.org/developers). Bump `version` in `manifest.json`
+before each submission.
 
 ## Tuning selectors
 

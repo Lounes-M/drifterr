@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0; width: 260px;
+        font: 400 13px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif;
+        color: #fff; background: #16151f;
+      }
+      .wrap { padding: 16px; }
+      .row { display: flex; align-items: center; gap: 10px; }
+      .dot { width: 12px; height: 12px; border-radius: 50%; background: #6f6d82; flex: 0 0 auto; }
+      .dot.green { background: #34e89e; }
+      .dot.amber { background: #ffb23e; }
+      .dot.red { background: #ff4d6d; }
+      h1 { margin: 0; font-size: 15px; font-weight: 700; }
+      .sub { margin: 2px 0 0; color: #a3a1b4; font-size: 12px; }
+      .detail { margin: 10px 0 0; color: #c9c8d4; font-size: 12px; overflow-wrap: anywhere; }
+      .btn {
+        display: block; width: 100%; margin-top: 14px; padding: 9px 0;
+        text-align: center; text-decoration: none; color: #fff; font-weight: 600;
+        border-radius: 10px; background: linear-gradient(90deg, #ff7847, #ff3d81);
+      }
+      .off { color: #86849a; font-size: 12px; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="row">
+        <span id="dot" class="dot" aria-hidden="true"></span>
+        <div>
+          <h1 id="state">Connecting…</h1>
+          <p id="sub" class="sub">Reading your session.</p>
+        </div>
+      </div>
+      <p id="detail" class="detail" hidden></p>
+      <p id="off" class="off" hidden>Start the Drifterr app (or run the proxy) to see live status.</p>
+      <a class="btn" href="http://localhost:8788/" target="_blank" rel="noopener">Open panel</a>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>
