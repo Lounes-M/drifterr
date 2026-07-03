@@ -31,8 +31,14 @@
         <span class="mark" aria-hidden="true"><span class="fill"></span><span class="ring"></span></span>
         <b class="wordmark">drifterr</b>
         <span id="plan-pill" class="plan-pill" hidden>Free</span>
-        <button id="history-btn" class="gear" type="button" title="Session history" aria-label="Session history">🕘</button>
-        <button id="gear" class="gear" type="button" title="Settings" aria-label="Settings">⚙</button>
+        <div class="brand-actions">
+          <button id="history-btn" class="gear" type="button" title="Session history" aria-label="Session history">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          </button>
+          <button id="gear" class="gear" type="button" title="Settings" aria-label="Settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+        </div>
       </header>
 
       <section id="update-banner" class="update-banner" hidden>
@@ -192,7 +198,7 @@
         <pre id="reanchor-text" class="reanchor-text"></pre>
       </section>
 
-      <section class="sat">
+      <section class="sat session-only">
         <div class="sat-head">
           <span>Drift score</span>
           <span id="drift-meta" class="sat-meta">—</span>
@@ -200,7 +206,7 @@
         <div class="bar"><div id="drift-fill" class="bar-fill" style="width:0%"></div></div>
       </section>
 
-      <section class="sat" id="drift-map-section">
+      <section class="sat session-only" id="drift-map-section">
         <div class="sat-head">
           <span>Drift map <span id="map-lock" class="lock-badge" hidden>🔒 Pro</span></span>
           <span id="map-meta" class="sat-meta">—</span>
@@ -209,7 +215,7 @@
         <p class="lock-hint">Upgrade to Pro to see how drift built up across the session.</p>
       </section>
 
-      <section class="sat">
+      <section class="sat session-only">
         <div class="sat-head">
           <span>Context</span>
           <span id="sat-meta" class="sat-meta">—</span>
@@ -217,7 +223,7 @@
         <div class="bar"><div id="sat-fill" class="bar-fill" style="width:0%"></div></div>
       </section>
 
-      <section class="signals">
+      <section class="signals session-only">
         <h2 class="section-title">Signals</h2>
         <ul id="signals" class="signal-list"></ul>
       </section>

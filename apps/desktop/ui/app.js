@@ -69,8 +69,12 @@ export function apiBase() {
 export function render(doc, data) {
   hide(doc, "error");
   const cur = data && data.current;
+  const body = doc.getElementById("app-body");
 
   if (!cur) {
+    // No live session: hide the metric sections (empty bars/dashes would just be
+    // noise) and show only the header + intent card + the empty prompt.
+    if (body) body.classList.add("no-session");
     showEmpty(doc, true);
     setText(doc, "state-label", "No session");
     setText(doc, "blurb", "Waiting for activity.");
@@ -78,6 +82,7 @@ export function render(doc, data) {
     setText(doc, "meta", "");
     return;
   }
+  if (body) body.classList.remove("no-session");
   showEmpty(doc, false);
 
   const info = stateInfo(cur.state);
@@ -559,6 +564,8 @@ function openIntentEditor(doc) {
   }
   const pending = doc.getElementById("intent-pending");
   if (pending) pending.hidden = !(currentIntent && currentIntent.pending) && currentIntent !== null;
+  const editBtn = doc.getElementById("intent-edit");
+  if (editBtn) editBtn.hidden = true;
   doc.getElementById("intent-view").hidden = true;
   doc.getElementById("intent-editor").hidden = false;
 }
@@ -566,6 +573,8 @@ function openIntentEditor(doc) {
 function closeIntentEditor(doc) {
   doc.getElementById("intent-editor").hidden = true;
   doc.getElementById("intent-view").hidden = false;
+  const editBtn = doc.getElementById("intent-edit");
+  if (editBtn) editBtn.hidden = false;
 }
 
 export async function saveIntent(doc, fetchImpl) {

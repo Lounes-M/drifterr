@@ -205,19 +205,23 @@ body::after {
   70% { box-shadow: 0 0 0 8px transparent; }
 }
 
+/* The two header icon buttons, grouped hard-right. */
+.brand-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
 /* Glass icon button. */
 .gear {
-  margin-left: auto;
   display: grid; place-items: center;
-  width: 32px; height: 32px;
+  width: 32px; height: 32px; flex: 0 0 auto;
   background: var(--glass-sub);
   backdrop-filter: blur(10px);
   border: 1px solid var(--edge); cursor: pointer;
-  color: var(--ink-soft); font-size: 14px; border-radius: 50%;
+  color: var(--ink-soft); border-radius: 50%; padding: 0;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   transition: transform 0.4s var(--spring), color 0.2s ease, background 0.2s ease;
 }
-.gear:hover { color: var(--ink); background: rgba(255, 255, 255, 0.12); transform: rotate(60deg) scale(1.05); }
+.gear svg { width: 15px; height: 15px; display: block; }
+.gear:hover { color: var(--ink); background: rgba(255, 255, 255, 0.12); transform: rotate(45deg) scale(1.05); }
+#history-btn:hover { transform: scale(1.08); }
 
 /* --- shared --------------------------------------------------------------- */
 .section-title {
@@ -253,7 +257,10 @@ code { font-family: var(--mono); }
 }
 .trigger:hover { transform: translateY(-1px); }
 .trigger.amber { border-left-color: var(--amber); }
-.trigger-row { display: flex; align-items: baseline; gap: 8px; }
+/* Stack tag over detail so the tag, detail, span chip and Re-anchor button all
+   share the card's left edge (an inline tag+detail row goes ragged when the
+   detail wraps). */
+.trigger-row { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
 .trigger-tag {
   text-transform: uppercase; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em;
   font-weight: 500; color: var(--ink-faint); flex: 0 0 auto;
@@ -302,8 +309,11 @@ code { font-family: var(--mono); }
 
 /* --- re-anchor snapshot --------------------------------------------------- */
 .reanchor { display: flex; flex-direction: column; gap: 9px; }
-.reanchor-head { display: flex; align-items: center; justify-content: space-between; }
+/* Title on its own line, then a full-width row of actions — three buttons don't
+   fit beside the title in a 340px panel without wrapping their labels. */
+.reanchor-head { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
 .reanchor-actions { display: flex; gap: 6px; }
+.reanchor-actions .mini-btn { flex: 1 1 auto; white-space: nowrap; text-align: center; }
 .mini-btn {
   background: var(--glass-sub); color: var(--ink);
   backdrop-filter: blur(10px);
@@ -356,6 +366,10 @@ code { font-family: var(--mono); }
 .intent-field input:focus { outline: none; border-color: var(--blue); }
 .intent-actions { display: flex; gap: 8px; align-items: center; }
 .intent-actions .reanchor-btn { flex: 1 1 auto; }
+/* In the centered onboarding slide, keep the intent form left-aligned (labels
+   over full-width fields) with a little breathing room from the copy above. */
+#onboarding .intent-field { text-align: left; margin-top: 4px; }
+#onboarding .onb-slide .intent-field:first-of-type { margin-top: 10px; }
 
 /* --- toggle switch -------------------------------------------------------- */
 .toggle-row { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
@@ -465,6 +479,10 @@ code { font-family: var(--mono); }
    on top of it. `!important` beats the per-poll `[hidden]` toggles in render(). */
 #app-body.settings-open > *:not(#settings) { display: none !important; }
 #app-body.history-open > *:not(#history) { display: none !important; }
+/* No live session: the drift/context/signal sections would only show empty bars
+   and dashes, so hide them — leaving the header, the intent card and the empty
+   prompt. */
+#app-body.no-session .session-only { display: none !important; }
 
 /* --- session history ------------------------------------------------------ */
 .history-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
