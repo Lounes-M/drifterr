@@ -483,7 +483,7 @@ function setupUi(doc) {
   if (gear) {
     gear.addEventListener("click", async () => {
       const showing = toggleSettings(doc);
-      if (showing) { await loadConfig(doc); await loadProviders(doc); }
+      if (showing) { await loadConfig(doc); await loadProviders(doc); await loadAutoReanchor(doc); }
     });
   }
 
@@ -502,18 +502,73 @@ function setupUi(doc) {
     });
   }
 
-  const copyBtn = doc.getElementById("reanchor-copy");
-  if (copyBtn) {
-    copyBtn.addEventListener("click", async () => {
-      const text = currentReanchor ? currentReanchor.snapshot : "";
-      try {
-        await navigator.clipboard.writeText(text);
-        copyBtn.textContent = "Copied!";
-      } catch (_e) {
-        copyBtn.textContent = "Copy failed";
-      }
-      setTimeout(() => (copyBtn.textContent = "Copy"), 1500);
+  wireCopyButton(doc, "reanchor-copy", "Copy snapshot", () =>
+    currentReanchor ? currentReanchor.snapshot : ""
+  );
+  wireCopyButton(doc, "reanchor-copy-preamble", "Copy preamble", () =>
+    currentReanchor ? currentReanchor.preamble : ""
+  );
+
+  const autoToggle = doc.getElementById("auto-reanchor-toggle");
+  if (autoToggle) {
+    autoToggle.addEventListener("change", () => setAutoReanchor(doc, autoToggle.checked));
+  }
+}
+
+/// Wire a copy-to-clipboard button that copies whatever `getText()` returns,
+/// with a transient "Copied!" label. Shared by the snapshot + preamble buttons.
+function wireCopyButton(doc, id, label, getText) {
+  const btn = doc.getElementById(id);
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(getText() || "");
+      btn.textContent = "Copied!";
+    } catch (_e) {
+      btn.textContent = "Copy failed";
+    }
+    setTimeout(() => (btn.textContent = label), 1500);
+  });
+}
+
+// --- auto re-anchor toggle (settings) --------------------------------------
+
+/// Render the auto-re-anchor switch from `GET /auto-reanchor`
+/// ({ on, allowed, effective }). Shows the Pro hint when the plan doesn't allow.
+export function renderAutoReanchor(doc, data) {
+  const toggle = doc.getElementById("auto-reanchor-toggle");
+  const label = doc.getElementById("auto-reanchor-label");
+  const hint = doc.getElementById("auto-reanchor-hint");
+  const on = !!(data && data.on);
+  const allowed = !!(data && data.allowed);
+  if (toggle) { toggle.checked = on; toggle.disabled = !allowed; }
+  if (hint) hint.hidden = allowed;
+  if (label) label.textContent = !allowed ? "Pro" : on ? "On" : "Off";
+}
+
+export async function loadAutoReanchor(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/auto-reanchor", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderAutoReanchor(doc, await res.json());
+  } catch (_e) {
+    renderAutoReanchor(doc, null);
+  }
+}
+
+async function setAutoReanchor(doc, on, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/auto-reanchor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ on }),
     });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderAutoReanchor(doc, await res.json());
+  } catch (_e) {
+    await loadAutoReanchor(doc); // resync to the real state on failure
   }
 }
 

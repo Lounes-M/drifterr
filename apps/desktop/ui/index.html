@@ -88,6 +88,15 @@
         <p class="muted">Where requests are relayed. Use that provider's own API key in your tool.</p>
         <div id="provider-select" class="provider-select"></div>
 
+        <h2 class="section-title" style="margin-top:12px">Auto re-anchor</h2>
+        <p class="muted">When a session drifts (red), silently prepend the re-anchor preamble to your next request so the model self-corrects.</p>
+        <label class="toggle-row">
+          <input id="auto-reanchor-toggle" type="checkbox" class="toggle-input" />
+          <span class="toggle-track" aria-hidden="true"><span class="toggle-knob"></span></span>
+          <span id="auto-reanchor-label" class="toggle-label">Off</span>
+        </label>
+        <p id="auto-reanchor-hint" class="muted lock-hint" hidden>Auto re-anchor is a Pro feature — upgrade to enable injection.</p>
+
         <h2 class="section-title" style="margin-top:12px">Configuration</h2>
         <div class="cfg-row"><span class="muted">Upstream</span><span id="cfg-upstream">—</span></div>
         <div class="cfg-row"><span class="muted">Judge</span><span id="cfg-judge">—</span></div>
@@ -149,13 +158,14 @@
 
       <section id="reanchor" class="reanchor" hidden>
         <div class="reanchor-head">
-          <span class="section-title">Re-anchor snapshot</span>
+          <span class="section-title">Re-anchor</span>
           <div class="reanchor-actions">
-            <button id="reanchor-copy" class="mini-btn" type="button">Copy</button>
+            <button id="reanchor-copy-preamble" class="mini-btn" type="button">Copy preamble</button>
+            <button id="reanchor-copy" class="mini-btn" type="button">Copy snapshot</button>
             <button id="reanchor-close" class="mini-btn" type="button">Close</button>
           </div>
         </div>
-        <p class="muted">Paste into a fresh thread to reset, or copy the preamble into your next message.</p>
+        <p class="muted"><b>Preamble</b> → paste into your next message to nudge the model back. <b>Snapshot</b> → paste into a fresh thread to reset.</p>
         <pre id="reanchor-text" class="reanchor-text"></pre>
       </section>
 

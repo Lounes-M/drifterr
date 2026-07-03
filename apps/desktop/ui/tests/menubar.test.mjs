@@ -157,6 +157,11 @@ async function main() {
   check(true, "copy button copies to clipboard");
   const clip = await page.evaluate(() => navigator.clipboard.readText());
   check(clip.includes("# Re-anchor"), "clipboard holds the snapshot");
+  // Copy preamble → clipboard holds the short in-thread reminder, not the snapshot.
+  await page.locator("#reanchor-copy-preamble").click();
+  await page.waitForFunction(() => document.getElementById("reanchor-copy-preamble").textContent === "Copied!");
+  const clipP = await page.evaluate(() => navigator.clipboard.readText());
+  check(clipP.includes("Binding constraints"), "Copy preamble copies the preamble");
   await page.locator("#reanchor-close").click();
   check(!(await page.locator("#reanchor").isVisible()), "close hides the snapshot");
 
@@ -209,6 +214,12 @@ async function main() {
     switchedTo = JSON.parse(route.request().postData() || "{}").id;
     route.fulfill({ contentType: "application/json", body: JSON.stringify({ provider: switchedTo }) });
   });
+  // Auto re-anchor toggle: starts off+allowed; POST flips it on.
+  let autoOn = false;
+  await page.route("**/auto-reanchor*", (route) => {
+    if (route.request().method() === "POST") autoOn = JSON.parse(route.request().postData() || "{}").on;
+    route.fulfill({ contentType: "application/json", body: JSON.stringify({ on: autoOn, allowed: true, effective: autoOn }) });
+  });
   check(!(await page.locator("#settings").isVisible()), "settings hidden by default");
   await page.locator("#gear").click();
   await page.waitForFunction(() => !document.getElementById("settings").hidden);
@@ -222,6 +233,14 @@ async function main() {
   );
   check((await page.locator("#cfg-storage").textContent()) === "In-memory", "settings shows storage mode");
   check((await page.locator("#cfg-judge").textContent()).includes("gpt-4o-mini"), "settings shows judge model");
+
+  console.log("AUTO RE-ANCHOR toggle:");
+  await page.waitForFunction(() => document.getElementById("auto-reanchor-label").textContent === "Off");
+  check(!(await page.locator("#auto-reanchor-toggle").isChecked()), "auto re-anchor starts off");
+  await page.locator("#auto-reanchor-toggle + .toggle-track").click();
+  await page.waitForFunction(() => document.getElementById("auto-reanchor-label").textContent === "On");
+  check(autoOn === true, "toggling posts on=true to the proxy");
+  check(await page.locator("#auto-reanchor-toggle").isChecked(), "toggle reflects the on state");
 
   console.log("PROVIDER selector:");
   await page.waitForFunction(() => document.querySelectorAll("#provider-select .provider-pill").length === 3);

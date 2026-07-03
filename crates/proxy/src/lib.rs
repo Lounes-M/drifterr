@@ -43,6 +43,7 @@ use serde::Serialize;
 use state::{AppCore, SessionStatus};
 use std::future::IntoFuture;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::net::TcpListener;
 
@@ -170,7 +171,9 @@ pub struct AppState {
     pub judge: Arc<drifterr_judge::Judge>,
     /// Opt-in: inject the re-anchor preamble into outgoing requests when the
     /// session is drifting (RED). Off by default — it modifies user requests.
-    pub auto_reanchor: bool,
+    /// Runtime-toggleable (the panel's Auto re-anchor switch) via an atomic, so
+    /// the choice takes effect without a restart.
+    pub auto_reanchor: Arc<AtomicBool>,
     /// Current plan entitlement, set by the desktop app after login. Defaults to
     /// Free so the proxy works standalone. Gates paid capabilities (drift map,
     /// extra sessions, auto-re-anchor).
@@ -200,9 +203,15 @@ impl AppState {
     }
 
     /// Enable/disable auto-re-anchor (used by tests).
-    pub fn with_auto_reanchor(mut self, on: bool) -> Self {
-        self.auto_reanchor = on;
+    pub fn with_auto_reanchor(self, on: bool) -> Self {
+        self.auto_reanchor.store(on, Ordering::Relaxed);
         self
+    }
+
+    /// Whether auto-re-anchor injection is currently on (the toggle only; the
+    /// plan entitlement is the second gate, checked at inject time).
+    pub fn auto_reanchor_on(&self) -> bool {
+        self.auto_reanchor.load(Ordering::Relaxed)
     }
 
     /// Set the active plan entitlement (used by tests and the app embedder).
@@ -247,7 +256,7 @@ impl AppState {
             core: Arc::new(Mutex::new(AppCore::new(store))),
             meta: Arc::new(meta),
             judge: Arc::new(judge),
-            auto_reanchor,
+            auto_reanchor: Arc::new(AtomicBool::new(auto_reanchor)),
             entitlement: Arc::new(RwLock::new(Entitlement::default())),
             upstream: Arc::new(RwLock::new(upstream)),
         }
@@ -291,6 +300,10 @@ pub fn control_router(state: AppState) -> Router {
         )
         .route("/reanchor", get(reanchor_handler))
         .route("/intent", get(get_intent_handler).post(set_intent_handler))
+        .route(
+            "/auto-reanchor",
+            get(get_auto_reanchor_handler).post(set_auto_reanchor_handler),
+        )
         .route("/standing-orders", get(standing_orders_handler))
         .route("/standing-orders/promote", post(promote_handler))
         .route("/ingest", post(ingest_handler))
@@ -419,6 +432,8 @@ async fn config_handler(State(app): State<AppState>) -> Json<ConfigMeta> {
         meta.anthropic_upstream = u.anthropic_upstream.clone();
         meta.provider = u.provider_label.clone();
     }
+    // Reflect the live auto-re-anchor toggle, not just the boot value.
+    meta.auto_reanchor = app.auto_reanchor_on();
     Json(meta)
 }
 
@@ -593,6 +608,50 @@ async fn set_intent_handler(
     (StatusCode::INTERNAL_SERVER_ERROR, "busy").into_response()
 }
 
+/// Auto-re-anchor toggle state for the panel switch.
+#[derive(Serialize)]
+struct AutoReanchorState {
+    /// Whether the user has the switch on.
+    on: bool,
+    /// Whether the current plan actually permits injection (the second gate).
+    allowed: bool,
+    /// `on && allowed` — whether injection will really happen while drifting.
+    effective: bool,
+}
+
+impl AutoReanchorState {
+    fn of(app: &AppState) -> Self {
+        let on = app.auto_reanchor_on();
+        let allowed = app.entitlement().auto_reanchor;
+        AutoReanchorState {
+            on,
+            allowed,
+            effective: on && allowed,
+        }
+    }
+}
+
+async fn get_auto_reanchor_handler(State(app): State<AppState>) -> Json<AutoReanchorState> {
+    Json(AutoReanchorState::of(&app))
+}
+
+#[derive(Deserialize)]
+struct SetAutoReanchor {
+    on: bool,
+}
+
+/// Toggle auto-re-anchor injection at runtime (the panel's switch). The plan
+/// entitlement is still enforced at inject time, so turning it on with a Free
+/// plan is accepted but simply won't inject until upgraded — the response says
+/// so via `effective`.
+async fn set_auto_reanchor_handler(
+    State(app): State<AppState>,
+    Json(body): Json<SetAutoReanchor>,
+) -> Json<AutoReanchorState> {
+    app.auto_reanchor.store(body.on, Ordering::Relaxed);
+    Json(AutoReanchorState::of(&app))
+}
+
 /// Add permissive CORS headers and short-circuit preflight requests.
 async fn add_cors(req: Request, next: Next) -> Response {
     let is_preflight = req.method() == Method::OPTIONS;
@@ -740,7 +799,7 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
     // the re-anchor preamble into the outgoing request. Idempotent and best-
     // effort — on any doubt we relay the original bytes unchanged.
     let mut body_to_send = body_bytes.to_vec();
-    if app.auto_reanchor && app.entitlement().auto_reanchor {
+    if app.auto_reanchor_on() && app.entitlement().auto_reanchor {
         let session_id = state::session_id_for(&parsed_req);
         let preamble = app
             .core
