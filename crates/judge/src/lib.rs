@@ -36,6 +36,7 @@ impl JudgeAnswer {
 }
 
 /// A pluggable judge backend.
+#[derive(Clone)]
 pub enum Judge {
     /// No judge — always answers "no".
     Disabled,
@@ -70,6 +71,28 @@ impl Judge {
             )),
             None => Judge::Disabled,
         }
+    }
+
+    /// Build an OpenRouter judge from an explicit key + optional model — the
+    /// runtime-config path (the settings panel), no env or restart needed. An
+    /// empty key yields [`Judge::Disabled`]. Base is `DRIFTERR_JUDGE_BASE` or the
+    /// OpenRouter default; model defaults to `openai/gpt-4o-mini`.
+    pub fn openrouter(api_key: &str, model: Option<&str>) -> Self {
+        let api_key = api_key.trim();
+        if api_key.is_empty() {
+            return Judge::Disabled;
+        }
+        let model = model
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
+            .unwrap_or("openai/gpt-4o-mini")
+            .to_string();
+        Judge::OpenRouter(OpenRouterJudge::new(
+            std::env::var("DRIFTERR_JUDGE_BASE")
+                .unwrap_or_else(|_| "https://openrouter.ai/api".to_string()),
+            model,
+            api_key.to_string(),
+        ))
     }
 
     pub fn enabled(&self) -> bool {
@@ -124,6 +147,7 @@ impl Judge {
 }
 
 /// Deterministic test double.
+#[derive(Clone)]
 pub struct StubJudge {
     pub yes_if_contains: Vec<String>,
     /// Constraints this stub "extracts" from any user message — for testing the
@@ -167,6 +191,7 @@ impl StubJudge {
 }
 
 /// Real judge over an OpenAI-compatible chat endpoint.
+#[derive(Clone)]
 pub struct OpenRouterJudge {
     client: reqwest::Client,
     base_url: String,

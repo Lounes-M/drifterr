@@ -220,6 +220,13 @@ async function main() {
     if (route.request().method() === "POST") autoOn = JSON.parse(route.request().postData() || "{}").on;
     route.fulfill({ contentType: "application/json", body: JSON.stringify({ on: autoOn, allowed: true, effective: autoOn }) });
   });
+  // Judge: starts disabled; POST with a key enables it (key never sent back).
+  let judgePosted = null;
+  await page.route("**/judge*", (route) => {
+    if (route.request().method() === "POST") judgePosted = JSON.parse(route.request().postData() || "{}");
+    const on = !!(judgePosted && judgePosted.apiKey);
+    route.fulfill({ contentType: "application/json", body: JSON.stringify({ enabled: on, label: on ? (judgePosted.model || "openai/gpt-4o-mini") : "disabled" }) });
+  });
   check(!(await page.locator("#settings").isVisible()), "settings hidden by default");
   await page.locator("#gear").click();
   await page.waitForFunction(() => !document.getElementById("settings").hidden);
@@ -241,6 +248,17 @@ async function main() {
   await page.waitForFunction(() => document.getElementById("auto-reanchor-label").textContent === "On");
   check(autoOn === true, "toggling posts on=true to the proxy");
   check(await page.locator("#auto-reanchor-toggle").isChecked(), "toggle reflects the on state");
+
+  console.log("JUDGE config:");
+  await page.waitForFunction(() => document.getElementById("judge-status").textContent === "Off");
+  check((await page.locator("#judge-status").textContent()) === "Off", "judge starts off");
+  await page.locator("#judge-key").fill("sk-or-secret");
+  await page.locator("#judge-model").fill("openai/gpt-4o-mini");
+  await page.locator("#judge-save").click();
+  await page.waitForFunction(() => document.getElementById("judge-status").textContent.startsWith("On"));
+  check(judgePosted && judgePosted.apiKey === "sk-or-secret", "save posts the api key to the proxy");
+  check((await page.locator("#judge-key").inputValue()) === "", "key field is cleared after save");
+  check((await page.locator("#judge-status").textContent()).includes("gpt-4o-mini"), "status shows the active model");
 
   console.log("PROVIDER selector:");
   await page.waitForFunction(() => document.querySelectorAll("#provider-select .provider-pill").length === 3);

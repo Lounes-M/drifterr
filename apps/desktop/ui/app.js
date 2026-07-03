@@ -326,6 +326,61 @@ export async function loadConfig(doc, fetchImpl) {
   }
 }
 
+// --- judge (fuzzy signals) config ------------------------------------------
+//
+// Lets the user turn on the judge with their own OpenRouter key, no restart. The
+// key is write-only here: it's POSTed to the local proxy (in-memory) and never
+// stored in the browser or echoed back.
+
+/// Render the judge status label from `GET /judge` ({ enabled, label }).
+export function renderJudge(doc, data) {
+  const status = doc.getElementById("judge-status");
+  if (!status) return;
+  if (data && data.enabled) status.textContent = "On · " + (data.label || "");
+  else status.textContent = "Off";
+}
+
+export async function loadJudge(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/judge", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderJudge(doc, await res.json());
+  } catch (_e) {
+    renderJudge(doc, null);
+  }
+}
+
+export async function saveJudge(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  const keyEl = doc.getElementById("judge-key");
+  const modelEl = doc.getElementById("judge-model");
+  const btn = doc.getElementById("judge-save");
+  const apiKey = keyEl ? keyEl.value : "";
+  const model = modelEl ? modelEl.value.trim() : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
+  try {
+    const res = await f(apiBase() + "/judge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey, model }),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderJudge(doc, await res.json());
+    if (keyEl) keyEl.value = ""; // never keep the secret sitting in the DOM
+    await loadConfig(doc); // refresh the Judge row
+  } catch (_e) {
+    renderJudge(doc, null);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Save judge"; }
+  }
+}
+
+function setupJudge(doc) {
+  const save = doc.getElementById("judge-save");
+  if (save) save.addEventListener("click", () => saveJudge(doc));
+}
+
 // --- provider selector -----------------------------------------------------
 
 /// Render the provider pills from `GET /providers` ({ current, providers }) into
@@ -558,7 +613,7 @@ function setupUi(doc) {
   if (gear) {
     gear.addEventListener("click", async () => {
       const showing = toggleSettings(doc);
-      if (showing) { toggleHistory(doc, false); await loadConfig(doc); await loadProviders(doc); await loadAutoReanchor(doc); }
+      if (showing) { toggleHistory(doc, false); await loadConfig(doc); await loadProviders(doc); await loadAutoReanchor(doc); await loadJudge(doc); }
     });
   }
 
@@ -571,6 +626,7 @@ function setupUi(doc) {
   }
 
   setupIntent(doc);
+  setupJudge(doc);
 
   const reanchorBtn = doc.getElementById("reanchor-btn");
   if (reanchorBtn) {

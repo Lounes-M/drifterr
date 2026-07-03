@@ -864,3 +864,64 @@ async fn provider_selector_switches_upstream() {
         .unwrap();
     assert_eq!(r.status(), 400);
 }
+
+#[tokio::test]
+async fn judge_can_be_configured_at_runtime() {
+    // Boot with the judge disabled (no env key).
+    let state = AppState::with_judge(
+        ProxyConfig::default(),
+        None,
+        drifterr_judge::Judge::Disabled,
+    );
+    let control = spawn(control_router(state)).await;
+    let client = client();
+
+    // Disabled by default.
+    let j: serde_json::Value = client
+        .get(format!("http://{control}/judge"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(j["enabled"], false);
+    assert_eq!(j["label"], "disabled");
+
+    // Provide a key + model → judge turns on, label is the model (key never echoed).
+    let set: serde_json::Value = client
+        .post(format!("http://{control}/judge"))
+        .json(&serde_json::json!({"apiKey": "sk-or-test", "model": "openai/gpt-4o-mini"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(set["enabled"], true);
+    assert_eq!(set["label"], "openai/gpt-4o-mini");
+    assert!(set.get("apiKey").is_none(), "key is never returned");
+
+    // /config reflects the live judge, not the boot value.
+    let c: serde_json::Value = client
+        .get(format!("http://{control}/config"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(c["judge"], "openai/gpt-4o-mini");
+
+    // Empty key disables it again.
+    let off: serde_json::Value = client
+        .post(format!("http://{control}/judge"))
+        .json(&serde_json::json!({"apiKey": ""}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(off["enabled"], false);
+}

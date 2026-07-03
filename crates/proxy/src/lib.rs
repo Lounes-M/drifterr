@@ -168,7 +168,9 @@ pub struct AppState {
     pub client: reqwest::Client,
     pub core: Arc<Mutex<AppCore>>,
     pub meta: Arc<ConfigMeta>,
-    pub judge: Arc<drifterr_judge::Judge>,
+    /// The judge backend. `RwLock` so the settings panel can swap it in at
+    /// runtime (enter an API key → judge on) without a restart.
+    pub judge: Arc<RwLock<drifterr_judge::Judge>>,
     /// Opt-in: inject the re-anchor preamble into outgoing requests when the
     /// session is drifting (RED). Off by default — it modifies user requests.
     /// Runtime-toggleable (the panel's Auto re-anchor switch) via an atomic, so
@@ -243,6 +245,7 @@ impl AppState {
             judge: judge.label(),
             auto_reanchor,
         };
+        let judge = Arc::new(RwLock::new(judge));
         let upstream = ActiveUpstream {
             openai_upstream: cfg.openai_upstream.clone(),
             anthropic_upstream: cfg.anthropic_upstream.clone(),
@@ -255,7 +258,7 @@ impl AppState {
             client,
             core: Arc::new(Mutex::new(AppCore::new(store))),
             meta: Arc::new(meta),
-            judge: Arc::new(judge),
+            judge,
             auto_reanchor: Arc::new(AtomicBool::new(auto_reanchor)),
             entitlement: Arc::new(RwLock::new(Entitlement::default())),
             upstream: Arc::new(RwLock::new(upstream)),
@@ -300,6 +303,7 @@ pub fn control_router(state: AppState) -> Router {
         )
         .route("/reanchor", get(reanchor_handler))
         .route("/intent", get(get_intent_handler).post(set_intent_handler))
+        .route("/judge", get(get_judge_handler).post(set_judge_handler))
         .route(
             "/auto-reanchor",
             get(get_auto_reanchor_handler).post(set_auto_reanchor_handler),
@@ -435,6 +439,10 @@ async fn config_handler(State(app): State<AppState>) -> Json<ConfigMeta> {
     }
     // Reflect the live auto-re-anchor toggle, not just the boot value.
     meta.auto_reanchor = app.auto_reanchor_on();
+    // Reflect the live (possibly runtime-configured) judge, not just the boot one.
+    if let Ok(j) = app.judge.read() {
+        meta.judge = j.label();
+    }
     Json(meta)
 }
 
@@ -644,6 +652,51 @@ async fn set_intent_handler(
         return Json(view).into_response();
     }
     (StatusCode::INTERNAL_SERVER_ERROR, "busy").into_response()
+}
+
+/// Judge status for the settings panel — never echoes the key back.
+#[derive(Serialize)]
+struct JudgeState {
+    /// True when a judge backend is active (fuzzy signals run).
+    enabled: bool,
+    /// Backend label: "disabled", "stub", or the model id.
+    label: String,
+}
+
+impl JudgeState {
+    fn of(app: &AppState) -> Self {
+        let (enabled, label) = app
+            .judge
+            .read()
+            .map(|j| (j.enabled(), j.label()))
+            .unwrap_or((false, "disabled".to_string()));
+        JudgeState { enabled, label }
+    }
+}
+
+async fn get_judge_handler(State(app): State<AppState>) -> Json<JudgeState> {
+    Json(JudgeState::of(&app))
+}
+
+/// Configure the judge at runtime from the user's own OpenRouter key + model.
+/// The key lives only in the proxy's memory (never persisted here, never echoed
+/// back). An empty key disables the judge. This is the "turn on the fuzzy
+/// signals in one field" path — no restart, no env var.
+#[derive(Deserialize)]
+struct SetJudge {
+    #[serde(default, rename = "apiKey")]
+    api_key: String,
+    #[serde(default)]
+    model: Option<String>,
+}
+
+async fn set_judge_handler(State(app): State<AppState>, Json(body): Json<SetJudge>) -> Response {
+    let new_judge = drifterr_judge::Judge::openrouter(&body.api_key, body.model.as_deref());
+    match app.judge.write() {
+        Ok(mut j) => *j = new_judge,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "busy").into_response(),
+    }
+    Json(JudgeState::of(&app)).into_response()
 }
 
 /// Auto-re-anchor toggle state for the panel switch.
@@ -911,7 +964,13 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
         // judge half of Signal 1 (fuzzy constraint adherence). All of it is
         // fail-safe and AMBER-only — a judge that cries wolf can only raise a
         // watch, never a wall.
-        if !app2.judge.enabled() || parsed_resp.assistant_text.is_empty() {
+        // Snapshot the judge (cheap clone) so the runtime-swappable RwLock isn't
+        // held across the awaits below.
+        let judge = match app2.judge.read() {
+            Ok(j) => j.clone(),
+            Err(_) => return,
+        };
+        if !judge.enabled() || parsed_resp.assistant_text.is_empty() {
             return;
         }
 
@@ -933,7 +992,7 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
             .find(|t| t.role == drifterr_engine::conversation::Role::User)
         {
             if drifterr_engine::infer::has_constraint_cue(&user_msg.content) {
-                let extracted = app2.judge.extract_constraints(&user_msg.content).await;
+                let extracted = judge.extract_constraints(&user_msg.content).await;
                 if !extracted.is_empty() {
                     if let Ok(mut core) = app2.core.lock() {
                         core.add_judge_constraints(&session_id, extracted);
@@ -952,21 +1011,14 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
         };
         let embedder = drifterr_embeddings::BagEmbedder::default();
 
-        let mut extra = drifterr_judge::constraint::constraint_adherence(
-            &last,
-            &judge_constraints,
-            &app2.judge,
-        )
-        .await;
+        let mut extra =
+            drifterr_judge::constraint::constraint_adherence(&last, &judge_constraints, &judge)
+                .await;
 
         if !decisions.is_empty() {
-            if let Some(event) = drifterr_judge::decision::decision_coherence(
-                &last,
-                &decisions,
-                &embedder,
-                &app2.judge,
-            )
-            .await
+            if let Some(event) =
+                drifterr_judge::decision::decision_coherence(&last, &decisions, &embedder, &judge)
+                    .await
             {
                 extra.push(event);
             }
