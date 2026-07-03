@@ -83,25 +83,29 @@ renders correctly (state color, named triggering signal, offending span,
 per-signal list, offline banner). In a sandbox that pins a specific browser,
 set `CHROMIUM_PATH` to its executable.
 
-## Semantic model (ONNX — optional, off by default)
+## Semantic model (ONNX)
 
 The default embedder is local + lexical (zero-network, zero-cost). For **true
-semantic** drift detection ("car" ↔ "automobile"), the app can bundle a small
-ONNX sentence-transformer. It's opt-in so the default release build pulls no
-native runtime and ships nothing extra.
+semantic** drift detection ("car" ↔ "automobile"), the app bundles a small ONNX
+sentence-transformer.
 
-Two commands — the committed default config is never touched (the model is
-injected as a resource only for this build via `--config`), so the normal
-release stays untouched:
+**Shipped releases include it automatically** — the release workflow downloads
+the model on each runner and injects it via `semantic.conf.json`, so you never
+touch a terminal to get semantic detection in the published app (see
+[`RELEASING.md`](../../RELEASING.md), and un-check the toggle for a plain lexical
+build). The commands below are only for building a **semantic app locally** (dev).
+The committed default config is never touched — the model is injected as a
+resource only for this build via `--config`, so a plain `cargo tauri build` still
+produces the lexical, zero-runtime build:
 
 ```bash
 # 1. Fetch the model → src-tauri/models/embed/{model.onnx, tokenizer.json}
 apps/desktop/scripts/fetch-model.sh            # bge-small-en-v1.5 (gitignored)
 
-# 2. Build with the feature + bundle the model as a resource for THIS build:
+# 2. Build with the feature + bundle the model as a resource for THIS build.
+#    (The workflow uses --config semantic.conf.json; inline JSON works too.)
 cd apps/desktop/src-tauri
-cargo tauri build --features semantic \
-  --config '{"bundle":{"resources":["models/embed/*"]}}'
+cargo tauri build --features semantic --config semantic.conf.json
 ```
 
 At launch the app auto-detects `models/embed/model.onnx` in its resource dir and

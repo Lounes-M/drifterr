@@ -69,7 +69,14 @@ git push origin v0.1.0
 ```
 
 This runs the release workflow across macOS (Apple silicon + Intel), Linux and
-Windows, and creates a **draft** release with:
+Windows. **The semantic (ONNX) model is bundled automatically** — each runner
+downloads it (gitignored, never committed) and the build injects it as a resource
+via `semantic.conf.json`, so shipped apps do real semantic drift detection out of
+the box (+~130 MB). To cut a plain lexical build instead, run the workflow
+manually (**Actions → Release → Run workflow**) and uncheck **Bundle the ONNX
+semantic model** — no workflow edit needed.
+
+It creates a **draft** release with:
 
 - `Drifterr_<v>_universal.dmg` (macOS — one universal build, Apple silicon + Intel)
 - `Drifterr_<v>_x64-setup.exe` (Windows, NSIS, per-user install — no admin)
