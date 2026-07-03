@@ -105,6 +105,33 @@
         </div>
       </section>
 
+      <section id="intent" class="intent" hidden>
+        <div class="intent-head">
+          <span class="section-title">Your intent</span>
+          <button id="intent-edit" class="mini-btn" type="button">Edit</button>
+        </div>
+        <div id="intent-view" class="intent-view">
+          <p id="intent-goal" class="intent-goal">—</p>
+          <ul id="intent-constraints" class="intent-constraints"></ul>
+          <p id="intent-empty" class="muted" hidden>No intent set yet — tell Drifterr what you're aiming for so it can catch drift precisely.</p>
+        </div>
+        <div id="intent-editor" class="intent-editor" hidden>
+          <label class="intent-field">
+            <span>Goal</span>
+            <textarea id="intent-goal-input" rows="2" placeholder="What are you trying to accomplish?"></textarea>
+          </label>
+          <label class="intent-field">
+            <span>Constraints — one per line</span>
+            <textarea id="intent-constraints-input" rows="3" placeholder="TypeScript only, no JS&#10;Keep the tone formal"></textarea>
+          </label>
+          <p id="intent-pending" class="muted" hidden>No live session yet — this will apply to your next one.</p>
+          <div class="intent-actions">
+            <button id="intent-save" class="reanchor-btn" type="button">Save intent</button>
+            <button id="intent-cancel" class="mini-btn" type="button">Cancel</button>
+          </div>
+        </div>
+      </section>
+
       <section id="upgrade-nudge" class="upgrade-nudge" hidden>
         <span class="trigger-tag">Free plan</span>
         <p class="muted">Unlock unlimited sessions, the session drift map and auto re-anchor.</p>
@@ -211,6 +238,20 @@
               <div class="onb-copy" data-copy="DRIFTERR_WATCH_DIR=~/.claude/projects">
                 <code>DRIFTERR_WATCH_DIR=~/.claude/projects</code><span class="onb-copy-btn">Copy</span>
               </div>
+            </section>
+
+            <section class="onb-slide">
+              <span class="onb-kicker">Step 3</span>
+              <h1>State your intent</h1>
+              <p>Drift is measured against what <i>you</i> set. Name your goal and any hard rules — Drifterr flags the moment a reply strays. You can edit this anytime.</p>
+              <label class="intent-field">
+                <span>Goal</span>
+                <textarea id="onb-goal-input" rows="2" placeholder="e.g. Ship the billing API in strict TypeScript"></textarea>
+              </label>
+              <label class="intent-field">
+                <span>Constraints — one per line (optional)</span>
+                <textarea id="onb-constraints-input" rows="3" placeholder="TypeScript only, no JS&#10;No comments in code"></textarea>
+              </label>
             </section>
 
             <section class="onb-slide">

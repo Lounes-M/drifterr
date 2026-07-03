@@ -16,6 +16,61 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+/// A constraint as the intent editor sees it — the same data the engine holds,
+/// flattened for the UI (no `Rule` internals).
+#[derive(Debug, Clone, Serialize)]
+pub struct ConstraintView {
+    pub id: String,
+    pub text: String,
+    /// "tech" | "format" | "tone" | "other".
+    pub kind: String,
+    /// "deterministic" (can drive RED) | "judge" (fuzzy, AMBER-only).
+    pub checkable: String,
+    pub active: bool,
+}
+
+/// The user-facing intent for a session: the stated goal plus its constraints.
+#[derive(Debug, Clone, Serialize)]
+pub struct IntentView {
+    pub goal: String,
+    pub constraints: Vec<ConstraintView>,
+    /// True when this intent isn't attached to a live session yet — it will seed
+    /// the next one. Lets the UI say "will apply to your next session".
+    pub pending: bool,
+}
+
+impl IntentView {
+    fn from_baseline(b: &Baseline) -> Self {
+        use drifterr_engine::baseline::{Checkable, ConstraintType};
+        let kind = |k: ConstraintType| match k {
+            ConstraintType::Tech => "tech",
+            ConstraintType::Format => "format",
+            ConstraintType::Tone => "tone",
+            ConstraintType::Other => "other",
+        };
+        IntentView {
+            goal: b.goal.trim().to_string(),
+            constraints: b
+                .constraints
+                .iter()
+                .filter(|c| c.active)
+                .map(|c| ConstraintView {
+                    id: c.id.clone(),
+                    text: c.text.clone(),
+                    kind: kind(c.kind).into(),
+                    checkable: match c.checkable {
+                        Checkable::Deterministic => "deterministic",
+                        Checkable::Judge => "judge",
+                    }
+                    .into(),
+                    active: c.active,
+                })
+                .collect(),
+            pending: false,
+        }
+    }
+}
+
 /// One detail line per signal, named — never a fused score.
 #[derive(Debug, Clone, Serialize)]
 pub struct SignalView {
@@ -74,6 +129,11 @@ pub struct AppCore {
     /// Order of first appearance so "current" is the most recently updated.
     last_updated: Option<String>,
     store: Option<Mutex<Store>>,
+    /// A user-declared intent stated before any session exists yet (onboarding /
+    /// the intent editor with no live session). Applied to — and cleared by — the
+    /// next new session, so it seeds exactly one session, never leaks a goal
+    /// across tasks.
+    pending_intent: Option<(String, Vec<String>)>,
 }
 
 impl AppCore {
@@ -82,7 +142,72 @@ impl AppCore {
             sessions: HashMap::new(),
             last_updated: None,
             store: store.map(Mutex::new),
+            pending_intent: None,
         }
+    }
+
+    /// Apply a user-declared intent (explicit goal + constraint phrases) to a
+    /// session's baseline. Resolves the target as: `session` if given, else the
+    /// most recently updated session. If no session exists yet, the intent is
+    /// stashed and seeds the next new session. Persists best-effort. Returns the
+    /// resolved intent view so the caller can echo it back to the UI.
+    pub fn set_intent(
+        &mut self,
+        session: Option<&str>,
+        goal: &str,
+        constraints: &[String],
+    ) -> IntentView {
+        let target = session
+            .map(str::to_string)
+            .or_else(|| self.last_updated.clone());
+
+        match target.and_then(|id| self.sessions.get_mut(&id).map(|s| (id, s))) {
+            Some((id, session)) => {
+                session.baseline.declare(goal, constraints);
+                if let Some(store) = &self.store {
+                    if let Ok(mut s) = store.lock() {
+                        let _ = s.save_baseline(&id, &session.baseline);
+                    }
+                }
+                IntentView::from_baseline(&session.baseline)
+            }
+            None => {
+                // No live session — stash for the next one to inherit.
+                self.pending_intent = Some((goal.to_string(), constraints.to_vec()));
+                IntentView {
+                    goal: goal.trim().to_string(),
+                    constraints: Vec::new(),
+                    pending: true,
+                }
+            }
+        }
+    }
+
+    /// The current declared/inferred intent for a session (or the current one, or
+    /// a pending not-yet-applied intent). `None` only when there is nothing at all
+    /// to show.
+    pub fn intent_of(&self, session: Option<&str>) -> Option<IntentView> {
+        let target = session
+            .map(str::to_string)
+            .or_else(|| self.last_updated.clone());
+        if let Some(s) = target.and_then(|id| self.sessions.get(&id)) {
+            return Some(IntentView::from_baseline(&s.baseline));
+        }
+        self.pending_intent.as_ref().map(|(goal, cs)| IntentView {
+            goal: goal.trim().to_string(),
+            constraints: cs
+                .iter()
+                .filter(|c| !c.trim().is_empty())
+                .map(|c| ConstraintView {
+                    id: String::new(),
+                    text: c.trim().to_string(),
+                    kind: "other".into(),
+                    checkable: "judge".into(),
+                    active: true,
+                })
+                .collect(),
+            pending: true,
+        })
     }
 
     /// Snapshot of the most recently updated session.
@@ -267,16 +392,26 @@ impl AppCore {
 
         // On a brand-new session, seed it with the user's promoted standing
         // orders (the moat): rules they've accepted reappear automatically.
-        let injected = if self.sessions.contains_key(&session_id) {
-            Vec::new()
-        } else {
+        let is_new = !self.sessions.contains_key(&session_id);
+        let injected = if is_new {
             self.promoted_constraints()
+        } else {
+            Vec::new()
+        };
+        // A user-declared intent stated before this session existed seeds it once.
+        let seed_intent = if is_new {
+            self.pending_intent.take()
+        } else {
+            None
         };
 
         let entry = self.sessions.entry(session_id.clone());
         let session = entry.or_insert_with(|| {
             let mut baseline = Baseline::extract(&conv.turns);
             baseline.constraints.extend(injected);
+            if let Some((goal, constraints)) = &seed_intent {
+                baseline.declare(goal, constraints);
+            }
             SessionState {
                 baseline,
                 monitor: SessionMonitor::default(),
@@ -647,6 +782,70 @@ mod tests {
         assert!(core
             .add_judge_constraints("nope", vec!["x".into()])
             .is_empty());
+    }
+
+    #[test]
+    fn declared_intent_applies_to_current_session() {
+        let mut core = AppCore::new(None);
+        let r = req(br#"{"model":"gpt-4o","messages":[{"role":"user","content":"help me"}]}"#);
+        let id = session_id_for(&r);
+        let resp = ParsedResponse {
+            assistant_text: "sure".into(),
+            input_tokens: Some(10),
+            output_tokens: Some(5),
+        };
+        core.record_turn(&id, &r, &resp);
+
+        let view = core.set_intent(
+            None,
+            "Ship the billing API",
+            &["TypeScript only, no JS".into(), "Keep it formal".into()],
+        );
+        assert!(!view.pending);
+        assert_eq!(view.goal, "Ship the billing API");
+        // One deterministic (inferred rule) + one judge (fuzzy).
+        assert_eq!(
+            view.constraints
+                .iter()
+                .filter(|c| c.checkable == "deterministic")
+                .count(),
+            1
+        );
+        assert_eq!(
+            view.constraints
+                .iter()
+                .filter(|c| c.checkable == "judge")
+                .count(),
+            1
+        );
+        // Read-back matches.
+        let got = core.intent_of(None).unwrap();
+        assert_eq!(got.goal, "Ship the billing API");
+    }
+
+    #[test]
+    fn pending_intent_seeds_the_next_session() {
+        let mut core = AppCore::new(None);
+        // Declared with no live session → pending.
+        let view = core.set_intent(None, "Refactor auth", &["no JS".into()]);
+        assert!(view.pending);
+        assert!(core.current().is_none());
+
+        // First turn creates the session, inheriting the declared intent.
+        let r = req(br#"{"model":"gpt-4o","messages":[{"role":"user","content":"start"}]}"#);
+        let id = session_id_for(&r);
+        let resp = ParsedResponse {
+            assistant_text: "creating auth.js".into(),
+            input_tokens: Some(10),
+            output_tokens: Some(5),
+        };
+        // The declared "no JS" constraint should now be enforced → RED.
+        let state = core.record_turn(&id, &r, &resp);
+        assert_eq!(state, State::Red);
+        let got = core.intent_of(None).unwrap();
+        assert_eq!(got.goal, "Refactor auth");
+        // Pending was consumed (a second new session doesn't inherit it).
+        assert!(core.pending_intent.is_none());
     }
 
     #[test]

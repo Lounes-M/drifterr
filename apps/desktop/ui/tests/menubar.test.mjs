@@ -271,8 +271,9 @@ async function main() {
     await op.waitForFunction(() => !document.getElementById("onboarding").hidden);
     check(await op.locator("#onboarding").isVisible(), "first run shows the onboarding tour");
     check((await op.locator("#onb-provider-select .provider-pill").count()) > 0, "tour embeds the provider selector");
-    // Walk to the end: Next ×3 → Get started.
-    for (let i = 0; i < 3; i++) await op.locator("#onb-next").click();
+    // Walk to the end: Next ×4 → Get started (5 steps: welcome, provider, tool,
+    // intent, ready).
+    for (let i = 0; i < 4; i++) await op.locator("#onb-next").click();
     check((await op.locator("#onb-next").textContent()) === "Get started", "last step shows Get started");
     await op.locator("#onb-next").click();
     await op.waitForFunction(() => document.getElementById("onboarding").hidden);
@@ -282,6 +283,64 @@ async function main() {
     await op.waitForFunction(() => typeof document.getElementById("onboarding") !== "undefined");
     check(await op.locator("#onboarding").isHidden(), "tour does not reappear after completion");
     await octx.close();
+  }
+
+  console.log("INTENT (declare / edit):");
+  {
+    const ictx = await browser.newContext();
+    const ip = await ictx.newPage();
+    await ip.addInitScript(() => {
+      window.DRIFTERR_SUPABASE_URL = "";
+      window.DRIFTERR_SUPABASE_ANON_KEY = "";
+      try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) {}
+    });
+    await ip.route("**/status*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(GREEN) }));
+    let posted = null;
+    await ip.route("**/intent*", (route) => {
+      const req = route.request();
+      if (req.method() === "POST") {
+        posted = JSON.parse(req.postData() || "{}");
+        route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({
+            goal: posted.goal,
+            constraints: (posted.constraints || []).map((t, i) => ({
+              id: "c" + (i + 1), text: t, kind: "other",
+              checkable: /no js|typescript/i.test(t) ? "deterministic" : "judge", active: true,
+            })),
+            pending: false,
+          }),
+        });
+      } else {
+        route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({
+            goal: "Ship the billing API",
+            constraints: [
+              { id: "c1", text: "TypeScript only, no JS", kind: "tech", checkable: "deterministic", active: true },
+              { id: "c2", text: "Keep the tone formal", kind: "tone", checkable: "judge", active: true },
+            ],
+            pending: false,
+          }),
+        });
+      }
+    });
+    await ip.goto(url);
+    await ip.waitForFunction(() => document.getElementById("intent-goal")?.textContent?.includes("billing"));
+    check((await ip.locator("#intent-goal").textContent()).includes("Ship the billing API"), "intent card shows the goal");
+    check((await ip.locator(".intent-badge.hard").count()) === 1, "deterministic constraint shows a Hard badge");
+    check((await ip.locator(".intent-badge.soft").count()) === 1, "judge constraint shows a Soft badge");
+
+    // Edit → change goal → save → POST body carries the new intent.
+    await ip.locator("#intent-edit").click();
+    check(await ip.locator("#intent-editor").isVisible(), "Edit opens the editor prefilled");
+    await ip.locator("#intent-goal-input").fill("Refactor auth, no JS files");
+    await ip.locator("#intent-constraints-input").fill("no JS\nbe concise");
+    await ip.locator("#intent-save").click();
+    await ip.waitForFunction(() => document.getElementById("intent-editor").hidden);
+    check(posted && posted.goal === "Refactor auth, no JS files", "save POSTs the edited goal");
+    check(posted && posted.constraints.length === 2, "save POSTs the constraint lines");
+    await ictx.close();
   }
 
   await browser.close();

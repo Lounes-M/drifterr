@@ -343,6 +343,141 @@ export async function loadReanchor(doc, fetchImpl) {
   }
 }
 
+// --- intent (goal + constraints the user declares) -------------------------
+//
+// Drift is measured against the user's *stated* intent. This card shows the
+// current goal + constraints and lets the user edit them. GET/POST /intent on
+// the control API. Kept pure-ish so tests can drive it with a fake fetch.
+
+/// The last intent payload we rendered, so "Edit" can prefill the form and we
+/// know whether a save will attach to a live session or seed the next one.
+let currentIntent = null;
+
+/// Badge text for a constraint's enforcement strength.
+function checkableBadge(c) {
+  return c && c.checkable === "deterministic" ? "Hard" : "Soft";
+}
+
+/// Render the intent payload (or null → empty state) into the view. Pure w.r.t.
+/// the network. Always reveals the card so the user can set intent even with no
+/// live session.
+export function renderIntent(doc, data) {
+  currentIntent = data;
+  const section = doc.getElementById("intent");
+  if (section) section.hidden = false;
+
+  const goalEl = doc.getElementById("intent-goal");
+  const list = doc.getElementById("intent-constraints");
+  const empty = doc.getElementById("intent-empty");
+  const hasGoal = !!(data && data.goal && data.goal.trim());
+  const cs = (data && Array.isArray(data.constraints) ? data.constraints : []).filter(
+    (c) => c && c.text
+  );
+  const has = hasGoal || cs.length > 0;
+
+  if (empty) empty.hidden = has;
+  if (goalEl) {
+    goalEl.hidden = !has;
+    goalEl.textContent = hasGoal ? data.goal.trim() : "(no goal set yet)";
+    goalEl.classList.toggle("muted", !hasGoal);
+  }
+  if (list) {
+    list.hidden = !has;
+    list.innerHTML = "";
+    for (const c of cs) {
+      const li = doc.createElement("li");
+      li.className = "intent-constraint";
+      const badge = doc.createElement("span");
+      badge.className = "intent-badge " + (c.checkable === "deterministic" ? "hard" : "soft");
+      badge.textContent = checkableBadge(c);
+      const text = doc.createElement("span");
+      text.className = "intent-constraint-text";
+      text.textContent = c.text;
+      li.appendChild(badge);
+      li.appendChild(text);
+      list.appendChild(li);
+    }
+  }
+}
+
+export async function loadIntent(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/intent", { cache: "no-store" });
+    if (res.status === 404) {
+      renderIntent(doc, null); // no session and nothing pending yet
+      return null;
+    }
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    renderIntent(doc, data);
+    return data;
+  } catch (_e) {
+    // Proxy unreachable — leave whatever's shown; the status poll surfaces the error.
+    return null;
+  }
+}
+
+/// Open the editor, prefilled from the current intent.
+function openIntentEditor(doc) {
+  const goalInput = doc.getElementById("intent-goal-input");
+  const csInput = doc.getElementById("intent-constraints-input");
+  if (goalInput) goalInput.value = currentIntent && currentIntent.goal ? currentIntent.goal : "";
+  if (csInput) {
+    const cs = currentIntent && Array.isArray(currentIntent.constraints) ? currentIntent.constraints : [];
+    csInput.value = cs.map((c) => c.text).join("\n");
+  }
+  const pending = doc.getElementById("intent-pending");
+  if (pending) pending.hidden = !(currentIntent && currentIntent.pending) && currentIntent !== null;
+  doc.getElementById("intent-view").hidden = true;
+  doc.getElementById("intent-editor").hidden = false;
+}
+
+function closeIntentEditor(doc) {
+  doc.getElementById("intent-editor").hidden = true;
+  doc.getElementById("intent-view").hidden = false;
+}
+
+export async function saveIntent(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  const goal = (doc.getElementById("intent-goal-input")?.value || "").trim();
+  const constraints = (doc.getElementById("intent-constraints-input")?.value || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const btn = doc.getElementById("intent-save");
+  if (btn) btn.disabled = true;
+  try {
+    const res = await f(apiBase() + "/intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal, constraints }),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderIntent(doc, await res.json());
+    closeIntentEditor(doc);
+  } catch (_e) {
+    // Keep the editor open so the user doesn't lose their input.
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function setupIntent(doc) {
+  const edit = doc.getElementById("intent-edit");
+  if (edit) edit.addEventListener("click", () => openIntentEditor(doc));
+  const cancel = doc.getElementById("intent-cancel");
+  if (cancel) cancel.addEventListener("click", () => closeIntentEditor(doc));
+  const save = doc.getElementById("intent-save");
+  if (save) save.addEventListener("click", () => saveIntent(doc));
+}
+
+/// Is the intent editor currently open? (So the poll loop doesn't clobber edits.)
+function intentEditorOpen(doc) {
+  const ed = doc.getElementById("intent-editor");
+  return !!(ed && !ed.hidden);
+}
+
 function setupUi(doc) {
   const gear = doc.getElementById("gear");
   if (gear) {
@@ -351,6 +486,8 @@ function setupUi(doc) {
       if (showing) { await loadConfig(doc); await loadProviders(doc); }
     });
   }
+
+  setupIntent(doc);
 
   const reanchorBtn = doc.getElementById("reanchor-btn");
   if (reanchorBtn) {
@@ -531,7 +668,7 @@ export async function initAccounts(doc) {
 // A stepped, animated tour shown once on first launch: welcome → pick provider
 // → connect your tool → ready. Dismissal is remembered in localStorage.
 
-const ONB_STEPS = 4;
+const ONB_STEPS = 5;
 let onbStep = 0;
 
 function updateOnboarding(doc) {
@@ -554,6 +691,18 @@ function updateOnboarding(doc) {
 
 export function finishOnboarding(doc) {
   try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) { /* private mode */ }
+  // Persist the intent the user declared during onboarding (seeds their next
+  // session). Best-effort — a proxy hiccup never blocks finishing the tour.
+  const goal = (doc.getElementById("onb-goal-input")?.value || "").trim();
+  const constraints = (doc.getElementById("onb-constraints-input")?.value || "")
+    .split("\n").map((s) => s.trim()).filter(Boolean);
+  if (goal || constraints.length) {
+    fetch(apiBase() + "/intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal, constraints }),
+    }).then(() => loadIntent(doc)).catch(() => { /* proxy not up yet */ });
+  }
   const o = doc.getElementById("onboarding");
   if (o) o.hidden = true;
 }
@@ -690,6 +839,9 @@ export async function poll(doc, fetchImpl) {
     const res = await f(apiBase() + "/status", { cache: "no-store" });
     if (!res.ok) throw new Error("HTTP " + res.status);
     render(doc, await res.json());
+    // Keep the intent card fresh (goal/constraints can change mid-session), but
+    // never overwrite the form while the user is editing it.
+    if (!intentEditorOpen(doc)) await loadIntent(doc, f);
   } catch (_e) {
     renderError(doc, "Drifterr proxy not reachable (is it running on " + apiBase() + "?)");
   }

@@ -290,6 +290,7 @@ pub fn control_router(state: AppState) -> Router {
             get(entitlement_handler).post(set_entitlement_handler),
         )
         .route("/reanchor", get(reanchor_handler))
+        .route("/intent", get(get_intent_handler).post(set_intent_handler))
         .route("/standing-orders", get(standing_orders_handler))
         .route("/standing-orders/promote", post(promote_handler))
         .route("/ingest", post(ingest_handler))
@@ -547,6 +548,49 @@ async fn reanchor_handler(State(app): State<AppState>, Query(q): Query<ReanchorQ
         Some(r) => Json(r).into_response(),
         None => (StatusCode::NOT_FOUND, "no active session to re-anchor").into_response(),
     }
+}
+
+/// The user-declared intent for a session (`POST /intent`). An empty `goal`
+/// leaves the existing goal untouched; `constraints` are full phrases the user
+/// typed (deterministic when a rule can be inferred, fuzzy/judge otherwise).
+#[derive(Deserialize)]
+struct SetIntentBody {
+    #[serde(default)]
+    session: Option<String>,
+    #[serde(default)]
+    goal: String,
+    #[serde(default)]
+    constraints: Vec<String>,
+}
+
+/// Read the current intent (goal + constraints) for a session — powers the
+/// intent editor and the onboarding "your intent" step.
+async fn get_intent_handler(
+    State(app): State<AppState>,
+    Query(q): Query<ReanchorQuery>,
+) -> Response {
+    match app
+        .core
+        .lock()
+        .ok()
+        .and_then(|core| core.intent_of(q.session.as_deref()))
+    {
+        Some(view) => Json(view).into_response(),
+        None => (StatusCode::NOT_FOUND, "no session yet").into_response(),
+    }
+}
+
+/// Declare/replace the intent for a session (or seed the next one when none is
+/// live). Returns the resolved intent so the UI can render exactly what stuck.
+async fn set_intent_handler(
+    State(app): State<AppState>,
+    Json(body): Json<SetIntentBody>,
+) -> Response {
+    if let Ok(mut core) = app.core.lock() {
+        let view = core.set_intent(body.session.as_deref(), &body.goal, &body.constraints);
+        return Json(view).into_response();
+    }
+    (StatusCode::INTERNAL_SERVER_ERROR, "busy").into_response()
 }
 
 /// Add permissive CORS headers and short-circuit preflight requests.
