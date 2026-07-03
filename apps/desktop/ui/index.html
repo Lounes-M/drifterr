@@ -31,6 +31,7 @@
         <span class="mark" aria-hidden="true"><span class="fill"></span><span class="ring"></span></span>
         <b class="wordmark">drifterr</b>
         <span id="plan-pill" class="plan-pill" hidden>Free</span>
+        <button id="history-btn" class="gear" type="button" title="Session history" aria-label="Session history">🕘</button>
         <button id="gear" class="gear" type="button" title="Settings" aria-label="Settings">⚙</button>
       </header>
 
@@ -139,6 +140,13 @@
             <button id="intent-cancel" class="mini-btn" type="button">Cancel</button>
           </div>
         </div>
+      </section>
+
+      <section id="history" class="settings history-view" hidden>
+        <h2 class="section-title">Session history</h2>
+        <p class="muted">Your past sessions — stored locally, never uploaded.</p>
+        <ul id="history-list" class="history-list"></ul>
+        <p id="history-empty" class="muted" hidden>No sessions recorded yet. Start chatting through the proxy and they'll appear here.</p>
       </section>
 
       <section id="upgrade-nudge" class="upgrade-nudge" hidden>

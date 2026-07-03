@@ -362,6 +362,35 @@ async function main() {
     await ictx.close();
   }
 
+  console.log("HISTORY view:");
+  {
+    const hctx = await browser.newContext();
+    const hp = await hctx.newPage();
+    await hp.addInitScript(() => {
+      window.DRIFTERR_SUPABASE_URL = "";
+      window.DRIFTERR_SUPABASE_ANON_KEY = "";
+      try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) {}
+    });
+    await hp.route("**/status*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(GREEN) }));
+    await hp.route("**/history*", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify([
+          { sessionId: "s2", model: "gpt-4o", goal: "Ship billing API", state: "red", turns: 12, lastActivity: Date.now() - 3600000 },
+          { sessionId: "s1", model: "claude-opus-4-x", goal: "", state: "green", turns: 3, lastActivity: Date.now() - 86400000 },
+        ]),
+      })
+    );
+    await hp.goto(url);
+    await hp.locator("#history-btn").click();
+    await hp.waitForFunction(() => document.querySelectorAll("#history-list .history-row").length === 2);
+    check((await hp.locator("#history-list .history-row").count()) === 2, "history lists past sessions");
+    check((await hp.locator(".history-goal").first().textContent()) === "Ship billing API", "shows the session goal");
+    check((await hp.locator(".history-goal.untitled").count()) === 1, "goalless session shows as Untitled");
+    check((await hp.locator(".history-row .dot.red").count()) === 1, "state dot reflects the session state");
+    await hctx.close();
+  }
+
   await browser.close();
   server.close();
 

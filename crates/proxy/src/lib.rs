@@ -304,6 +304,7 @@ pub fn control_router(state: AppState) -> Router {
             "/auto-reanchor",
             get(get_auto_reanchor_handler).post(set_auto_reanchor_handler),
         )
+        .route("/history", get(history_handler))
         .route("/standing-orders", get(standing_orders_handler))
         .route("/standing-orders/promote", post(promote_handler))
         .route("/ingest", post(ingest_handler))
@@ -505,6 +506,43 @@ struct StandingOrderView {
     promoted: bool,
     /// Recurring enough to propose, not yet promoted.
     candidate: bool,
+}
+
+/// One past session for the history view.
+#[derive(Serialize)]
+struct HistoryItem {
+    #[serde(rename = "sessionId")]
+    session_id: String,
+    model: String,
+    goal: String,
+    /// "green" | "amber" | "red" | "" (unknown).
+    state: String,
+    turns: i64,
+    #[serde(rename = "lastActivity")]
+    last_activity: i64,
+}
+
+/// Recent sessions (newest first) for the history/timeline view. Reads the local
+/// store only — nothing leaves the machine.
+async fn history_handler(State(app): State<AppState>) -> Json<Vec<HistoryItem>> {
+    let sessions = app
+        .core
+        .lock()
+        .map(|c| c.session_history(50))
+        .unwrap_or_default();
+    Json(
+        sessions
+            .into_iter()
+            .map(|s| HistoryItem {
+                session_id: s.session_id,
+                model: s.model,
+                goal: s.goal.unwrap_or_default(),
+                state: s.status.unwrap_or_default(),
+                turns: s.turns,
+                last_activity: s.last_ts,
+            })
+            .collect(),
+    )
 }
 
 async fn standing_orders_handler(State(app): State<AppState>) -> Json<Vec<StandingOrderView>> {

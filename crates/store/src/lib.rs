@@ -310,6 +310,32 @@ impl Store {
         Ok(())
     }
 
+    /// A compact summary of every persisted session, newest activity first, for
+    /// the history/timeline view. Local-only, like everything else here.
+    pub fn list_sessions(&self, limit: usize) -> Result<Vec<SessionSummary>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT s.id, s.model, s.goal, s.status,
+                    COUNT(t.id) AS n, COALESCE(MAX(t.ts), 0) AS last_ts
+             FROM sessions s LEFT JOIN turns t ON t.session_id = s.id
+             GROUP BY s.id
+             ORDER BY last_ts DESC
+             LIMIT ?1",
+        )?;
+        let rows = stmt
+            .query_map(params![limit as i64], |r| {
+                Ok(SessionSummary {
+                    session_id: r.get(0)?,
+                    model: r.get(1)?,
+                    goal: r.get(2)?,
+                    status: r.get(3)?,
+                    turns: r.get::<_, i64>(4)?,
+                    last_ts: r.get::<_, i64>(5)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
     // --- standing orders (the moat) ---------------------------------------
 
     /// Record one occurrence of a recurring constraint/correction. Deduplicates
@@ -411,6 +437,21 @@ impl Store {
 pub const SO_PROMOTE_THRESHOLD: i64 = 3;
 /// Embedding cosine at/above which two corrections are "the same" standing order.
 pub const SO_DEDUP_SIM: f32 = 0.55;
+
+/// A compact, per-session summary for the history/timeline view.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionSummary {
+    pub session_id: String,
+    pub model: String,
+    /// The session's goal (declared or extracted), if any.
+    pub goal: Option<String>,
+    /// Last committed state ("green" | "amber" | "red"), if recorded.
+    pub status: Option<String>,
+    /// Number of turns recorded.
+    pub turns: i64,
+    /// Timestamp (ms) of the most recent turn, for ordering + display.
+    pub last_ts: i64,
+}
 
 /// A recurring correction tracked across sessions — the seed of the personal
 /// "standing orders" layer (the moat).
@@ -515,6 +556,30 @@ mod tests {
         store.save_conversation(&conv).unwrap();
         let back = store.load_conversation("sess-1").unwrap();
         assert_eq!(conv, back);
+    }
+
+    #[test]
+    fn list_sessions_summarizes_newest_first() {
+        let mut store = Store::open_in_memory().unwrap();
+        store.save_conversation(&sample()).unwrap(); // sess-1, last turn ts=200
+        store.set_status("sess-1", State::Red).unwrap();
+
+        // A second, more recent session.
+        let mut later = sample();
+        later.session_id = "sess-2".into();
+        later.turns[0].timestamp = 5000;
+        later.turns[1].timestamp = 6000;
+        store.save_conversation(&later).unwrap();
+
+        let list = store.list_sessions(10).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].session_id, "sess-2", "newest activity first");
+        assert_eq!(list[0].turns, 2);
+        assert_eq!(list[0].last_ts, 6000);
+        assert_eq!(list[1].session_id, "sess-1");
+        assert_eq!(list[1].status.as_deref(), Some("red"));
+        // The limit is honored.
+        assert_eq!(store.list_sessions(1).unwrap().len(), 1);
     }
 
     #[test]

@@ -240,6 +240,81 @@ export function toggleSettings(doc, show) {
   return willShow;
 }
 
+// --- session history -------------------------------------------------------
+
+/// Show/hide the history view (mutually exclusive with settings). Like
+/// `toggleSettings`, it REPLACES the live view via a body class.
+export function toggleHistory(doc, show) {
+  const h = doc.getElementById("history");
+  if (!h) return false;
+  const willShow = show === undefined ? h.hidden : show;
+  h.hidden = !willShow;
+  const body = doc.getElementById("app-body");
+  if (body) body.classList.toggle("history-open", willShow);
+  if (willShow) toggleSettings(doc, false); // never stack the two views
+  return willShow;
+}
+
+/// Compact "time ago" for a ms timestamp (0/absent → "").
+export function timeAgo(ms, nowMs) {
+  const t = Number(ms) || 0;
+  if (!t) return "";
+  const now = nowMs || Date.now();
+  const s = Math.max(0, Math.round((now - t) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return m + "m ago";
+  const h = Math.round(m / 60);
+  if (h < 24) return h + "h ago";
+  const d = Math.round(h / 24);
+  return d + "d ago";
+}
+
+/// Render the history list from `GET /history` (array of items).
+export function renderHistory(doc, items, nowMs) {
+  const list = doc.getElementById("history-list");
+  const empty = doc.getElementById("history-empty");
+  const rows = Array.isArray(items) ? items : [];
+  if (empty) empty.hidden = rows.length > 0;
+  if (!list) return;
+  list.innerHTML = "";
+  for (const it of rows) {
+    const li = doc.createElement("li");
+    li.className = "history-row";
+    const dot = doc.createElement("span");
+    dot.className = "dot " + (stateInfo(it.state).cls);
+    const body = doc.createElement("div");
+    body.className = "history-body";
+    const goal = doc.createElement("span");
+    const hasGoal = it.goal && it.goal.trim();
+    goal.className = "history-goal" + (hasGoal ? "" : " untitled");
+    goal.textContent = hasGoal ? it.goal.trim() : "Untitled session";
+    const meta = doc.createElement("span");
+    meta.className = "history-meta";
+    const bits = [it.model || "?"];
+    if (it.turns) bits.push(it.turns + " turn" + (it.turns > 1 ? "s" : ""));
+    const ago = timeAgo(it.lastActivity, nowMs);
+    if (ago) bits.push(ago);
+    meta.textContent = bits.join(" · ");
+    body.appendChild(goal);
+    body.appendChild(meta);
+    li.appendChild(dot);
+    li.appendChild(body);
+    list.appendChild(li);
+  }
+}
+
+export async function loadHistory(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/history", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderHistory(doc, await res.json());
+  } catch (_e) {
+    renderHistory(doc, []);
+  }
+}
+
 export async function loadConfig(doc, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
@@ -483,7 +558,15 @@ function setupUi(doc) {
   if (gear) {
     gear.addEventListener("click", async () => {
       const showing = toggleSettings(doc);
-      if (showing) { await loadConfig(doc); await loadProviders(doc); await loadAutoReanchor(doc); }
+      if (showing) { toggleHistory(doc, false); await loadConfig(doc); await loadProviders(doc); await loadAutoReanchor(doc); }
+    });
+  }
+
+  const histBtn = doc.getElementById("history-btn");
+  if (histBtn) {
+    histBtn.addEventListener("click", async () => {
+      const showing = toggleHistory(doc);
+      if (showing) await loadHistory(doc);
     });
   }
 

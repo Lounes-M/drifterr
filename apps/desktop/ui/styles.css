@@ -462,6 +462,20 @@ code { font-family: var(--mono); }
 /* When the settings view is open it REPLACES the live view rather than stacking
    on top of it. `!important` beats the per-poll `[hidden]` toggles in render(). */
 #app-body.settings-open > *:not(#settings) { display: none !important; }
+#app-body.history-open > *:not(#history) { display: none !important; }
+
+/* --- session history ------------------------------------------------------ */
+.history-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.history-row {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: var(--glass-sub); border: 1px solid var(--hairline);
+  border-radius: 12px; padding: 10px 12px;
+}
+.history-row .dot { width: 10px; height: 10px; margin-top: 4px; }
+.history-body { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; gap: 2px; }
+.history-goal { font-size: 12.5px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.history-goal.untitled { font-weight: 500; color: var(--ink-soft); }
+.history-meta { font-size: 11px; color: var(--ink-faint); }
 
 .gate { display: flex; flex-direction: column; gap: 10px; padding: 6px 2px 4px; }
 .gate h1 { font-family: var(--display); font-size: 19px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }

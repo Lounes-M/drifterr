@@ -525,6 +525,16 @@ impl AppCore {
             .collect()
     }
 
+    /// Compact summaries of past sessions for the history/timeline view. Empty
+    /// when there's no durable store (in-memory mode).
+    pub fn session_history(&self, limit: usize) -> Vec<drifterr_store::SessionSummary> {
+        self.store
+            .as_ref()
+            .and_then(|s| s.lock().ok())
+            .and_then(|s| s.list_sessions(limit).ok())
+            .unwrap_or_default()
+    }
+
     /// All standing orders (for the control API).
     pub fn standing_orders(&self) -> Vec<drifterr_store::StandingOrder> {
         self.store
