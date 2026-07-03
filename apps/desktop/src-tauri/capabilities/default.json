@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "IPC for the main panel window: listen to update events and invoke the in-app updater command. The panel otherwise talks to the local control API over HTTP.",
   "windows": ["main"],
-  "permissions": ["core:default", "core:event:default"]
+  "permissions": ["core:default", "core:event:default", "notification:default"]
 }
