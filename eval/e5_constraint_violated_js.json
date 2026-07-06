@@ -1,0 +1,46 @@
+{
+  "name": "TS-only constraint violated (assistant creates a .js file) — should go red",
+  "baseline": {
+    "goal": "Build a small auth module",
+    "constraints": [
+      {
+        "id": "c1",
+        "text": "TypeScript only, no JS",
+        "type": "tech",
+        "checkable": "deterministic"
+      }
+    ],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "eval-e5",
+    "model": "gpt-4o",
+    "turns": [
+      {
+        "index": 0,
+        "role": "user",
+        "content": "Write the auth module in strict TypeScript, no JS files.",
+        "tokens": 14,
+        "timestamp": 1000
+      },
+      {
+        "index": 1,
+        "role": "assistant",
+        "content": "Sure — I'll start by scaffolding auth.js with the login handler.",
+        "tokens": 18,
+        "timestamp": 2000
+      }
+    ],
+    "context": {
+      "windowSize": 128000,
+      "usedTokens": 4000,
+      "exact": true,
+      "toolCallCount": 0
+    },
+    "source": "proxy"
+  },
+  "expect": {
+    "state": "red",
+    "triggeringSignal": "constraint"
+  }
+}

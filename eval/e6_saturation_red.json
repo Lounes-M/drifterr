@@ -1,0 +1,39 @@
+{
+  "name": "Context nearly full (95%) — saturation should go red",
+  "baseline": {
+    "goal": "Refactor the reporting pipeline",
+    "constraints": [],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "eval-e6",
+    "model": "claude-opus-4-x",
+    "turns": [
+      {
+        "index": 0,
+        "role": "user",
+        "content": "Keep refactoring the pipeline, we've been at this a while.",
+        "tokens": 14,
+        "timestamp": 1000
+      },
+      {
+        "index": 1,
+        "role": "assistant",
+        "content": "Continuing — here's the next batch of changes to the aggregation step.",
+        "tokens": 18,
+        "timestamp": 2000
+      }
+    ],
+    "context": {
+      "windowSize": 200000,
+      "usedTokens": 190000,
+      "exact": true,
+      "toolCallCount": 0
+    },
+    "source": "proxy"
+  },
+  "expect": {
+    "state": "red",
+    "triggeringSignal": "saturation"
+  }
+}

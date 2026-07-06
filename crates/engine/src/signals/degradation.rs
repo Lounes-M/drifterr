@@ -26,6 +26,7 @@ const VERBOSE_MIN_WORDS: usize = 80;
 const HEDGE_HITS: usize = 3;
 
 const HEDGES: &[&str] = &[
+    // English
     "i'm not sure",
     "i am not sure",
     "it depends",
@@ -41,6 +42,23 @@ const HEDGES: &[&str] = &[
     "in general",
     "to some extent",
     "it's worth noting",
+    "i'm not entirely sure",
+    "it's difficult to say",
+    "generally speaking",
+    // French (the product's second audience)
+    "je ne suis pas sûr",
+    "je ne suis pas certain",
+    "ça dépend",
+    "cela dépend",
+    "il semble",
+    "il semblerait",
+    "peut-être",
+    "je pense",
+    "il se peut",
+    "en général",
+    "dans une certaine mesure",
+    "difficile à dire",
+    "il est possible que",
 ];
 
 /// Evaluate Signal 5. Returns `Some(AMBER event)` naming the symptom(s), or
@@ -166,6 +184,17 @@ mod tests {
             "I think it depends, and it seems this might be the cause, perhaps",
         ]);
         let e = evaluate(&c, &BagEmbedder::default()).expect("hedge");
+        assert!(e.evidence.detail.contains("hedging"));
+    }
+
+    #[test]
+    fn detects_hedging_french() {
+        let c = conv(&[
+            "la fonction renvoie l'identifiant",
+            "on ajoute la couche de validation",
+            "je pense que ça dépend, il semble que ce soit possible, peut-être",
+        ]);
+        let e = evaluate(&c, &BagEmbedder::default()).expect("hedge FR");
         assert!(e.evidence.detail.contains("hedging"));
     }
 

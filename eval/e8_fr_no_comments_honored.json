@@ -1,0 +1,46 @@
+{
+  "name": "FR constraint honored ('pas de commentaires') — code with no comments should stay green",
+  "baseline": {
+    "goal": "Écrire une petite fonction de tri",
+    "constraints": [
+      {
+        "id": "c1",
+        "text": "Pas de commentaires dans le code",
+        "type": "format",
+        "checkable": "deterministic"
+      }
+    ],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "eval-e8",
+    "model": "gpt-4o",
+    "turns": [
+      {
+        "index": 0,
+        "role": "user",
+        "content": "Écris une fonction de tri à bulles, sans aucun commentaire dans le code.",
+        "tokens": 16,
+        "timestamp": 1000
+      },
+      {
+        "index": 1,
+        "role": "assistant",
+        "content": "Voici :\n```js\nfunction bubble(a){for(let i=0;i<a.length;i++)for(let j=0;j<a.length-1-i;j++)if(a[j]>a[j+1]){const t=a[j];a[j]=a[j+1];a[j+1]=t;}return a;}\n```",
+        "tokens": 40,
+        "timestamp": 2000
+      }
+    ],
+    "context": {
+      "windowSize": 128000,
+      "usedTokens": 3000,
+      "exact": true,
+      "toolCallCount": 0
+    },
+    "source": "proxy"
+  },
+  "expect": {
+    "state": "green",
+    "triggeringSignal": null
+  }
+}

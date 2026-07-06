@@ -1,0 +1,46 @@
+{
+  "name": "Word-limit constraint violated (rule inferred from 'under 30 words') — should go red",
+  "baseline": {
+    "goal": "Summarize the incident",
+    "constraints": [
+      {
+        "id": "c1",
+        "text": "Keep each answer under 30 words",
+        "type": "format",
+        "checkable": "deterministic"
+      }
+    ],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "eval-e7",
+    "model": "gpt-4o",
+    "turns": [
+      {
+        "index": 0,
+        "role": "user",
+        "content": "Summarize the outage. Keep each answer under 30 words.",
+        "tokens": 13,
+        "timestamp": 1000
+      },
+      {
+        "index": 1,
+        "role": "assistant",
+        "content": "The outage began when a routine deploy shipped a misconfigured connection pool, which slowly exhausted database sockets across every region, causing cascading timeouts, elevated error rates, retries that amplified load, and eventually a full loss of read and write availability for roughly forty minutes until the deploy was rolled back and pools were reset.",
+        "tokens": 62,
+        "timestamp": 2000
+      }
+    ],
+    "context": {
+      "windowSize": 128000,
+      "usedTokens": 3000,
+      "exact": true,
+      "toolCallCount": 0
+    },
+    "source": "proxy"
+  },
+  "expect": {
+    "state": "red",
+    "triggeringSignal": "constraint"
+  }
+}

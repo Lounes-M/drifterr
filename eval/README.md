@@ -14,6 +14,23 @@ cargo run -p drifterr-engine --example eval -- eval/
 
 You get a state confusion matrix and per-signal precision / recall / F1.
 
+## Current set (8 cases)
+
+| case | expects | exercises |
+|---|---|---|
+| e1 | amber · goal_alignment | semantic goal drift — **needs ONNX** (lexical misses it) |
+| e2 | green | on-goal paraphrase (false-positive guard) |
+| e3 | green | TS-only honored (`.ts`, no `.js`) |
+| e4 | *(skipped)* | reintroduced rejected decision — judge signal |
+| e5 | red · constraint | no-JS constraint violated (`auth.js`) |
+| e6 | red · saturation | context ~95% full |
+| e7 | red · constraint | word-limit rule **inferred** from "under 30 words" |
+| e8 | green | FR "pas de commentaires" honored (FR + no false positive) |
+
+Deterministic accuracy is 6/7 today; the one miss is e1 (semantic drift), which
+the lexical embedder can't separate — it flips to caught with the ONNX embedder
+(`--features onnx`, `DRIFTERR_EMBED_MODEL` set).
+
 ## Annotating
 
 Each file is one case, same shape as `fixtures/`:
