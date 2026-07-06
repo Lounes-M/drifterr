@@ -76,6 +76,7 @@ export function render(doc, data) {
     // noise) and show only the header + intent card + the empty prompt.
     if (body) body.classList.add("no-session");
     hide(doc, "intent-shift");
+    hide(doc, "activity");
     showEmpty(doc, true);
     setText(doc, "state-label", "No session");
     setText(doc, "blurb", "Waiting for activity.");
@@ -257,6 +258,61 @@ export function toggleSettings(doc, show) {
   const body = doc.getElementById("app-body");
   if (body) body.classList.toggle("settings-open", willShow);
   return willShow;
+}
+
+// --- activity journal ------------------------------------------------------
+//
+// A readable log of the flags this session raised — "at turn N, signal X fired:
+// detail" — so the panel explains *why* it warned, not just the current color.
+
+/// Render the journal (array from `GET /journal`) into the Activity section.
+/// Hides the whole section when there's nothing flagged yet.
+export function renderJournal(doc, items) {
+  const section = doc.getElementById("activity");
+  const list = doc.getElementById("activity-list");
+  const rows = Array.isArray(items) ? items : [];
+  if (section) section.hidden = rows.length === 0;
+  if (!list) return;
+  list.innerHTML = "";
+  for (const it of rows) {
+    const li = doc.createElement("li");
+    li.className = "activity-row";
+    const dot = doc.createElement("span");
+    dot.className = "mini " + (stateInfo(it.state).cls);
+    const body = doc.createElement("div");
+    body.className = "activity-body";
+    const head = doc.createElement("div");
+    head.className = "activity-head";
+    const name = doc.createElement("span");
+    name.className = "activity-name";
+    name.textContent = signalLabel(it.signal);
+    head.appendChild(name);
+    if (typeof it.turn === "number") {
+      const turn = doc.createElement("span");
+      turn.className = "activity-turn";
+      turn.textContent = "turn " + (it.turn + 1);
+      head.appendChild(turn);
+    }
+    const detail = doc.createElement("span");
+    detail.className = "activity-detail";
+    detail.textContent = it.detail || "";
+    body.appendChild(head);
+    body.appendChild(detail);
+    li.appendChild(dot);
+    li.appendChild(body);
+    list.appendChild(li);
+  }
+}
+
+export async function loadJournal(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/journal", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderJournal(doc, await res.json());
+  } catch (_e) {
+    renderJournal(doc, []);
+  }
 }
 
 // --- session history -------------------------------------------------------
@@ -1124,6 +1180,7 @@ export async function poll(doc, fetchImpl) {
     // Keep the intent card fresh (goal/constraints can change mid-session), but
     // never overwrite the form while the user is editing it.
     if (!intentEditorOpen(doc)) await loadIntent(doc, f);
+    await loadJournal(doc, f);
   } catch (_e) {
     renderError(doc, "Drifterr proxy not reachable (is it running on " + apiBase() + "?)");
   }

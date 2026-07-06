@@ -668,6 +668,24 @@ impl AppCore {
             .collect()
     }
 
+    /// The recent flag events (amber/red) for a session — the activity journal.
+    /// Resolves `session` (or the current one) and reads the local store. Empty
+    /// without a durable store.
+    pub fn journal(&self, session: Option<&str>, limit: usize) -> Vec<drifterr_store::FlagEvent> {
+        let id = match session
+            .map(str::to_string)
+            .or_else(|| self.last_updated.clone())
+        {
+            Some(id) => id,
+            None => return Vec::new(),
+        };
+        self.store
+            .as_ref()
+            .and_then(|s| s.lock().ok())
+            .and_then(|s| s.recent_flags(&id, limit).ok())
+            .unwrap_or_default()
+    }
+
     /// Compact summaries of past sessions for the history/timeline view. Empty
     /// when there's no durable store (in-memory mode).
     pub fn session_history(&self, limit: usize) -> Vec<drifterr_store::SessionSummary> {

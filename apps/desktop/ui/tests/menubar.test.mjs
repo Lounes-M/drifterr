@@ -418,6 +418,33 @@ async function main() {
     await sctx.close();
   }
 
+  console.log("ACTIVITY journal:");
+  {
+    const actx = await browser.newContext();
+    const ap = await actx.newPage();
+    await ap.addInitScript(() => {
+      window.DRIFTERR_SUPABASE_URL = ""; window.DRIFTERR_SUPABASE_ANON_KEY = "";
+      try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) {}
+    });
+    await ap.route("**/status*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(RED) }));
+    await ap.route("**/journal*", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify([
+          { signal: "constraint", state: "red", detail: "created auth.js", constraintId: "c1", span: "auth.js", turn: 3 },
+          { signal: "goal_alignment", state: "amber", detail: "drifting from the goal", turn: 2 },
+        ]),
+      })
+    );
+    await ap.goto(url);
+    await ap.waitForFunction(() => document.querySelectorAll("#activity-list .activity-row").length === 2);
+    check((await ap.locator("#activity-list .activity-row").count()) === 2, "activity lists recent flags");
+    check((await ap.locator(".activity-name").first().textContent()) === "Constraints", "names the signal");
+    check((await ap.locator(".activity-turn").first().textContent()) === "turn 4", "shows the 1-based turn");
+    check((await ap.locator("#activity-list .mini.red").count()) === 1, "flag dot reflects state");
+    await actx.close();
+  }
+
   console.log("HISTORY view:");
   {
     const hctx = await browser.newContext();

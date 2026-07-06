@@ -340,6 +340,7 @@ pub fn control_router(state: AppState) -> Router {
         )
         .route("/intent-shift", post(resolve_intent_shift_handler))
         .route("/history", get(history_handler))
+        .route("/journal", get(journal_handler))
         .route("/standing-orders", get(standing_orders_handler))
         .route("/standing-orders/promote", post(promote_handler))
         .route("/ingest", post(ingest_handler))
@@ -582,6 +583,43 @@ async fn history_handler(State(app): State<AppState>) -> Json<Vec<HistoryItem>> 
             })
             .collect(),
     )
+}
+
+/// One journal entry for the activity view.
+#[derive(Serialize)]
+struct JournalItem {
+    signal: String,
+    /// "amber" | "red".
+    state: String,
+    detail: String,
+    #[serde(rename = "constraintId", skip_serializing_if = "Option::is_none")]
+    constraint_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    span: Option<String>,
+    #[serde(rename = "turn", skip_serializing_if = "Option::is_none")]
+    turn_index: Option<usize>,
+}
+
+/// Recent flag events (amber/red) for a session — the readable "what fired and
+/// when" journal. Reads the local store only.
+async fn journal_handler(State(app): State<AppState>, Query(q): Query<ReanchorQuery>) -> Response {
+    let flags = app
+        .core
+        .lock()
+        .map(|c| c.journal(q.session.as_deref(), 30))
+        .unwrap_or_default();
+    let items: Vec<JournalItem> = flags
+        .into_iter()
+        .map(|f| JournalItem {
+            state: f.state,
+            signal: f.signal,
+            detail: f.detail,
+            constraint_id: f.constraint_id,
+            span: f.span,
+            turn_index: f.turn_index,
+        })
+        .collect();
+    Json(items).into_response()
 }
 
 async fn standing_orders_handler(State(app): State<AppState>) -> Json<Vec<StandingOrderView>> {

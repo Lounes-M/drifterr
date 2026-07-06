@@ -275,6 +275,40 @@ impl Store {
         Ok(())
     }
 
+    /// The recent *flag* events for a session (state ≠ green) — the readable
+    /// "what fired and when" journal, newest first. `ts` isn't recorded, so the
+    /// autoincrement id gives chronological order and `turn_idx` gives the turn.
+    pub fn recent_flags(&self, session_id: &str, limit: usize) -> Result<Vec<FlagEvent>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT signal, state, evidence, turn_idx FROM signal_events
+             WHERE session_id = ?1 AND state != 'green'
+             ORDER BY id DESC LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![session_id, limit as i64], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|(signal, state, ev, turn_idx)| {
+                let evidence: Evidence = serde_json::from_str(&ev)?;
+                Ok(FlagEvent {
+                    signal,
+                    state,
+                    detail: evidence.detail,
+                    constraint_id: evidence.constraint_id,
+                    span: evidence.span,
+                    turn_index: turn_idx.map(|i| i as usize),
+                })
+            })
+            .collect()
+    }
+
     /// Read back the recorded events for a session, oldest first.
     pub fn load_events(&self, session_id: &str) -> Result<Vec<SignalEvent>> {
         let mut stmt = self.conn.prepare(
@@ -437,6 +471,21 @@ impl Store {
 pub const SO_PROMOTE_THRESHOLD: i64 = 3;
 /// Embedding cosine at/above which two corrections are "the same" standing order.
 pub const SO_DEDUP_SIM: f32 = 0.55;
+
+/// One recorded flag (an amber/red signal event) for the activity journal.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FlagEvent {
+    /// Signal kind id ("constraint", "saturation", …).
+    pub signal: String,
+    /// "amber" | "red".
+    pub state: String,
+    /// The evidence detail line.
+    pub detail: String,
+    pub constraint_id: Option<String>,
+    pub span: Option<String>,
+    /// The turn the flag fired on, if recorded.
+    pub turn_index: Option<usize>,
+}
 
 /// A compact, per-session summary for the history/timeline view.
 #[derive(Debug, Clone, PartialEq)]
@@ -607,6 +656,45 @@ mod tests {
         store.save_baseline("sess-1", &baseline).unwrap();
         let back = store.load_baseline("sess-1").unwrap();
         assert_eq!(baseline, back);
+    }
+
+    #[test]
+    fn recent_flags_returns_non_green_newest_first() {
+        use drifterr_engine::signals::SignalKind;
+        let mut store = Store::open_in_memory().unwrap();
+        store.save_conversation(&sample()).unwrap();
+        let ev = |kind, state, detail: &str, turn| {
+            SignalEvent::new(
+                kind,
+                state,
+                Evidence {
+                    detail: detail.into(),
+                    turn_index: Some(turn),
+                    constraint_id: None,
+                    span: None,
+                },
+            )
+        };
+        store
+            .record_events(
+                "sess-1",
+                &[
+                    ev(SignalKind::Saturation, State::Green, "20% full", 1),
+                    ev(SignalKind::Constraint, State::Red, "violated c1", 2),
+                    ev(SignalKind::GoalAlignment, State::Amber, "drifting", 3),
+                ],
+            )
+            .unwrap();
+        let flags = store.recent_flags("sess-1", 10).unwrap();
+        // Only the two non-green events, newest (highest id) first.
+        assert_eq!(flags.len(), 2);
+        assert_eq!(flags[0].signal, "goal_alignment");
+        assert_eq!(flags[0].state, "amber");
+        assert_eq!(flags[0].turn_index, Some(3));
+        assert_eq!(flags[1].signal, "constraint");
+        assert_eq!(flags[1].detail, "violated c1");
+        // Limit is honored.
+        assert_eq!(store.recent_flags("sess-1", 1).unwrap().len(), 1);
     }
 
     #[test]
