@@ -126,12 +126,56 @@ fn start_embedded_proxy(app: &tauri::App) {
 /// published (verified against the bundled pubkey), tell the panel so it can
 /// show its in-app "Update available" banner. Best-effort and silent on failure
 /// — a network hiccup or no-update must never disturb the app.
-async fn check_for_update(handle: tauri::AppHandle) {
-    tokio::time::sleep(Duration::from_secs(4)).await;
-    let Ok(updater) = handle.updater() else { return };
-    if let Ok(Some(update)) = updater.check().await {
-        let _ = handle.emit("update://available", update.version.clone());
+///
+/// Runs on launch and then every 6h, so an app left open for days still learns
+/// about a new release. A given version is announced with an OS notification at
+/// most once (so the 6h re-checks don't nag), and never when Do Not Disturb is on.
+async fn update_loop(handle: tauri::AppHandle) {
+    const RECHECK: Duration = Duration::from_secs(6 * 60 * 60);
+    tokio::time::sleep(Duration::from_secs(4)).await; // let the app settle first
+    let client = reqwest::Client::builder().no_proxy().build().ok();
+    let base =
+        std::env::var("DRIFTERR_CONTROL").unwrap_or_else(|_| "http://127.0.0.1:8788".to_string());
+    let mut notified_version: Option<String> = None;
+
+    loop {
+        if let Ok(updater) = handle.updater() {
+            if let Ok(Some(update)) = updater.check().await {
+                // Always refresh the in-app banner.
+                let _ = handle.emit("update://available", update.version.clone());
+                // Fire an OS notification once per version, unless muted.
+                let already = notified_version.as_deref() == Some(update.version.as_str());
+                let muted = match &client {
+                    Some(c) => notifications_muted(c, &base).await,
+                    None => false,
+                };
+                if !already && !muted {
+                    use tauri_plugin_notification::NotificationExt;
+                    let _ = handle
+                        .notification()
+                        .builder()
+                        .title(format!("Drifterr {} is ready", update.version))
+                        .body("Open Drifterr and click Update to install — no reinstall needed.")
+                        .show();
+                    notified_version = Some(update.version.clone());
+                }
+            }
+        }
+        tokio::time::sleep(RECHECK).await;
     }
+}
+
+/// Read the Do Not Disturb preference from the control API (`/prefs`). Any error
+/// → not muted (fail toward informing the user).
+async fn notifications_muted(client: &reqwest::Client, base: &str) -> bool {
+    let Ok(resp) = client.get(format!("{base}/prefs")).send().await else {
+        return false;
+    };
+    resp.json::<serde_json::Value>()
+        .await
+        .ok()
+        .and_then(|v| v.get("notificationsMuted").and_then(|m| m.as_bool()))
+        .unwrap_or(false)
 }
 
 /// Download + install the pending update, then relaunch into it — the SaaS-style
@@ -170,18 +214,42 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     app.restart()
 }
 
+/// Manually check for an update now (the settings "Check for updates" button).
+/// Emits `update://available` (with version) or `update://none` so the panel can
+/// react. Returns the new version string, or `None` when already current.
+#[tauri::command]
+async fn check_update_now(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let update = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?;
+    match update {
+        Some(u) => {
+            let _ = app.emit("update://available", u.version.clone());
+            Ok(Some(u.version))
+        }
+        None => {
+            let _ = app.emit("update://none", ());
+            Ok(None)
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
-        .invoke_handler(tauri::generate_handler![install_update])
+        .invoke_handler(tauri::generate_handler![install_update, check_update_now])
         .setup(|app| {
             // Start the bundled proxy first so the panel has data to show.
             start_embedded_proxy(app);
 
-            // Check for updates in the background; the panel shows the banner.
-            tauri::async_runtime::spawn(check_for_update(app.handle().clone()));
+            // Check for updates on launch and every few hours after; the panel
+            // shows a banner and (unless muted) the OS gets a notification.
+            tauri::async_runtime::spawn(update_loop(app.handle().clone()));
 
             let quit = MenuItem::with_id(app, "quit", "Quit Drifterr", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit])?;
@@ -248,6 +316,8 @@ struct StatusBrief {
     signal: Option<String>,
     /// Evidence detail for the triggering signal.
     detail: Option<String>,
+    /// Do Not Disturb — suppress OS notifications when true.
+    muted: bool,
 }
 
 /// Poll the control API and recolor the tray to match the session state, and
@@ -297,6 +367,10 @@ fn maybe_notify(
 ) {
     use tauri_plugin_notification::NotificationExt;
 
+    // Do Not Disturb suppresses OS notifications (the tray/panel still update).
+    if brief.muted {
+        return;
+    }
     let (Some(state), Some(session)) = (brief.state.as_deref(), brief.session.as_deref()) else {
         return;
     };
@@ -368,6 +442,10 @@ async fn fetch_status(client: &reqwest::Client, base: &str) -> Option<StatusBrie
             .and_then(|t| t.get("detail"))
             .and_then(|s| s.as_str())
             .map(String::from),
+        muted: v
+            .get("notificationsMuted")
+            .and_then(|m| m.as_bool())
+            .unwrap_or(false),
     })
 }
 

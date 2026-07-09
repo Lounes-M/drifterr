@@ -206,6 +206,19 @@ impl Baseline {
         true
     }
 
+    /// Retire a constraint by id (the user removed it): mark it inactive so it no
+    /// longer drives detection, without deleting the evidence trail. Returns
+    /// `true` if a matching active constraint was found.
+    pub fn retire(&mut self, id: &str) -> bool {
+        for c in self.constraints.iter_mut() {
+            if c.id == id && c.active {
+                c.active = false;
+                return true;
+            }
+        }
+        false
+    }
+
     /// Extract a baseline from a conversation's turns without an LLM.
     ///
     /// Used by channels that have no externally-supplied baseline (the proxy):
@@ -328,6 +341,23 @@ mod tests {
         assert_eq!(b.constraints.len(), 1);
         b.absorb(&[user("also no comments in code")]);
         assert_eq!(b.constraints.len(), 2);
+    }
+
+    #[test]
+    fn retire_deactivates_by_id() {
+        let mut b = Baseline::extract(&[user("TypeScript only, no JS")]);
+        assert_eq!(b.deterministic_constraints().count(), 1);
+        let id = b.constraints[0].id.clone();
+        assert!(b.retire(&id));
+        assert_eq!(
+            b.deterministic_constraints().count(),
+            0,
+            "retired → inactive"
+        );
+        // The row is kept (evidence trail), just inactive; retiring again is a no-op.
+        assert_eq!(b.constraints.len(), 1);
+        assert!(!b.retire(&id));
+        assert!(!b.retire("nope"));
     }
 
     #[test]

@@ -180,6 +180,9 @@ pub struct AppState {
     /// conversation (Auto-intent), so the user never has to type them. Off by
     /// default; requires the judge to be configured. Runtime-toggleable.
     pub auto_intent: Arc<AtomicBool>,
+    /// Do Not Disturb: when on, the native shell suppresses all OS notifications
+    /// (drift alerts + update alerts). The panel still updates. Off by default.
+    pub notifications_muted: Arc<AtomicBool>,
     /// Current plan entitlement, set by the desktop app after login. Defaults to
     /// Free so the proxy works standalone. Gates paid capabilities (drift map,
     /// extra sessions, auto-re-anchor).
@@ -286,6 +289,7 @@ impl AppState {
             judge,
             auto_reanchor: Arc::new(AtomicBool::new(auto_reanchor)),
             auto_intent: Arc::new(AtomicBool::new(false)),
+            notifications_muted: Arc::new(AtomicBool::new(false)),
             entitlement: Arc::new(RwLock::new(Entitlement::default())),
             upstream: Arc::new(RwLock::new(upstream)),
         }
@@ -329,6 +333,7 @@ pub fn control_router(state: AppState) -> Router {
         )
         .route("/reanchor", get(reanchor_handler))
         .route("/intent", get(get_intent_handler).post(set_intent_handler))
+        .route("/intent/retire", post(retire_constraint_handler))
         .route("/judge", get(get_judge_handler).post(set_judge_handler))
         .route(
             "/auto-reanchor",
@@ -339,6 +344,7 @@ pub fn control_router(state: AppState) -> Router {
             get(get_auto_intent_handler).post(set_auto_intent_handler),
         )
         .route("/intent-shift", post(resolve_intent_shift_handler))
+        .route("/prefs", get(get_prefs_handler).post(set_prefs_handler))
         .route("/history", get(history_handler))
         .route("/journal", get(journal_handler))
         .route("/standing-orders", get(standing_orders_handler))
@@ -723,6 +729,58 @@ async fn set_intent_handler(
     (StatusCode::INTERNAL_SERVER_ERROR, "busy").into_response()
 }
 
+/// User preferences the panel controls and the native shell reads.
+#[derive(Serialize)]
+struct Prefs {
+    #[serde(rename = "notificationsMuted")]
+    notifications_muted: bool,
+}
+
+async fn get_prefs_handler(State(app): State<AppState>) -> Json<Prefs> {
+    Json(Prefs {
+        notifications_muted: app.notifications_muted.load(Ordering::Relaxed),
+    })
+}
+
+#[derive(Deserialize)]
+struct SetPrefs {
+    #[serde(default, rename = "notificationsMuted")]
+    notifications_muted: bool,
+}
+
+/// Set preferences (Do Not Disturb). The native shell reads the result from
+/// `/status` and suppresses OS notifications accordingly.
+async fn set_prefs_handler(State(app): State<AppState>, Json(body): Json<SetPrefs>) -> Json<Prefs> {
+    app.notifications_muted
+        .store(body.notifications_muted, Ordering::Relaxed);
+    Json(Prefs {
+        notifications_muted: body.notifications_muted,
+    })
+}
+
+/// Retire (remove) a constraint the user no longer wants enforced.
+#[derive(Deserialize)]
+struct RetireConstraint {
+    id: String,
+    #[serde(default)]
+    session: Option<String>,
+}
+
+async fn retire_constraint_handler(
+    State(app): State<AppState>,
+    Json(body): Json<RetireConstraint>,
+) -> Response {
+    match app
+        .core
+        .lock()
+        .ok()
+        .and_then(|mut c| c.retire_constraint(body.session.as_deref(), &body.id))
+    {
+        Some(view) => Json(view).into_response(),
+        None => (StatusCode::NOT_FOUND, "unknown constraint").into_response(),
+    }
+}
+
 /// Judge status for the settings panel — never echoes the key back.
 #[derive(Serialize)]
 struct JudgeState {
@@ -911,6 +969,9 @@ struct StatusResponse {
     /// How many tracked sessions are hidden by the plan's session cap.
     #[serde(rename = "sessionsLocked")]
     sessions_locked: usize,
+    /// Do Not Disturb — the native shell reads this to suppress OS notifications.
+    #[serde(rename = "notificationsMuted")]
+    notifications_muted: bool,
 }
 
 async fn status_handler(State(app): State<AppState>) -> Json<StatusResponse> {
@@ -948,6 +1009,7 @@ async fn status_handler(State(app): State<AppState>) -> Json<StatusResponse> {
         sessions,
         entitlement: ent,
         sessions_locked,
+        notifications_muted: app.notifications_muted.load(Ordering::Relaxed),
     })
 }
 

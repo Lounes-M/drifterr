@@ -520,6 +520,133 @@ function setupIntentShift(doc) {
   if (toggle) toggle.addEventListener("change", () => setAutoIntent(doc, toggle.checked));
 }
 
+// --- preferences: Do Not Disturb -------------------------------------------
+
+export function renderPrefs(doc, data) {
+  const toggle = doc.getElementById("dnd-toggle");
+  const label = doc.getElementById("dnd-label");
+  const muted = !!(data && data.notificationsMuted);
+  if (toggle) toggle.checked = muted;
+  if (label) label.textContent = muted ? "On" : "Off";
+}
+
+export async function loadPrefs(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/prefs", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderPrefs(doc, await res.json());
+  } catch (_e) {
+    renderPrefs(doc, null);
+  }
+}
+
+async function setDnd(doc, muted, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/prefs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notificationsMuted: muted }),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderPrefs(doc, await res.json());
+  } catch (_e) {
+    await loadPrefs(doc);
+  }
+}
+
+// --- updates (Tauri only): current version + manual check ------------------
+
+/// Copy the running version (loadConfig populates #cfg-version) into the Updates row.
+function syncUpdateVersion(doc) {
+  const row = doc.getElementById("upd-version");
+  const v = doc.getElementById("cfg-version");
+  if (row && v) row.textContent = v.textContent || "—";
+}
+
+function setupUpdates(doc) {
+  const T = typeof window !== "undefined" ? window.__TAURI__ : null;
+  const btn = doc.getElementById("upd-check");
+  const status = doc.getElementById("upd-check-status");
+  syncUpdateVersion(doc);
+
+  if (!btn) return;
+  if (!T || !T.core) {
+    // Browser dashboard: no in-app updater. Hide the manual check.
+    btn.hidden = true;
+    if (status) status.textContent = "";
+    return;
+  }
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    if (status) status.textContent = "Checking…";
+    try {
+      const version = await T.core.invoke("check_update_now");
+      if (status) status.textContent = version ? "Update " + version + " available" : "You're up to date";
+    } catch (_e) {
+      if (status) status.textContent = "Check failed";
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+// --- session report export -------------------------------------------------
+
+/// Build a shareable markdown report of the current session from the live
+/// endpoints (intent + activity journal + status), copied to the clipboard.
+export async function copySessionReport(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  const btn = doc.getElementById("report-copy");
+  const get = async (path) => {
+    try { const r = await f(apiBase() + path, { cache: "no-store" }); return r.ok ? await r.json() : null; }
+    catch (_e) { return null; }
+  };
+  const [status, intent, journal] = await Promise.all([get("/status"), get("/intent"), get("/journal")]);
+  const cur = status && status.current;
+  const lines = ["# Drifterr session report", ""];
+  if (cur) {
+    lines.push(`- **State:** ${stateInfo(cur.state).label}`);
+    lines.push(`- **Context:** ${clampPct(cur.saturationPct)}% ${cur.exact ? "(exact)" : "(estimated)"}`);
+    lines.push(`- **Model:** ${cur.model || "?"}`);
+    lines.push("");
+  }
+  if (intent && (intent.goal || (intent.constraints || []).length)) {
+    lines.push("## Intent");
+    if (intent.goal) lines.push(`**Goal:** ${intent.goal}`);
+    for (const c of intent.constraints || []) {
+      lines.push(`- [${c.checkable === "deterministic" ? "hard" : "soft"}] ${c.text}`);
+    }
+    lines.push("");
+  }
+  const flags = Array.isArray(journal) ? journal : [];
+  if (flags.length) {
+    lines.push("## Activity");
+    for (const it of flags) {
+      const t = typeof it.turn === "number" ? `turn ${it.turn + 1} · ` : "";
+      lines.push(`- ${signalLabel(it.signal)} (${it.state}) — ${t}${it.detail || ""}`);
+    }
+    lines.push("");
+  }
+  const text = lines.join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    if (btn) { btn.textContent = "Copied!"; setTimeout(() => (btn.textContent = "Copy report"), 1500); }
+  } catch (_e) {
+    if (btn) { btn.textContent = "Copy failed"; setTimeout(() => (btn.textContent = "Copy report"), 1500); }
+  }
+  return text;
+}
+
+function setupExtras(doc) {
+  const dnd = doc.getElementById("dnd-toggle");
+  if (dnd) dnd.addEventListener("change", () => setDnd(doc, dnd.checked));
+  setupUpdates(doc);
+  const report = doc.getElementById("report-copy");
+  if (report) report.addEventListener("click", () => copySessionReport(doc));
+}
+
 // --- provider selector -----------------------------------------------------
 
 /// Render the provider pills from `GET /providers` ({ current, providers }) into
@@ -664,6 +791,17 @@ export function renderIntent(doc, data) {
       text.textContent = c.text;
       li.appendChild(badge);
       li.appendChild(text);
+      // Retire (remove) a constraint the user no longer wants enforced.
+      if (c.id) {
+        const rm = doc.createElement("button");
+        rm.type = "button";
+        rm.className = "intent-remove";
+        rm.title = "Remove this constraint";
+        rm.setAttribute("aria-label", "Remove constraint");
+        rm.textContent = "×";
+        rm.addEventListener("click", () => retireConstraint(doc, c.id));
+        li.appendChild(rm);
+      }
       list.appendChild(li);
     }
   }
@@ -736,6 +874,22 @@ export async function saveIntent(doc, fetchImpl) {
   }
 }
 
+/// Retire (remove) a constraint by id, then refresh the intent card.
+export async function retireConstraint(doc, id, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/intent/retire", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderIntent(doc, await res.json());
+  } catch (_e) {
+    await loadIntent(doc, f);
+  }
+}
+
 function setupIntent(doc) {
   const edit = doc.getElementById("intent-edit");
   if (edit) edit.addEventListener("click", () => openIntentEditor(doc));
@@ -756,7 +910,7 @@ function setupUi(doc) {
   if (gear) {
     gear.addEventListener("click", async () => {
       const showing = toggleSettings(doc);
-      if (showing) { toggleHistory(doc, false); await loadConfig(doc); await loadProviders(doc); await loadAutoReanchor(doc); await loadJudge(doc); await loadAutoIntent(doc); }
+      if (showing) { toggleHistory(doc, false); await loadConfig(doc); await loadProviders(doc); await loadAutoReanchor(doc); await loadJudge(doc); await loadAutoIntent(doc); await loadPrefs(doc); syncUpdateVersion(doc); }
     });
   }
 
@@ -771,6 +925,7 @@ function setupUi(doc) {
   setupIntent(doc);
   setupJudge(doc);
   setupIntentShift(doc);
+  setupExtras(doc);
 
   const reanchorBtn = doc.getElementById("reanchor-btn");
   if (reanchorBtn) {

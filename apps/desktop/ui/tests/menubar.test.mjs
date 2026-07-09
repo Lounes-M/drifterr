@@ -233,6 +233,12 @@ async function main() {
     if (route.request().method() === "POST") autoIntentOn = JSON.parse(route.request().postData() || "{}").on;
     route.fulfill({ contentType: "application/json", body: JSON.stringify({ on: autoIntentOn, judgeReady: true }) });
   });
+  // Prefs: Do Not Disturb starts off; POST flips it.
+  let dndMuted = false;
+  await page.route("**/prefs*", (route) => {
+    if (route.request().method() === "POST") dndMuted = JSON.parse(route.request().postData() || "{}").notificationsMuted;
+    route.fulfill({ contentType: "application/json", body: JSON.stringify({ notificationsMuted: dndMuted }) });
+  });
   check(!(await page.locator("#settings").isVisible()), "settings hidden by default");
   await page.locator("#gear").click();
   await page.waitForFunction(() => !document.getElementById("settings").hidden);
@@ -273,6 +279,14 @@ async function main() {
   await page.locator("#auto-intent-toggle + .toggle-track").click();
   await page.waitForFunction(() => document.getElementById("auto-intent-label").textContent === "On");
   check(autoIntentOn === true, "toggling posts on=true to the proxy");
+
+  console.log("DO NOT DISTURB toggle:");
+  await page.waitForFunction(() => document.getElementById("dnd-label").textContent === "Off");
+  check(!(await page.locator("#dnd-toggle").isChecked()), "DND starts off");
+  await page.locator("#dnd-toggle + .toggle-track").click();
+  await page.waitForFunction(() => document.getElementById("dnd-label").textContent === "On");
+  check(dndMuted === true, "toggling DND posts notificationsMuted=true");
+  check((await page.locator("#upd-version").textContent()).includes("0.0.1"), "updates row shows the running version");
 
   console.log("PROVIDER selector:");
   await page.waitForFunction(() => document.querySelectorAll("#provider-select .provider-pill").length === 3);
@@ -346,41 +360,48 @@ async function main() {
       try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) {}
     });
     await ip.route("**/status*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(GREEN) }));
+    // Stateful intent so polls stay consistent with edits/retires.
+    let intentState = {
+      goal: "Ship the billing API",
+      constraints: [
+        { id: "c1", text: "TypeScript only, no JS", kind: "tech", checkable: "deterministic", active: true },
+        { id: "c2", text: "Keep the tone formal", kind: "tone", checkable: "judge", active: true },
+      ],
+      pending: false,
+    };
     let posted = null;
     await ip.route("**/intent*", (route) => {
       const req = route.request();
       if (req.method() === "POST") {
         posted = JSON.parse(req.postData() || "{}");
-        route.fulfill({
-          contentType: "application/json",
-          body: JSON.stringify({
-            goal: posted.goal,
-            constraints: (posted.constraints || []).map((t, i) => ({
-              id: "c" + (i + 1), text: t, kind: "other",
-              checkable: /no js|typescript/i.test(t) ? "deterministic" : "judge", active: true,
-            })),
-            pending: false,
-          }),
-        });
-      } else {
-        route.fulfill({
-          contentType: "application/json",
-          body: JSON.stringify({
-            goal: "Ship the billing API",
-            constraints: [
-              { id: "c1", text: "TypeScript only, no JS", kind: "tech", checkable: "deterministic", active: true },
-              { id: "c2", text: "Keep the tone formal", kind: "tone", checkable: "judge", active: true },
-            ],
-            pending: false,
-          }),
-        });
+        intentState = {
+          goal: posted.goal,
+          constraints: (posted.constraints || []).map((t, i) => ({
+            id: "c" + (i + 1), text: t, kind: "other",
+            checkable: /no js|typescript/i.test(t) ? "deterministic" : "judge", active: true,
+          })),
+          pending: false,
+        };
       }
+      route.fulfill({ contentType: "application/json", body: JSON.stringify(intentState) });
+    });
+    let retired = null;
+    await ip.route("**/intent/retire*", (route) => {
+      retired = JSON.parse(route.request().postData() || "{}");
+      intentState = { ...intentState, constraints: intentState.constraints.filter((c) => c.id !== retired.id) };
+      route.fulfill({ contentType: "application/json", body: JSON.stringify(intentState) });
     });
     await ip.goto(url);
     await ip.waitForFunction(() => document.getElementById("intent-goal")?.textContent?.includes("billing"));
     check((await ip.locator("#intent-goal").textContent()).includes("Ship the billing API"), "intent card shows the goal");
     check((await ip.locator(".intent-badge.hard").count()) === 1, "deterministic constraint shows a Hard badge");
     check((await ip.locator(".intent-badge.soft").count()) === 1, "judge constraint shows a Soft badge");
+
+    // Retire the first constraint via its × button.
+    check((await ip.locator(".intent-remove").count()) === 2, "each constraint has a remove button");
+    await ip.locator(".intent-remove").first().click();
+    await ip.waitForFunction(() => document.querySelectorAll("#intent-constraints .intent-constraint").length === 1);
+    check(retired && retired.id === "c1", "remove posts the constraint id to /intent/retire");
 
     // Edit → change goal → save → POST body carries the new intent.
     await ip.locator("#intent-edit").click();
@@ -443,6 +464,28 @@ async function main() {
     check((await ap.locator(".activity-turn").first().textContent()) === "turn 4", "shows the 1-based turn");
     check((await ap.locator("#activity-list .mini.red").count()) === 1, "flag dot reflects state");
     await actx.close();
+  }
+
+  console.log("SESSION REPORT export:");
+  {
+    const rctx = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
+    const rp = await rctx.newPage();
+    await rp.addInitScript(() => {
+      window.DRIFTERR_SUPABASE_URL = ""; window.DRIFTERR_SUPABASE_ANON_KEY = "";
+      try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) {}
+    });
+    await rp.route("**/status*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(RED) }));
+    await rp.route("**/intent*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ goal: "Ship the billing API", constraints: [{ id: "c1", text: "TypeScript only, no JS", kind: "tech", checkable: "deterministic", active: true }], pending: false }) }));
+    await rp.route("**/journal*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify([{ signal: "constraint", state: "red", detail: "created auth.js", turn: 3 }]) }));
+    await rp.goto(url);
+    await rp.waitForFunction(() => !document.getElementById("report-copy").hidden);
+    await rp.locator("#report-copy").click();
+    await rp.waitForFunction(() => document.getElementById("report-copy").textContent === "Copied!");
+    const report = await rp.evaluate(() => navigator.clipboard.readText());
+    check(report.includes("# Drifterr session report"), "report has a title");
+    check(report.includes("Ship the billing API"), "report includes the goal");
+    check(report.includes("created auth.js"), "report includes the activity journal");
+    await rctx.close();
   }
 
   console.log("HISTORY view:");

@@ -222,6 +222,25 @@ impl AppCore {
         }
     }
 
+    /// Retire a constraint by id on a session (the user removed it). Persists
+    /// best-effort. Returns the updated intent view, or `None` if the session /
+    /// constraint wasn't found.
+    pub fn retire_constraint(&mut self, session: Option<&str>, id: &str) -> Option<IntentView> {
+        let target = session
+            .map(str::to_string)
+            .or_else(|| self.last_updated.clone())?;
+        let session = self.sessions.get_mut(&target)?;
+        if !session.baseline.retire(id) {
+            return None;
+        }
+        if let Some(store) = &self.store {
+            if let Ok(mut s) = store.lock() {
+                let _ = s.save_baseline(&target, &session.baseline);
+            }
+        }
+        Some(IntentView::from_baseline(&session.baseline))
+    }
+
     /// The current declared/inferred intent for a session (or the current one, or
     /// a pending not-yet-applied intent). `None` only when there is nothing at all
     /// to show.
@@ -1074,6 +1093,29 @@ mod tests {
         assert_eq!(got.goal, "Refactor auth");
         // Pending was consumed (a second new session doesn't inherit it).
         assert!(core.pending_intent.is_none());
+    }
+
+    #[test]
+    fn retire_constraint_removes_it_from_intent() {
+        let mut core = AppCore::new(None);
+        let r = req(
+            br#"{"model":"gpt-4o","messages":[{"role":"user","content":"refactor in TS, no JS"}]}"#,
+        );
+        let id = session_id_for(&r);
+        let resp = ParsedResponse {
+            assistant_text: "ok".into(),
+            input_tokens: Some(10),
+            output_tokens: Some(5),
+        };
+        core.record_turn(&id, &r, &resp);
+        let cid = core.intent_of(Some(&id)).unwrap().constraints[0].id.clone();
+        let view = core.retire_constraint(Some(&id), &cid).unwrap();
+        assert!(
+            view.constraints.iter().all(|c| c.id != cid),
+            "retired constraint is gone from the view"
+        );
+        // Unknown id → None.
+        assert!(core.retire_constraint(Some(&id), "nope").is_none());
     }
 
     #[test]
