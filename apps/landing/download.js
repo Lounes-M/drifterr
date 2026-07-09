@@ -37,8 +37,16 @@ async function releaseReady() {
     if (!r.ok) return (_probe = false);
     const data = await r.json();
     _probe = Array.isArray(data.assets) && data.assets.length > 0;
+    if (data.tag_name) showVersion(data.tag_name);
   } catch { _probe = false; }
   return _probe;
+}
+
+// Keep the version badge in sync with the actual latest release so it never
+// goes stale — the HTML value is just a fallback for offline / API-down.
+function showVersion(tag) {
+  const ver = tag.startsWith("v") ? tag : `v${tag}`;
+  document.querySelectorAll(".ver").forEach((el) => (el.textContent = ver));
 }
 
 let toastTimer, toastHide;
@@ -107,6 +115,9 @@ function setupParallax() {
 }
 
 function init() {
+  // refresh the version badge from the latest release (fire-and-forget)
+  releaseReady();
+
   // recommended card
   const os = detectOS();
   const cfg = OS[os];
