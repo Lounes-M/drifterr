@@ -45,6 +45,15 @@ html, body { margin: 0; height: 100%; }
    any height, scroll position, or overscroll. */
 html { background: #050409; }
 
+/* Tauri shell: the OS window is transparent + borderless, so ONLY the rounded
+   panel should paint and the desktop shows through around it. Kill the opaque
+   canvas + the fixed ambient blobs (they'd float on the desktop outside the
+   panel's rounded clip). The panel carries its own dark base now, so it stays
+   fully legible on its own. In the browser dashboard none of this applies and
+   the dark canvas above still stands in for the wallpaper. */
+html.tauri, html.tauri body { background: transparent; }
+html.tauri body::before, html.tauri body::after { display: none; }
+
 body {
   min-height: 100vh;
   /* Horizontally centered, TOP-aligned. Top-align (not center) is what lets a
@@ -115,7 +124,13 @@ body::after {
   overflow: hidden;
   isolation: isolate;
 
-  background: linear-gradient(150deg, var(--glass-top), var(--glass-bot));
+  /* Self-contained backdrop: the glass gradient sits on its own dark radial base
+     so the panel reads on ANY surface — the browser page OR (in the transparent
+     Tauri window) the desktop wallpaper behind it. Without this base the panel
+     would rely on the body canvas, which the Tauri build makes transparent. */
+  background:
+    linear-gradient(150deg, var(--glass-top), var(--glass-bot)),
+    radial-gradient(130% 100% at 50% -10%, #0e0d1c 0%, #08070f 55%, #050409 100%);
   backdrop-filter: blur(36px) saturate(160%);
   -webkit-backdrop-filter: blur(36px) saturate(160%);
   border: 1px solid var(--edge);

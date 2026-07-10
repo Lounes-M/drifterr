@@ -1342,6 +1342,13 @@ export async function poll(doc, fetchImpl) {
 }
 
 if (typeof document !== "undefined" && typeof window !== "undefined" && !window.__DRIFTERR_NO_AUTOSTART) {
+  // Under the Tauri shell the window is transparent + borderless, so only the
+  // rounded panel should paint — the desktop shows through everywhere else. In
+  // the browser dashboard the same CSS needs an opaque dark canvas (otherwise the
+  // white page shows behind the panel). A single class flips between the two.
+  if (window.__TAURI__ || window.__TAURI_INTERNALS__) {
+    document.documentElement.classList.add("tauri");
+  }
   // The panel starts visible and `initAccounts` swaps in the login gate only
   // once auth confirms there's no session. This way a slow/failed auth load (or
   // an offline launch) can never leave a blank panel — worst case the user just
