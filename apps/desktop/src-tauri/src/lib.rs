@@ -242,6 +242,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![install_update, check_update_now])
         .setup(|app| {
             // Start the bundled proxy first so the panel has data to show.

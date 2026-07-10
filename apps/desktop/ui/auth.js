@@ -62,9 +62,14 @@ export async function fetchMe() {
 /** Open a URL in the user's real browser (works in Tauri and plain webviews). */
 export async function openExternal(url) {
   try {
-    // Tauri v2 opener plugin, if present.
-    const opener = window.__TAURI__?.opener || window.__TAURI__?.shell;
+    // Tauri v2 opener plugin exposes `openUrl`; the older shell plugin used
+    // `open`. In a Tauri webview `window.open` is a no-op (there's no browser),
+    // so we MUST go through a plugin — hence trying every known shape first.
+    const opener = window.__TAURI__?.opener;
+    if (opener?.openUrl) return void opener.openUrl(url);
     if (opener?.open) return void opener.open(url);
+    const shell = window.__TAURI__?.shell;
+    if (shell?.open) return void shell.open(url);
   } catch (_e) { /* fall through */ }
   window.open(url, "_blank", "noopener");
 }
