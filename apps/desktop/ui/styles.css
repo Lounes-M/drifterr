@@ -702,7 +702,12 @@ code { font-family: var(--mono); }
 .onb-slide {
   flex: 0 0 100%; min-width: 0; min-height: 286px;
   display: flex; flex-direction: column; justify-content: center; text-align: center;
-  padding: 4px 2px;
+  /* Horizontal padding must exceed the legend dots' glow ring (box-shadow spread
+     up to 8px). Edge-hugging glow on an off-screen neighbour slide otherwise
+     bleeds LEFT past the slide boundary into the visible viewport — you'd see
+     the last slide's dots peeking on the second-to-last step. 14px > 8px keeps
+     every glow contained within its own slide. */
+  padding: 4px 14px;
 }
 .onb-slide h1 { font-family: var(--display); font-size: 23px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 10px; }
 .onb-slide p { color: var(--ink-soft); font-size: 13.5px; line-height: 1.55; margin: 0; }
