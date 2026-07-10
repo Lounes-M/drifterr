@@ -558,11 +558,19 @@ async function setDnd(doc, muted, fetchImpl) {
 
 // --- updates (Tauri only): current version + manual check ------------------
 
-/// Copy the running version (loadConfig populates #cfg-version) into the Updates row.
-function syncUpdateVersion(doc) {
+/// Show the running version in the Updates row. In the Tauri shell this is the
+/// native APP version (tauri.conf.json) via the app plugin — NOT #cfg-version,
+/// which is the local proxy crate's version (0.0.1) and has nothing to do with
+/// the installed app. Falls back to the proxy version in the browser dashboard.
+async function syncUpdateVersion(doc) {
   const row = doc.getElementById("upd-version");
+  if (!row) return;
+  const T = typeof window !== "undefined" ? window.__TAURI__ : null;
+  if (T && T.app && T.app.getVersion) {
+    try { row.textContent = "v" + (await T.app.getVersion()); return; } catch (_e) { /* fall back */ }
+  }
   const v = doc.getElementById("cfg-version");
-  if (row && v) row.textContent = v.textContent || "—";
+  row.textContent = (v && v.textContent) || "—";
 }
 
 function setupUpdates(doc) {

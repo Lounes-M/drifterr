@@ -35,6 +35,13 @@ jobs:
       SEMANTIC: ${{ github.event_name == 'workflow_dispatch' && inputs.semantic }}
     strategy:
       fail-fast: false
+      # Build platforms ONE AT A TIME. tauri-action merges each job's platform
+      # into the release's shared latest.json by read-modify-write; running the
+      # three jobs in parallel races on that file and silently drops a platform
+      # (v0.2.1 shipped a latest.json with NO macOS entry, so every Mac's
+      # in-app update check failed). Sequential builds merge cleanly. macOS is
+      # first in the matrix, so it seeds latest.json before the others append.
+      max-parallel: 1
       matrix:
         include:
           # One universal macOS binary — runs natively on Apple silicon AND Intel.
