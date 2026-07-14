@@ -1,0 +1,8 @@
+{"text": "Hello, world!", "tokens": 4, "model": "gpt-4o"}
+{"text": "The quick brown fox jumps over the lazy dog.", "tokens": 10, "model": "gpt-4o"}
+{"text": "Drifterr detects when an AI chat drifts from your intent and warns you before the wall.", "tokens": 17, "model": "gpt-4o"}
+{"text": "function add(a, b) { return a + b; }", "tokens": 13, "model": "gpt-4o"}
+{"text": "Let's refactor the authentication module in strict TypeScript, no JavaScript.", "tokens": 14, "model": "claude-opus-4"}
+{"text": "Bonjour le monde, comment ça va aujourd'hui ?", "tokens": 12, "model": "claude-opus-4"}
+{"text": "Summarize the incident: a routine deploy shipped a bad migration at 14:03.", "tokens": 16, "model": "claude-opus-4"}
+{"text": "SELECT id, email FROM users WHERE plan = 'pro' ORDER BY created_at DESC;", "tokens": 20, "model": "gpt-4o"}

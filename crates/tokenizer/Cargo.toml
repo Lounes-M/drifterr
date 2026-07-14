@@ -6,3 +6,7 @@ license.workspace = true
 
 [dependencies]
 serde.workspace = true
+
+[dev-dependencies]
+# Only the token-accuracy example needs JSON parsing.
+serde_json.workspace = true
