@@ -128,7 +128,10 @@ impl ProxyConfig {
 /// with the judge milestone; this is the foundation they'll extend.)
 #[derive(Debug, Clone, Serialize)]
 pub struct ConfigMeta {
-    pub version: &'static str,
+    /// The user-facing app version. Defaults to this crate's version, but the
+    /// desktop shell overrides it (via `DRIFTERR_APP_VERSION`) so the settings
+    /// view shows the installed app's version, not the embedded proxy crate's.
+    pub version: String,
     #[serde(rename = "openaiUpstream")]
     pub openai_upstream: String,
     #[serde(rename = "anthropicUpstream")]
@@ -265,7 +268,10 @@ impl AppState {
             .build()
             .expect("reqwest client");
         let meta = ConfigMeta {
-            version: env!("CARGO_PKG_VERSION"),
+            version: std::env::var("DRIFTERR_APP_VERSION")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
             openai_upstream: cfg.openai_upstream.clone(),
             anthropic_upstream: cfg.anthropic_upstream.clone(),
             provider: cfg.provider_label().to_string(),

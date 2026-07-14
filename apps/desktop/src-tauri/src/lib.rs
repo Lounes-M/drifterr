@@ -111,6 +111,10 @@ fn start_embedded_proxy(app: &tauri::App) {
         })
         .and_then(|p| p.to_str().map(str::to_string));
 
+    // Tell the embedded proxy our real app version so /config (and the settings
+    // view) reports the installed app's version, not the proxy crate's 0.0.1.
+    std::env::set_var("DRIFTERR_APP_VERSION", env!("CARGO_PKG_VERSION"));
+
     let store = db.and_then(|p| drifterr_proxy::open_store(&p));
     let cfg = drifterr_proxy::ProxyConfig::default();
     let state = drifterr_proxy::AppState::new(cfg, store);
