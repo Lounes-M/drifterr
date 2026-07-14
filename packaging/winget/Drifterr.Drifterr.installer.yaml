@@ -1,0 +1,17 @@
+# winget installer manifest. Template.
+#   - Set PackageVersion to match the release tag (vX.Y.Z → X.Y.Z).
+#   - Fill InstallerSha256 with the .exe checksum (see ../checksums.sh):
+#       CertUtil -hashfile Drifterr_<version>_x64-setup.exe SHA256
+PackageIdentifier: Drifterr.Drifterr
+PackageVersion: 0.2.3
+InstallerType: nullsoft
+Scope: user
+InstallModes:
+  - silent
+  - silentWithProgress
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/Lounes-M/drifterr/releases/download/v0.2.3/Drifterr_0.2.3_x64-setup.exe
+    InstallerSha256: REPLACE_WITH_EXE_SHA256
+ManifestType: installer
+ManifestVersion: 1.6.0

@@ -1,0 +1,8 @@
+# winget version manifest. Template — bump PackageVersion per release and keep
+# the three files in this folder in lockstep. Submit to microsoft/winget-pkgs
+# under manifests/d/Drifterr/Drifterr/<version>/. See ../README.md.
+PackageIdentifier: Drifterr.Drifterr
+PackageVersion: 0.2.3
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.6.0

@@ -1,0 +1,25 @@
+# winget default-locale manifest. Template.
+PackageIdentifier: Drifterr.Drifterr
+PackageVersion: 0.2.3
+PackageLocale: en-US
+Publisher: Drifterr
+PublisherUrl: https://drifterr.app/
+PublisherSupportUrl: https://github.com/Lounes-M/drifterr/issues
+PackageName: Drifterr
+PackageUrl: https://drifterr.app/
+License: Proprietary
+LicenseUrl: https://github.com/Lounes-M/drifterr/blob/main/LICENSE
+ShortDescription: Local-first drift detector for AI chat sessions.
+Description: >-
+  Drifterr detects when a long AI chat session drifts from your stated intent
+  (goal + constraints) and warns you before you lose an hour, with one-click
+  re-anchoring. Local-first — your conversations never leave your machine.
+Moniker: drifterr
+Tags:
+  - ai
+  - llm
+  - developer-tools
+  - productivity
+  - claude
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
