@@ -17,9 +17,11 @@ members = [
 exclude = ["apps/desktop/src-tauri"]
 
 [workspace.package]
-version = "0.0.1"
+# Single product version — kept in lockstep with the desktop app and the git
+# release tag (see RELEASING.md → Versioning). Bump all three together.
+version = "0.2.3"
 edition = "2021"
-license = "MIT"
+license = "LicenseRef-Proprietary"
 repository = "https://github.com/lounes-m/drifterr"
 
 [workspace.dependencies]

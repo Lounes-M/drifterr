@@ -82,7 +82,12 @@ Download for macOS, Windows or Linux at **[drifterr.app/download](https://drifte
 Free to use; Pro and Team plans add unlimited sessions, the hosted fail-safe
 judge, the drift map and team features — see [Pricing](https://drifterr.app/#pricing).
 
-Then point your AI tool at the local proxy and watch the menubar:
+**Using Claude Code? Nothing to set up.** Drifterr auto-watches your local
+sessions (`~/.claude/projects`) — no keys, no env vars, fully local. Just declare
+your intent in the panel and keep coding; it warns at the exact turn a reply
+breaks one of your rules. (Override the watched dir with `DRIFTERR_WATCH_DIR`.)
+
+For any other tool, point it at the local proxy and watch the menubar:
 
 ```bash
 export OPENAI_BASE_URL=http://localhost:8787/v1
@@ -138,12 +143,41 @@ cd apps/desktop/ui && npm install && npm test  # headless menubar UI (Playwright
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs all of the above
 on every push and PR.
 
+## Status
+
+Honest state of each capability — no claim here overshoots what actually runs.
+
+| Area | State | Notes |
+|---|---|---|
+| Proxy channel (relay + exact saturation) | ✅ shipped | Byte-for-byte SSE passthrough, detection off the response path |
+| Claude Code channel (file watch) | ✅ shipped | **Zero-config** — auto-watches `~/.claude/projects`, no keys |
+| Constraint signal (deterministic, hard) | ✅ shipped | EN/FR phrasings; code rules (no JS/TODO/console.log/`any`) |
+| Saturation signal (hard) | ✅ shipped | Exact only via the proxy |
+| Degradation signal (soft) | ✅ shipped | Looping, verbosity, hedging (EN/FR) |
+| Goal-alignment signal (soft) | 🚧 partial | Ships a **local lexical** embedder; the local ONNX semantic model is behind a feature flag (Windows link WIP) |
+| Decision-coherence judge (soft) | ✅ shipped | Opt-in, BYOK (your OpenRouter key); fail-safe (degrades, never blocks) |
+| Auto-intent (AI infers goal + constraints) | ✅ shipped | Opt-in, BYOK; continuous re-baseline |
+| Re-anchor (snapshot + preamble) | ✅ shipped | Copy or auto-inject (proxy channel) |
+| Standing orders (cross-session rules) | ✅ shipped | |
+| Menubar app (tray + panel) | ✅ shipped | Auto-hide on blur, resumes state |
+| Detection eval harness + release gate | ✅ shipped | Metrics + zero-hard-FP gate ([`eval/SCHEMA.md`](eval/SCHEMA.md)) |
+| Egress guarantee (CI-enforced) | ✅ shipped | [`crates/proxy/tests/egress.rs`](crates/proxy/tests/egress.rs) |
+| Browser extension (MV3) | 🚧 partial | Built; not store-published |
+| Signed / notarized desktop builds | 📋 planned | Ships **unsigned** today (Gatekeeper right-click → Open on macOS) |
+| Validated on a large real corpus | 📋 planned | The irreplaceable next step — drop annotated sessions into `eval/` |
+
 ## More docs
 
 - [`docs/ACCOUNTS.md`](docs/ACCOUNTS.md) — accounts & billing architecture (the local-first boundary)
 - [`supabase/README.md`](supabase/README.md) — Supabase + Stripe setup
-- [`RELEASING.md`](RELEASING.md) — cutting a signed desktop release
+- [`RELEASING.md`](RELEASING.md) — cutting a desktop release + versioning policy
+- [`SECURITY.md`](SECURITY.md) — reporting a vulnerability; the local-first boundary
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute; architecture non-negotiables
+- [`eval/SCHEMA.md`](eval/SCHEMA.md) — detection annotation schema + train/blind split
 
 ## License
 
-© Drifterr. All rights reserved.
+Source-available, **not** open-source. © 2026 Drifterr. All rights reserved.
+See [`LICENSE`](LICENSE): you may read and privately evaluate the code, but using,
+redistributing, or hosting it requires a written license. The app binaries at
+[drifterr.app](https://drifterr.app) have their own end-user terms.

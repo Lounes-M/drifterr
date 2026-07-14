@@ -1,0 +1,36 @@
+Drifterr — Proprietary License
+Copyright (c) 2026 Drifterr. All rights reserved.
+
+This source code is published for transparency and evaluation. It is NOT
+open-source. Except as expressly stated below, no license is granted to any
+person to use, copy, modify, merge, publish, distribute, sublicense, host, or
+sell any part of this software, in source or binary form.
+
+PERMITTED WITHOUT PRIOR PERMISSION
+  - Viewing and reading the source code.
+  - Cloning or forking solely to (a) evaluate the software privately, or
+    (b) prepare and submit a contribution back to this repository
+    (see CONTRIBUTING.md).
+
+NOT PERMITTED WITHOUT A SEPARATE WRITTEN LICENSE FROM DRIFTERR
+  - Using the software, or any substantial part of it, in source or binary
+    form, for any purpose beyond private evaluation.
+  - Redistributing, hosting, or offering the software or a derivative work as
+    a product or a service.
+  - Removing or altering this notice, or any copyright or attribution notice.
+
+The official Drifterr application binaries distributed at https://drifterr.app
+are governed by their own end-user terms, not by this source license.
+
+Contributions submitted to this repository are licensed to Drifterr under the
+terms described in CONTRIBUTING.md.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+For licensing inquiries, contact the maintainers via https://drifterr.app.

@@ -60,6 +60,39 @@ Signing** — cheapest for indies). Two routes, both configured in
 Not wired yet (no CA cert); the SmartScreen tip on the download page covers users
 until then. Reputation also builds automatically as more people run the app.
 
+## Versioning
+
+Drifterr ships **one product version**. Three places must always agree:
+
+1. `apps/desktop/src-tauri/tauri.conf.json` → `version` (the app + updater compare this)
+2. `apps/desktop/src-tauri/Cargo.toml` → `version` (and its `Cargo.lock` entry)
+3. `[workspace.package] version` in the root `Cargo.toml` (all internal crates
+   inherit it via `version.workspace = true`)
+
+…and the **git tag** you push (`vX.Y.Z`) must match them. The desktop app sets
+`DRIFTERR_APP_VERSION` so the embedded proxy reports the app version at
+`GET /config`; the landing page reads the latest GitHub release tag. So a single
+`X.Y.Z` flows everywhere: crates → binary → `/config` → settings panel → landing
+badge → git tag.
+
+**SemVer.** MAJOR for breaking changes to the detection contract or the control
+API, MINOR for features, PATCH for fixes. Pre-1.0 we allow MINOR to carry small
+breaking changes.
+
+**Bumping (do all in one commit):**
+
+```bash
+NEW=0.2.4
+sed -i "s/^version = \".*\"/version = \"$NEW\"/" Cargo.toml apps/desktop/src-tauri/Cargo.toml
+sed -i "s/\"version\": \".*\"/\"version\": \"$NEW\"/" apps/desktop/src-tauri/tauri.conf.json
+cargo update -w                                   # refresh workspace Cargo.lock
+(cd apps/desktop/src-tauri && cargo update)       # refresh the app's Cargo.lock
+# update release.yml's workflow_dispatch default to vNEW, then commit + tag vNEW
+```
+
+Verify concordance before tagging: the three `version` fields, both `Cargo.lock`
+files, and the tag all read the same `X.Y.Z`.
+
 ## Cut a release
 
 ```bash
