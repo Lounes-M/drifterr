@@ -26,6 +26,13 @@ async fn main() {
     // Load a local .env if present (no-op otherwise), so config persists.
     dotenvy::dotenv().ok();
 
+    // `drifterr-proxy init` — one-command setup: detect the tool + provider,
+    // print tailored config, and check whether the proxy is reachable.
+    if std::env::args().nth(1).as_deref() == Some("init") {
+        run_init().await;
+        return;
+    }
+
     let proxy_addr: SocketAddr = env_or("DRIFTERR_PROXY_ADDR", "127.0.0.1:8787")
         .parse()
         .expect("invalid DRIFTERR_PROXY_ADDR");
@@ -93,4 +100,87 @@ async fn main() {
 
 fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
+/// One-command setup. Detects the AI tool and provider from the environment,
+/// prints the exact config to use, and checks whether the proxy is reachable.
+/// Read-only and side-effect-free — it never writes files or contacts a provider.
+async fn run_init() {
+    let control = env_or("DRIFTERR_CONTROL_ADDR", "127.0.0.1:8788");
+    let proxy = env_or("DRIFTERR_PROXY_ADDR", "127.0.0.1:8787");
+
+    println!("\n  Drifterr — setup\n  {}", "─".repeat(48));
+
+    // 1) Claude Code — zero-config file channel.
+    let claude = drifterr_proxy::default_claude_projects_dir().filter(|p| p.is_dir());
+    if let Some(dir) = &claude {
+        println!("  ✓ Claude Code detected ({})", dir.display());
+        println!("    Nothing to configure — the app watches your sessions.");
+        println!("    Just declare your intent in the panel and keep coding.");
+    } else {
+        println!("  • Claude Code not detected (no ~/.claude/projects).");
+    }
+
+    // 2) Provider — recommend a preset from whatever key is already exported.
+    // Order matters: the first match wins, mirroring how you'd likely relay.
+    let providers: [(&str, &str); 8] = [
+        ("OPENROUTER_API_KEY", "openrouter"),
+        ("OPENAI_API_KEY", "openai"),
+        ("ANTHROPIC_API_KEY", "anthropic"),
+        ("GROQ_API_KEY", "groq"),
+        ("MISTRAL_API_KEY", "mistral"),
+        ("DEEPSEEK_API_KEY", "deepseek"),
+        ("XAI_API_KEY", "xai"),
+        ("TOGETHER_API_KEY", "together"),
+    ];
+    let detected: Vec<&str> = providers
+        .iter()
+        .filter(|(env, _)| std::env::var_os(env).is_some())
+        .map(|(_, preset)| *preset)
+        .collect();
+
+    println!("\n  For other tools, point them at the proxy:");
+    println!("    export OPENAI_BASE_URL=http://{proxy}/v1     # OpenAI-style");
+    println!("    export ANTHROPIC_BASE_URL=http://{proxy}      # Anthropic-style");
+    match detected.as_slice() {
+        [] => {
+            println!("\n  • No provider key found in your environment.");
+            println!("    Export your own key and (optionally) pick a preset:");
+            println!("      export DRIFTERR_PROVIDER=openai   # or anthropic | gemini | groq | …");
+        }
+        [one] => {
+            println!("\n  ✓ Provider key detected → use:");
+            println!("      export DRIFTERR_PROVIDER={one}");
+        }
+        many => {
+            println!(
+                "\n  ✓ Multiple provider keys detected ({}).",
+                many.join(", ")
+            );
+            println!("    Pick one:  export DRIFTERR_PROVIDER={}", many[0]);
+        }
+    }
+
+    // 3) Is the proxy already up? Best-effort; a short timeout, localhost only.
+    println!("\n  Checking the proxy…");
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_millis(800))
+        .build();
+    let reachable = match client {
+        Ok(c) => c
+            .get(format!("http://{control}/health"))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false),
+        Err(_) => false,
+    };
+    if reachable {
+        println!("  ✓ Proxy is running — dashboard at http://{control}/");
+    } else {
+        println!("  • Proxy not reachable on http://{control}/");
+        println!("    Start it with `drifterr-proxy`, or open the Drifterr app.");
+    }
+    println!("  {}\n", "─".repeat(48));
 }

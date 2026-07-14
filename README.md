@@ -87,7 +87,8 @@ sessions (`~/.claude/projects`) — no keys, no env vars, fully local. Just decl
 your intent in the panel and keep coding; it warns at the exact turn a reply
 breaks one of your rules. (Override the watched dir with `DRIFTERR_WATCH_DIR`.)
 
-For any other tool, point it at the local proxy and watch the menubar:
+For any other tool, run **`drifterr-proxy init`** — it detects your tool and
+provider key and prints the exact config — or set it by hand:
 
 ```bash
 export OPENAI_BASE_URL=http://localhost:8787/v1
