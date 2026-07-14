@@ -119,6 +119,23 @@ fn start_embedded_proxy(app: &tauri::App) {
     let cfg = drifterr_proxy::ProxyConfig::default();
     let state = drifterr_proxy::AppState::new(cfg, store);
 
+    // Zero-config Claude Code channel: watch the local session transcripts and
+    // feed them through the same engine as the HTTP proxy, so drift on a Claude
+    // Code session lights the panel and fires notifications with no setup and no
+    // API key. DRIFTERR_WATCH_DIR overrides the default (~/.claude/projects); we
+    // only watch a directory that actually exists. The watcher is leaked so it
+    // lives for the whole app session (there is no teardown before exit).
+    let watch_dir = std::env::var("DRIFTERR_WATCH_DIR")
+        .ok()
+        .filter(|d| !d.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(drifterr_proxy::default_claude_projects_dir);
+    if let Some(dir) = watch_dir.filter(|p| p.is_dir()) {
+        if let Some(watcher) = drifterr_proxy::watch_claude_sessions(&dir, state.clone()) {
+            std::mem::forget(watcher);
+        }
+    }
+
     tauri::async_runtime::spawn(async move {
         if let Err(e) = drifterr_proxy::serve(proxy_addr(), control_addr(), state).await {
             eprintln!("drifterr: embedded proxy stopped: {e}");

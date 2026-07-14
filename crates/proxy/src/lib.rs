@@ -313,6 +313,57 @@ pub fn open_store(path: &str) -> Option<drifterr_store::Store> {
     drifterr_store::Store::open(path).ok()
 }
 
+/// The default location Claude Code writes its session transcripts to
+/// (`~/.claude/projects`), or `None` if the home directory can't be resolved.
+/// Embedders use this to watch Claude Code with zero configuration.
+pub fn default_claude_projects_dir() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|h| !h.is_empty())?;
+    Some(std::path::Path::new(&home).join(".claude").join("projects"))
+}
+
+/// Watch a directory of Claude Code sessions and feed each into the shared engine
+/// state — the SAME pipeline the HTTP proxy uses, so detection, notifications and
+/// the panel all work identically for file-sourced sessions. Does an initial scan
+/// so existing sessions show up immediately, then watches for changes. Returns the
+/// live watcher, which the caller MUST keep alive for the lifetime of the process.
+pub fn watch_claude_sessions(
+    dir: &std::path::Path,
+    state: AppState,
+) -> Option<drifterr_adapters::RecommendedWatcher> {
+    // Initial scan so already-open sessions are picked up on launch.
+    for (_, conv) in drifterr_adapters::claude_code::scan_dir(dir) {
+        if let Ok(mut core) = state.core.lock() {
+            core.record_conversation(&conv);
+        }
+    }
+
+    let ingest_state = state.clone();
+    let ingest = move |file: std::path::PathBuf| {
+        let Ok(content) = std::fs::read_to_string(&file) else {
+            return;
+        };
+        let stem = file
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("session");
+        if let Some(conv) = drifterr_adapters::claude_code::parse_session(&content, stem) {
+            if let Ok(mut core) = ingest_state.core.lock() {
+                core.record_conversation(&conv);
+            }
+        }
+    };
+
+    match drifterr_adapters::watch_dir(dir, ingest) {
+        Ok(w) => Some(w),
+        Err(e) => {
+            eprintln!("drifterr: could not watch {}: {e}", dir.display());
+            None
+        }
+    }
+}
+
 /// The transparent relay: a catch-all over every path and method.
 pub fn proxy_router(state: AppState) -> Router {
     Router::new().fallback(proxy_handler).with_state(state)
