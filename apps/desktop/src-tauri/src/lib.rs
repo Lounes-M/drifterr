@@ -132,6 +132,15 @@ fn start_embedded_proxy(app: &tauri::App) {
     // view) reports the installed app's version, not the proxy crate's 0.0.1.
     std::env::set_var("DRIFTERR_APP_VERSION", env!("CARGO_PKG_VERSION"));
 
+    // Put the local false-positive feedback log in the app-data dir (next to the
+    // DB), unless the user overrode it. Stays local — never leaves the machine.
+    if std::env::var_os("DRIFTERR_FEEDBACK_FILE").is_none() {
+        if let Ok(dir) = app.path().app_data_dir() {
+            let _ = std::fs::create_dir_all(&dir);
+            std::env::set_var("DRIFTERR_FEEDBACK_FILE", dir.join("feedback.jsonl"));
+        }
+    }
+
     let store = db.and_then(|p| drifterr_proxy::open_store(&p));
     let cfg = drifterr_proxy::ProxyConfig::default();
     let state = drifterr_proxy::AppState::new(cfg, store);

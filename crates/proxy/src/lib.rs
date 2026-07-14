@@ -422,6 +422,7 @@ pub fn control_router(state: AppState) -> Router {
         .route("/journal", get(journal_handler))
         .route("/standing-orders", get(standing_orders_handler))
         .route("/standing-orders/promote", post(promote_handler))
+        .route("/feedback", post(feedback_handler))
         .route("/ingest", post(ingest_handler))
         .route("/public/{*path}", get(public_handler))
         .route("/health", get(|| async { "ok" }))
@@ -855,6 +856,56 @@ async fn retire_constraint_handler(
     {
         Some(view) => Json(view).into_response(),
         None => (StatusCode::NOT_FOUND, "unknown constraint").into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct FeedbackReq {
+    session: Option<String>,
+    note: Option<String>,
+}
+
+/// Where user-reported false positives are appended (local JSONL). Configurable
+/// via `DRIFTERR_FEEDBACK_FILE`; the desktop app points it at the app-data dir.
+/// Defaults to the working directory for the standalone proxy.
+fn feedback_file() -> std::path::PathBuf {
+    std::env::var_os("DRIFTERR_FEEDBACK_FILE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("drifterr-feedback.jsonl"))
+}
+
+/// `POST /feedback` — the user says "this wasn't drift". We capture the fired
+/// signal + the baseline it was measured against as a local false-positive
+/// sample (never leaves the machine) that can later seed the eval corpus.
+async fn feedback_handler(State(app): State<AppState>, Json(body): Json<FeedbackReq>) -> Response {
+    let sample = app
+        .core
+        .lock()
+        .ok()
+        .and_then(|c| c.feedback_sample(body.session.as_deref(), body.note.clone()));
+    let Some(sample) = sample else {
+        return (StatusCode::NOT_FOUND, "no active signal to correct").into_response();
+    };
+    let Ok(mut line) = serde_json::to_string(&sample) else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "serialize").into_response();
+    };
+    line.push('\n');
+    use std::io::Write;
+    let path = feedback_file();
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut f| f.write_all(line.as_bytes()))
+    {
+        Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Err(e) => {
+            eprintln!(
+                "drifterr: could not write feedback to {}: {e}",
+                path.display()
+            );
+            (StatusCode::INTERNAL_SERVER_ERROR, "write failed").into_response()
+        }
     }
 }
 

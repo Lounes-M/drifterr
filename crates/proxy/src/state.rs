@@ -29,6 +29,38 @@ pub struct ConstraintView {
     pub active: bool,
 }
 
+/// A user-reported false positive ("this wasn't drift"), captured locally so it
+/// can later be folded into the eval corpus. Never leaves the machine — it's
+/// written to a local JSONL file, the same local-first boundary as the SQLite
+/// store. Shaped to line up with the eval annotation schema (see eval/SCHEMA.md).
+#[derive(Debug, Clone, Serialize)]
+pub struct FeedbackSample {
+    /// Always "not_drift" for now — the one correction the button reports.
+    pub label: &'static str,
+    pub session: String,
+    pub model: String,
+    /// What the engine committed when the user disagreed.
+    #[serde(rename = "observedState")]
+    pub observed_state: String,
+    /// The signal the engine named as the cause, and its evidence.
+    #[serde(rename = "triggeringSignal")]
+    pub triggering_signal: String,
+    pub detail: String,
+    #[serde(rename = "constraintId", skip_serializing_if = "Option::is_none")]
+    pub constraint_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub span: Option<String>,
+    /// The baseline the drift was measured against.
+    pub goal: String,
+    pub constraints: Vec<String>,
+    /// An optional free-text note from the user.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// The corrected expectation for annotation: the user says this is aligned.
+    #[serde(rename = "correctedState")]
+    pub corrected_state: &'static str,
+}
+
 /// The user-facing intent for a session: the stated goal plus its constraints.
 #[derive(Debug, Clone, Serialize)]
 pub struct IntentView {
@@ -249,6 +281,44 @@ impl AppCore {
     /// The current declared/inferred intent for a session (or the current one, or
     /// a pending not-yet-applied intent). `None` only when there is nothing at all
     /// to show.
+    /// Build a false-positive feedback sample for the current (or given) session:
+    /// the user is telling us "this wasn't drift". Captures the fired signal + its
+    /// evidence and the baseline it was measured against, framed as the corrected
+    /// expectation (green / none). Paired with the user's transcript it becomes an
+    /// eval case — the false-positive→corpus loop. Returns `None` if there's no
+    /// session or nothing was firing (nothing to correct).
+    pub fn feedback_sample(
+        &self,
+        session: Option<&str>,
+        note: Option<String>,
+    ) -> Option<FeedbackSample> {
+        let target = session
+            .map(str::to_string)
+            .or_else(|| self.last_updated.clone())?;
+        let s = self.sessions.get(&target)?;
+        let trig = s.status.triggering.as_ref()?; // nothing firing ⇒ nothing to correct
+        let intent = IntentView::from_baseline(&s.baseline);
+        Some(FeedbackSample {
+            label: "not_drift",
+            session: target,
+            model: s.status.model.clone(),
+            observed_state: format!("{:?}", s.status.state).to_lowercase(),
+            triggering_signal: trig.signal.clone(),
+            detail: trig.detail.clone(),
+            constraint_id: trig.constraint_id.clone(),
+            span: trig.span.clone(),
+            goal: intent.goal,
+            constraints: intent
+                .constraints
+                .iter()
+                .filter(|c| c.active)
+                .map(|c| c.text.clone())
+                .collect(),
+            note,
+            corrected_state: "green",
+        })
+    }
+
     pub fn intent_of(&self, session: Option<&str>) -> Option<IntentView> {
         let target = session
             .map(str::to_string)
@@ -1316,6 +1386,33 @@ mod tests {
             "a spent budget must stop synthesis even when the cadence is ready"
         );
         std::env::remove_var("DRIFTERR_JUDGE_MAX_SYNTH_PER_SESSION");
+    }
+
+    #[test]
+    fn feedback_sample_captures_the_firing_signal() {
+        // A session that fires a hard constraint (no-JS violated).
+        let jsonl = concat!(
+            r#"{"type":"user","sessionId":"fb","message":{"role":"user","content":"Refactor in TS, no JS"}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"role":"assistant","model":"claude","content":[{"type":"text","text":"creating auth.js now"}]}}"#,
+        );
+        let conv = drifterr_adapters::claude_code::parse_session(jsonl, "fb").unwrap();
+        let mut core = AppCore::new(None);
+        assert_eq!(core.record_conversation(&conv), State::Red);
+
+        let s = core
+            .feedback_sample(None, Some("false alarm".into()))
+            .expect("a firing session yields a sample");
+        assert_eq!(s.label, "not_drift");
+        assert_eq!(s.triggering_signal, "constraint");
+        assert_eq!(s.observed_state, "red");
+        assert_eq!(s.corrected_state, "green");
+        assert!(!s.goal.is_empty(), "captures the baseline goal");
+        assert_eq!(s.note.as_deref(), Some("false alarm"));
+
+        // No session / nothing firing ⇒ nothing to correct.
+        let empty = AppCore::new(None);
+        assert!(empty.feedback_sample(None, None).is_none());
     }
 
     #[test]

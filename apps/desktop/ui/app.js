@@ -673,6 +673,31 @@ export async function copySessionReport(doc, fetchImpl) {
   return text;
 }
 
+/// Report the current trigger as a false positive ("not a drift"). POSTs to
+/// /feedback, which appends a local sample (never leaves the machine) that can
+/// later seed the eval corpus. Gives quick inline confirmation on the button.
+export async function reportNotDrift(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  const btn = doc.getElementById("not-drift-btn");
+  const restore = () => {
+    if (btn) { btn.textContent = "Not a drift"; btn.disabled = false; }
+  };
+  try {
+    const res = await f(apiBase() + "/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (btn) {
+      if (res.ok) { btn.textContent = "Thanks — noted"; btn.disabled = true; }
+      else { btn.textContent = "Couldn't save"; }
+      setTimeout(restore, 2200);
+    }
+  } catch (_e) {
+    if (btn) { btn.textContent = "Offline"; setTimeout(restore, 2200); }
+  }
+}
+
 function setupExtras(doc) {
   const dnd = doc.getElementById("dnd-toggle");
   if (dnd) dnd.addEventListener("change", () => setDnd(doc, dnd.checked));
@@ -964,6 +989,11 @@ function setupUi(doc) {
   const reanchorBtn = doc.getElementById("reanchor-btn");
   if (reanchorBtn) {
     reanchorBtn.addEventListener("click", () => loadReanchor(doc));
+  }
+
+  const notDriftBtn = doc.getElementById("not-drift-btn");
+  if (notDriftBtn) {
+    notDriftBtn.addEventListener("click", () => reportNotDrift(doc));
   }
 
   const closeBtn = doc.getElementById("reanchor-close");

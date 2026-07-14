@@ -311,9 +311,10 @@ code { font-family: var(--mono); }
 }
 
 /* Primary action — orange→pink accent button. */
+.trigger-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
 .reanchor-btn {
   position: relative; overflow: hidden;
-  align-self: flex-start; margin-top: 2px;
+  align-self: flex-start;
   display: inline-flex; align-items: center; gap: 6px;
   background: linear-gradient(135deg, var(--blue), var(--blue-deep));
   color: #fff;
