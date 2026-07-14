@@ -33,7 +33,8 @@ click. It runs as a quiet menubar app alongside the tools you already use.
 
 - **Local-first.** Conversations live in local SQLite. **No chat content ever
   leaves your machine.** The only server-side component is accounts & billing
-  (identity + plan, nothing else).
+  (identity + plan, nothing else). Not a promise — [enforced in CI](crates/proxy/tests/egress.rs)
+  and laid out at [drifterr.app/proof](https://drifterr.app/proof).
 - **Named causes, not a black box.** Each signal carries its own evidence (turn,
   constraint, offending span) so the UI can tell you *what* drifted — signals are
   never fused into one opaque score.

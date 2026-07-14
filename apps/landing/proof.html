@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon/apple-touch-icon.png" />
+    <title>Privacy, proven · Drifterr</title>
+    <meta
+      name="description"
+      content="Your AI conversations never leave your machine — and it's enforced in CI, not just promised. See exactly what stays local and what (email, plan) touches the server."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      .proof { max-width: 940px; margin: 0 auto; padding: 108px 22px 90px; }
+      .proof .kicker { color: var(--accent, #ff7847); }
+      .proof h1 { font-family: "Space Grotesk", sans-serif; font-size: clamp(30px, 5vw, 46px); letter-spacing: -0.02em; margin: 10px 0 8px; }
+      .proof .lede { color: #a9a7ba; font-size: 17px; line-height: 1.6; max-width: 660px; }
+      .proof h2 { font-family: "Space Grotesk", sans-serif; font-size: 22px; margin: 52px 0 14px; letter-spacing: -0.01em; }
+
+      /* Boundary diagram */
+      .boundary { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 22px; }
+      @media (min-width: 760px) { .boundary { grid-template-columns: 1fr 1fr; } }
+      .zone { border-radius: 16px; padding: 20px; border: 1px solid rgba(255,255,255,0.1); background: linear-gradient(160deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); }
+      .zone.local { border-color: rgba(52,232,158,0.4); box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 0 0 1px rgba(52,232,158,0.08); }
+      .zone.server { border-color: rgba(255,120,71,0.35); }
+      .zone h3 { display: flex; align-items: center; gap: 9px; font-family: "Space Grotesk", sans-serif; font-size: 16px; margin: 0 0 4px; }
+      .zone .sub { color: #8f8da2; font-size: 12.5px; margin: 0 0 14px; }
+      .dot9 { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+      .dot9.g { background: #34e89e; box-shadow: 0 0 10px rgba(52,232,158,0.6); }
+      .dot9.o { background: #ff7847; box-shadow: 0 0 10px rgba(255,120,71,0.6); }
+      .zone ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+      .zone li { display: flex; align-items: flex-start; gap: 9px; font-size: 14px; color: #d7d5e4; }
+      .zone li svg { flex: 0 0 auto; margin-top: 2px; }
+      .flow { text-align: center; color: #8f8da2; font-size: 13px; margin: 18px 0 0; }
+      .flow b { color: #d7d5e4; }
+
+      /* Proven table */
+      .ptable { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
+      .ptable th, .ptable td { text-align: left; padding: 11px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); vertical-align: top; }
+      .ptable th { color: #8f8da2; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+      .ptable td:first-child { color: #fff; font-weight: 600; white-space: nowrap; }
+      .ptable td.stay { color: #34e89e; } .ptable td.leave { color: #ff9a6c; }
+
+      .invariant { border-radius: 14px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); padding: 16px 18px; margin-top: 12px; }
+      .invariant b { font-family: "Space Grotesk", sans-serif; }
+      .invariant p { margin: 6px 0 0; color: #a9a7ba; font-size: 14px; line-height: 1.55; }
+      .mono { font-family: "JetBrains Mono", monospace; font-size: 12.5px; color: #cfcde0; background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 6px; }
+      .cta-row { margin-top: 40px; display: flex; gap: 12px; flex-wrap: wrap; }
+    </style>
+  </head>
+  <body>
+    <div class="bg" aria-hidden="true">
+      <div class="grid"></div>
+      <span class="blob a" data-depth="40"></span>
+      <span class="blob b" data-depth="70"></span>
+    </div>
+
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="brand" href="/">
+          <span class="mark"><span class="fill"></span><span class="ring"></span></span>
+          <b>drifterr</b>
+        </a>
+        <div class="nav-right">
+          <a class="nav-acct" href="/">← Back to site</a>
+          <a class="btn" href="/download">Download</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="proof">
+      <span class="kicker">Privacy, proven</span>
+      <h1>Your conversations never leave your machine.</h1>
+      <p class="lede">
+        Not a promise — a property we enforce in continuous integration. Drift is
+        measured locally; the only thing that ever reaches a server is your
+        account identity. Here's the exact boundary, and how it's guaranteed.
+      </p>
+
+      <h2>The boundary</h2>
+      <div class="boundary">
+        <div class="zone local">
+          <h3><span class="dot9 g"></span> Stays on your device</h3>
+          <p class="sub">In local SQLite. Never sent anywhere.</p>
+          <ul>
+            <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34e89e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Your AI conversations & prompts</li>
+            <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34e89e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Your goal & constraints (the baseline)</li>
+            <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34e89e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Every drift signal & score</li>
+            <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34e89e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Re-anchor snapshots</li>
+          </ul>
+        </div>
+        <div class="zone server">
+          <h3><span class="dot9 o"></span> Reaches the server</h3>
+          <p class="sub">Accounts & billing only (Supabase + Stripe).</p>
+          <ul>
+            <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ff9a6c" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Your email</li>
+            <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ff9a6c" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Your plan</li>
+            <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ff9a6c" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Subscription status</li>
+            <li style="color:#6f6d82"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6f6d82" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg> No chat content. Ever.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="flow">
+        Model calls (the relay, the optional judge) go straight to <b>your own
+        provider</b> with <b>your own key</b> — never through a Drifterr server.
+      </p>
+
+      <h2>Line by line</h2>
+      <table class="ptable">
+        <thead><tr><th>Data</th><th>Where it lives</th></tr></thead>
+        <tbody>
+          <tr><td>Conversations & prompts</td><td class="stay">Your device (local SQLite)</td></tr>
+          <tr><td>Goal, constraints, decisions</td><td class="stay">Your device</td></tr>
+          <tr><td>Drift signals & scores</td><td class="stay">Your device</td></tr>
+          <tr><td>Re-anchor snapshots</td><td class="stay">Your device</td></tr>
+          <tr><td>Model / judge calls</td><td class="stay">Your provider, your key</td></tr>
+          <tr><td>Email, plan, subscription</td><td class="leave">Server (accounts only)</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Proven, not promised</h2>
+      <p class="lede" style="margin-bottom:6px">
+        Three invariants run on every build. If any byte of conversation were
+        wired to leave, the build would fail.
+      </p>
+      <div class="invariant">
+        <b>1 · The chat-holding code can't reach the network.</b>
+        <p>The crates that hold or parse your conversation — engine, store, adapters,
+        tokenizer, embeddings, intervention — have <b>zero</b> network dependencies.
+        Adding one fails CI.</p>
+      </div>
+      <div class="invariant">
+        <b>2 · The two network callers hardcode no third-party host.</b>
+        <p>The proxy (relay) and the judge only ever talk to the model provider you
+        configured — no analytics, telemetry, or Drifterr backend domain appears in
+        their code.</p>
+      </div>
+      <div class="invariant">
+        <b>3 · At runtime, chat goes only to your provider.</b>
+        <p>A canary buried in a relayed message reaches the configured upstream and
+        nowhere else — a decoy endpoint standing in for "anywhere else" receives
+        nothing.</p>
+      </div>
+      <p class="flow" style="margin-top:16px">
+        Enforced by <span class="mono">crates/proxy/tests/egress.rs</span>, run on
+        every push and pull request.
+      </p>
+
+      <div class="cta-row">
+        <a class="btn" href="/download">Download Drifterr</a>
+        <a class="nav-acct" href="/privacy" style="align-self:center">Full privacy policy →</a>
+      </div>
+    </main>
+  </body>
+</html>
