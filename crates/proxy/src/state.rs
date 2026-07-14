@@ -153,6 +153,11 @@ pub struct SessionState {
     /// to rate-limit Auto-intent's LLM calls.
     turns_seen: usize,
     last_synth_at: usize,
+    /// Auto-intent cost control: how many judge synthesis calls this session has
+    /// spent (capped by `judge_max_synth_per_session`), and a digest of the
+    /// transcript at the last call so an unchanged transcript is never re-sent.
+    synth_calls: usize,
+    last_synth_hash: u64,
 }
 
 /// The proxy's shared core: every live session plus an optional durable store.
@@ -418,13 +423,38 @@ impl AppCore {
         ))
     }
 
-    /// Whether Auto-intent should run an inference for this session now. Rate
-    /// limited: after ≥2 turns, then at most once every 3 turns — enough to catch
-    /// a pivot without a call per message.
+    /// Whether Auto-intent should run an inference for this session now. Cost
+    /// controls, cheapest first (no transcript needed):
+    /// * cadence — after ≥2 turns, then at most once every 3 turns;
+    /// * budget — never more than `judge_max_synth_per_session` calls per session.
+    ///
+    /// A changed-content check (the cache) is separate — see
+    /// [`synth_content_changed`](Self::synth_content_changed) — because it needs
+    /// the transcript, which the caller only builds once this returns true.
     pub fn due_for_intent_synthesis(&self, session_id: &str) -> bool {
+        let budget = judge_max_synth_per_session();
         self.sessions.get(session_id).is_some_and(|s| {
-            s.turns_seen >= 2 && (s.last_synth_at == 0 || s.turns_seen - s.last_synth_at >= 3)
+            s.synth_calls < budget
+                && s.turns_seen >= 2
+                && (s.last_synth_at == 0 || s.turns_seen - s.last_synth_at >= 3)
         })
+    }
+
+    /// The cache guard: has the transcript actually changed since the last
+    /// synthesis? Skips a judge call (and its cost) when nothing material moved.
+    pub fn synth_content_changed(&self, session_id: &str, transcript_hash: u64) -> bool {
+        self.sessions
+            .get(session_id)
+            .is_some_and(|s| s.last_synth_hash != transcript_hash)
+    }
+
+    /// Record that a synthesis was skipped because the transcript was unchanged:
+    /// advance the cadence clock (so we don't re-check every turn) WITHOUT
+    /// spending budget — no judge call was made.
+    pub fn note_synth_skipped(&mut self, session_id: &str) {
+        if let Some(s) = self.sessions.get_mut(session_id) {
+            s.last_synth_at = s.turns_seen;
+        }
     }
 
     /// Apply an AI-inferred intent to a session (Auto-intent). Constraints are
@@ -435,16 +465,21 @@ impl AppCore {
     ///   user, not guessed;
     /// * otherwise the goal is refined silently only when it isn't user-declared.
     ///
-    /// Records the attempt so the rate limiter advances even when nothing changes.
+    /// Records the attempt so the rate limiter advances even when nothing changes,
+    /// spends one unit of the session's synthesis budget, and remembers the
+    /// transcript digest so an identical transcript is never re-sent.
     pub fn apply_inferred_intent(
         &mut self,
         session_id: &str,
         intent: &drifterr_judge::InferredIntent,
+        transcript_hash: u64,
     ) {
         let Some(session) = self.sessions.get_mut(session_id) else {
             return;
         };
         session.last_synth_at = session.turns_seen;
+        session.synth_calls += 1;
+        session.last_synth_hash = transcript_hash;
 
         for c in &intent.constraints {
             session.baseline.add_judge_constraint(c);
@@ -588,6 +623,8 @@ impl AppCore {
                 pending_shift: None,
                 turns_seen: 0,
                 last_synth_at: 0,
+                synth_calls: 0,
+                last_synth_hash: 0,
             }
         });
 
@@ -772,6 +809,26 @@ pub fn browser_conversation(
         turns: built,
         source: Source::Browser,
     }
+}
+
+/// Auto-intent's per-session budget: the maximum number of judge synthesis calls
+/// one session may spend. Configurable via `DRIFTERR_JUDGE_MAX_SYNTH_PER_SESSION`
+/// (BYOK — the user pays their own provider, so we cap runaway cost). Defaults to
+/// 30 (≈ every 3 turns over a ~90-turn session).
+pub fn judge_max_synth_per_session() -> usize {
+    std::env::var("DRIFTERR_JUDGE_MAX_SYNTH_PER_SESSION")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(30)
+}
+
+/// A stable digest of a transcript, used to skip a synthesis call when the
+/// content hasn't changed since the last one.
+pub fn transcript_digest(transcript: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    transcript.hash(&mut h);
+    h.finish()
 }
 
 /// Render the most recent turns as a compact transcript for Auto-intent's
@@ -1163,6 +1220,7 @@ mod tests {
                 goal: "Refactor the auth module to use argon2".into(),
                 constraints: vec!["Keep the tone terse".into()],
             },
+            1,
         );
         let v = core.intent_of(Some(&id)).unwrap();
         assert_eq!(v.goal, "Refactor the auth module to use argon2");
@@ -1176,6 +1234,7 @@ mod tests {
                 goal: "Build a React analytics dashboard".into(),
                 constraints: vec![],
             },
+            2,
         );
         let shift = core.current().unwrap().intent_shift.expect("pending shift");
         assert_eq!(shift.to, "Build a React analytics dashboard");
@@ -1204,12 +1263,59 @@ mod tests {
                 goal: "Debug the CI pipeline".into(),
                 constraints: vec![],
             },
+            1,
         );
         assert!(core.current().unwrap().intent_shift.is_some());
         // Reject → keep the declared goal; the divergence stays (reads as drift).
         let v = core.resolve_intent_shift(Some(&id), false).unwrap();
         assert_eq!(v.goal, "Write the launch blog post");
         assert!(core.current().unwrap().intent_shift.is_none());
+    }
+
+    #[test]
+    fn auto_intent_caches_unchanged_transcript() {
+        use drifterr_judge::InferredIntent;
+        let mut core = AppCore::new(None);
+        let id = new_session(&mut core, "help me with the API");
+        // Fresh session: any hash is "changed" (last_synth_hash starts at 0).
+        assert!(core.synth_content_changed(&id, 42));
+        core.apply_inferred_intent(
+            &id,
+            &InferredIntent {
+                goal: "Ship the API".into(),
+                constraints: vec![],
+            },
+            42,
+        );
+        // Same transcript ⇒ cached ⇒ no paid re-synthesis.
+        assert!(
+            !core.synth_content_changed(&id, 42),
+            "an unchanged transcript must not trigger another judge call"
+        );
+        // A changed transcript ⇒ re-synthesize.
+        assert!(core.synth_content_changed(&id, 43));
+    }
+
+    #[test]
+    fn auto_intent_budget_caps_calls() {
+        // Budget 0 ⇒ Auto-intent is never due, no matter the cadence.
+        std::env::set_var("DRIFTERR_JUDGE_MAX_SYNTH_PER_SESSION", "0");
+        let mut core = AppCore::new(None);
+        let id = new_session(&mut core, "start the refactor");
+        // Advance turns so cadence alone would say "due".
+        let r = req(br#"{"model":"gpt-4o","messages":[{"role":"user","content":"more"}]}"#);
+        let resp = ParsedResponse {
+            assistant_text: "ok".into(),
+            input_tokens: Some(10),
+            output_tokens: Some(5),
+        };
+        core.record_turn(&id, &r, &resp);
+        core.record_turn(&id, &r, &resp);
+        assert!(
+            !core.due_for_intent_synthesis(&id),
+            "a spent budget must stop synthesis even when the cadence is ready"
+        );
+        std::env::remove_var("DRIFTERR_JUDGE_MAX_SYNTH_PER_SESSION");
     }
 
     #[test]

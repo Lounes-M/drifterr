@@ -15,7 +15,7 @@
 //!   C. at runtime, a chat relayed through the proxy reaches the configured
 //!      upstream faithfully and no beacon fires anywhere else.
 
-use axum::body::{Body, Bytes};
+use axum::body::Body;
 use axum::extract::Request;
 use axum::response::Response;
 use axum::Router;
@@ -28,12 +28,16 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 
 fn workspace_crate(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(name)
 }
 
 /// Recursively collect `.rs` files under `dir`.
 fn rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in rd.flatten() {
         let p = entry.path();
         if p.is_dir() {
@@ -158,7 +162,10 @@ fn beacon_trap(hits: Arc<AtomicUsize>) -> Router {
         let hits = hits.clone();
         async move {
             hits.fetch_add(1, Ordering::SeqCst);
-            Response::builder().status(200).body(Body::from("beacon")).unwrap()
+            Response::builder()
+                .status(200)
+                .body(Body::from("beacon"))
+                .unwrap()
         }
     })
 }

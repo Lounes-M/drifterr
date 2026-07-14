@@ -1270,6 +1270,9 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
         // goal it sets only feeds the soft signal; a big goal shift is surfaced as
         // a prompt, never a silent overwrite (see apply_inferred_intent).
         if app2.auto_intent_on() {
+            // Cost control, cheapest checks first (BYOK — the user pays):
+            //   1. cadence + per-session budget (no transcript needed);
+            //   2. cache — skip the call if the transcript hasn't changed.
             let due = app2
                 .core
                 .lock()
@@ -1277,12 +1280,23 @@ async fn proxy_handler(State(app): State<AppState>, req: Request) -> Response {
                 .unwrap_or(false);
             if due {
                 let transcript = state::transcript_for(&parsed_req, &parsed_resp);
-                let intent = judge
-                    .synthesize_intent(&transcript)
-                    .await
-                    .unwrap_or_default();
-                if let Ok(mut core) = app2.core.lock() {
-                    core.apply_inferred_intent(&session_id, &intent);
+                let hash = state::transcript_digest(&transcript);
+                let changed = app2
+                    .core
+                    .lock()
+                    .map(|c| c.synth_content_changed(&session_id, hash))
+                    .unwrap_or(false);
+                if changed {
+                    let intent = judge
+                        .synthesize_intent(&transcript)
+                        .await
+                        .unwrap_or_default();
+                    if let Ok(mut core) = app2.core.lock() {
+                        core.apply_inferred_intent(&session_id, &intent, hash);
+                    }
+                } else if let Ok(mut core) = app2.core.lock() {
+                    // Unchanged transcript — advance cadence without a paid call.
+                    core.note_synth_skipped(&session_id);
                 }
             }
         }
