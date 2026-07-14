@@ -21,7 +21,9 @@
 //! the headless CI used for the rest of the repo (it needs platform GUI libs).
 //! Build it on a dev machine: `cargo tauri dev` (or `cargo tauri build`).
 
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -29,6 +31,21 @@ use tauri::{
     Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_updater::UpdaterExt;
+
+// Menubar auto-hide bookkeeping. The panel hides when it loses focus (click
+// outside), like a real menubar dropdown. Two millisecond timestamps guard the
+// two races this creates:
+//  * LAST_HIDDEN — a tray click while the panel is open first blurs it (→ hide);
+//    without this the click's toggle would immediately re-open it.
+//  * LAST_SHOWN — showing + focusing can emit a spurious blur mid-transition;
+//    we ignore blur that lands within a beat of a show so the panel doesn't
+//    flicker shut the instant it opens.
+static LAST_HIDDEN_MS: AtomicU64 = AtomicU64::new(0);
+static LAST_SHOWN_MS: AtomicU64 = AtomicU64::new(0);
+static CLOCK: OnceLock<Instant> = OnceLock::new();
+fn now_ms() -> u64 {
+    CLOCK.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
 
 const TRAY_GREEN: &[u8] = include_bytes!("../icons/tray-green.png");
 const TRAY_AMBER: &[u8] = include_bytes!("../icons/tray-amber.png");
@@ -297,14 +314,18 @@ pub fn run() {
                     } = event
                     {
                         if let Some(win) = tray.app_handle().get_webview_window("main") {
+                            // A tray click that lands right after an auto-hide is
+                            // the SAME gesture that blurred (and hid) the panel —
+                            // treat it as "dismiss", not "re-open".
+                            let just_auto_hid =
+                                now_ms().saturating_sub(LAST_HIDDEN_MS.load(Ordering::Relaxed)) < 250;
                             if win.is_visible().unwrap_or(false) {
                                 let _ = win.hide();
-                            } else {
+                            } else if !just_auto_hid {
                                 anchor_to_tray(&win, position);
                                 let _ = win.show();
                                 let _ = win.set_focus();
-                                // Tell the panel it was opened so it replays the
-                                // launch splash on every open.
+                                LAST_SHOWN_MS.store(now_ms(), Ordering::Relaxed);
                                 let _ = tray.app_handle().emit("window://opened", ());
                             }
                         }
@@ -318,10 +339,27 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Closing the panel just hides it — the app stays in the tray.
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+            match event {
+                // Closing the panel just hides it — the app stays in the tray.
+                WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                // Menubar behaviour: hide the moment the panel loses focus (a
+                // click anywhere outside it). Because we HIDE rather than close,
+                // the webview stays alive and the panel reopens exactly where the
+                // user left it — same view, same scroll, same open settings. We
+                // ignore a blur that arrives right after a show (spurious focus
+                // churn during the open transition) so it can't flicker shut.
+                WindowEvent::Focused(false) => {
+                    let just_shown =
+                        now_ms().saturating_sub(LAST_SHOWN_MS.load(Ordering::Relaxed)) < 150;
+                    if !just_shown && window.is_visible().unwrap_or(false) {
+                        LAST_HIDDEN_MS.store(now_ms(), Ordering::Relaxed);
+                        let _ = window.hide();
+                    }
+                }
+                _ => {}
             }
         })
         .run(tauri::generate_context!())

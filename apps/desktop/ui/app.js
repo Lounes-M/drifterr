@@ -1299,12 +1299,11 @@ export function setupSplash(doc) {
   const reduce =
     typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (reduce) { el.hidden = true; return; }
+  // Play once on cold launch only. Reopening from the tray must RESUME where the
+  // user left off (same view/scroll/settings) — the window is hidden, not
+  // reloaded — so replaying the splash on every open would wrongly feel like a
+  // restart. Hence no "window://opened" replay.
   playSplash(el);
-  // Replay each time the tray opens the panel.
-  const T = typeof window !== "undefined" ? window.__TAURI__ : null;
-  if (T && T.event) {
-    T.event.listen("window://opened", () => playSplash(el));
-  }
 }
 
 // --- auto-update (Tauri app only) ------------------------------------------
