@@ -140,4 +140,97 @@ mod tests {
         assert_ne!(verdict.state, State::Red, "soft signals must not reach RED");
         assert_eq!(verdict.state, State::Amber);
     }
+
+    /// A tiny deterministic PRNG (SplitMix64) so the property test is reproducible
+    /// across runs — `rand` isn't a dependency and randomness must be seedable.
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+        fn pick<T: Copy>(&mut self, xs: &[T]) -> T {
+            xs[(self.next() % xs.len() as u64) as usize]
+        }
+    }
+
+    /// Property (fuzzed): across many random conversations and baselines, NO soft
+    /// signal (goal alignment, degradation, decision coherence) ever emits RED —
+    /// the hard/soft rule holds by construction, not just on the hand-picked case
+    /// above. A single counterexample here would mean a soft signal could drive a
+    /// red alert, the one thing the brief forbids.
+    #[test]
+    fn soft_signals_never_emit_red_property() {
+        // Varied content pools: on-topic, off-topic, looping, hedging, code.
+        let phrases = [
+            "here is the axum rust web server code",
+            "anyway here are some banana smoothie recipes",
+            "i'm not sure, it depends, maybe, perhaps this could work",
+            "the handler is ready and wired to the router",
+            "let me refactor the auth module in typescript",
+            "peut-être que ça dépend, je ne suis pas sûr",
+            "creating auth.js with console.log for now",
+            "the same identical sentence repeated over and over",
+            "a short reply",
+            "a very long rambling reply that keeps going and going and restates the same point many times without adding anything new to the discussion at hand really",
+        ];
+        let goals = [
+            "build a rust web server with axum",
+            "write the billing API in strict typescript",
+            "summarize the incident in plain english",
+            "",
+        ];
+
+        let mut rng = Rng(0xD1CE_F00D_1234_5678);
+        for _ in 0..3000 {
+            let goal = rng.pick(&goals).to_string();
+            let n = 1 + (rng.next() % 6) as usize; // 1..=6 turns
+            let turns: Vec<_> = (0..n).map(|i| assistant(i, rng.pick(&phrases))).collect();
+            let used = (rng.next() % 210_000) as usize; // spans low → over-full
+            let conv = Conversation {
+                session_id: "prop".into(),
+                model: "m".into(),
+                turns,
+                context: ContextState {
+                    window_size: 200_000,
+                    used_tokens: used,
+                    exact: true,
+                    tool_call_count: 0,
+                },
+                source: Source::Proxy,
+            };
+            let baseline = Baseline {
+                goal,
+                constraints: vec![],
+                decisions: vec![],
+            };
+            let verdict = evaluate(&conv, &baseline);
+            for e in &verdict.events {
+                let is_soft = matches!(
+                    e.signal,
+                    SignalKind::GoalAlignment
+                        | SignalKind::DecisionCoherence
+                        | SignalKind::Degradation
+                );
+                assert!(
+                    !(is_soft && e.state == State::Red),
+                    "soft signal {:?} emitted RED — hard/soft invariant broken",
+                    e.signal
+                );
+            }
+            // And the corollary: any RED must be owned by a hard signal.
+            if verdict.state == State::Red {
+                assert!(
+                    verdict.events.iter().any(|e| matches!(
+                        e.signal,
+                        SignalKind::Constraint | SignalKind::Saturation
+                    ) && e.state == State::Red),
+                    "verdict is RED with no hard signal RED"
+                );
+            }
+        }
+    }
 }

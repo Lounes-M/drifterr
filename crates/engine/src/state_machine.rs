@@ -280,4 +280,56 @@ mod tests {
         .drift_score();
         assert_eq!(many, 100, "stacked red signals clamp at 100");
     }
+
+    #[test]
+    fn alternating_saturation_never_flaps_to_red() {
+        // Saturation wobbling on its boundary — red every other turn — must never
+        // commit RED (a single sat-red is unconfirmed) and must never strobe: the
+        // committed state should settle and stay there, not flip each turn.
+        let mut m = SessionMonitor::default();
+        let sat_red = v(vec![ev(SignalKind::Saturation, State::Red)]);
+        let green = v(vec![ev(SignalKind::Saturation, State::Green)]);
+        let mut seen = std::collections::BTreeSet::new();
+        for i in 0..40 {
+            let state = if i % 2 == 0 {
+                m.observe(&sat_red)
+            } else {
+                m.observe(&green)
+            };
+            assert_ne!(
+                state,
+                State::Red,
+                "an unconfirmed saturation wobble reached RED (flap)"
+            );
+            seen.insert(state);
+        }
+        // It shows AMBER (a building problem) and never green-flickers back and
+        // forth — de-escalation needs 2 consecutive greens, which never happen.
+        assert_eq!(m.state(), State::Amber);
+    }
+
+    #[test]
+    fn confirmed_saturation_commits_then_clears_after_two_greens() {
+        // Two consecutive sat-reds ⇒ committed RED (confirmed). Then RED is not
+        // stuck: two consecutive greens clear it — and one green alone does not.
+        let mut m = SessionMonitor::default();
+        let sat_red = v(vec![ev(SignalKind::Saturation, State::Red)]);
+        let green = v(vec![ev(SignalKind::Saturation, State::Green)]);
+        assert_eq!(
+            m.observe(&sat_red),
+            State::Amber,
+            "1st sat-red waits (amber)"
+        );
+        assert_eq!(m.observe(&sat_red), State::Red, "2nd sat-red confirms RED");
+        assert_eq!(
+            m.observe(&green),
+            State::Red,
+            "one green must not clear a committed RED"
+        );
+        assert_eq!(
+            m.observe(&green),
+            State::Green,
+            "two greens de-escalate — RED is never stuck"
+        );
+    }
 }
