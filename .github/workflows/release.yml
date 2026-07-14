@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release tag to build (e.g. v0.2.2)"
+        description: "Release tag to build (e.g. v0.2.3)"
         required: true
-        default: "v0.2.2"
+        default: "v0.2.3"
       semantic:
         description: "Bundle the ONNX semantic model (+~130MB). OFF by default — the ONNX build currently fails to link on Windows (LNK2038 CRT mismatch); leave unchecked until that's fixed."
         type: boolean

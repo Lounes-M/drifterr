@@ -53,6 +53,17 @@ html { background: #050409; }
    the dark canvas above still stands in for the wallpaper. */
 html.tauri, html.tauri body { background: transparent; }
 html.tauri body::before, html.tauri body::after { display: none; }
+/* The panel's big drop shadow was tuned to blend into the old dark canvas.
+   With the window now transparent it falls on the real desktop — over a light
+   wallpaper that huge soft shadow reads as a grey halo around the app. Tighten
+   it to a subtle float shadow that hugs the rounded edge and fades well within
+   the transparent margin, so no grey slab and no hard clip at the window rect. */
+html.tauri .panel {
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.32),
+    0 2px 6px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
 
 body {
   min-height: 100vh;

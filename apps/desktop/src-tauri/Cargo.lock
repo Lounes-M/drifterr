@@ -1027,7 +1027,7 @@ dependencies = [
 
 [[package]]
 name = "drifterr-desktop"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "drifterr-proxy",
  "reqwest 0.12.28",
