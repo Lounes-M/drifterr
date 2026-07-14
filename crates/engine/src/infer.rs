@@ -76,6 +76,47 @@ fn no_comments_re() -> &'static Regex {
     })
 }
 
+/// "no TODOs", "no TODO/FIXME", "no placeholders", "pas de TODO". A common
+/// Claude Code rule ("finish it, no TODOs left"). We map it to a code-scoped
+/// check so the word "todo" in prose never fires it.
+fn no_todo_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?:no|not|avoid|don'?t\s+(?:use|leave)|do\s+not\s+(?:use|leave)|without|pas\s+de|sans|aucun)\s+(?:todos?|fixmes?|placeholders?)\b",
+        )
+        .unwrap()
+    })
+}
+
+/// "no console.log(s)", "remove console logs", "no console statements", "pas de
+/// console.log". Scoped to JS/TS debug logging via the literal `console` so it
+/// stays precise.
+fn no_console_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?:no|not|avoid|don'?t\s+use|do\s+not\s+use|remove|strip|pas\s+de|sans)\s+console(?:\.\w+|\s+(?:logs?|statements?|calls?))?\b",
+        )
+        .unwrap()
+    })
+}
+
+/// "no any type", "don't use any", "avoid any types", "pas de any" — the
+/// TypeScript `any` prohibition. Requires the type context ("any type", "use
+/// any", backticked `any`) so the everyday English word "any" never trips it.
+fn no_any_type_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        // Requires the TYPE context — "any type(s)", a backticked `any`, or the
+        // explicit FR "pas de any" — so the everyday word "any" never fires.
+        Regex::new(
+            r"(?i)(?:\b(?:no|avoid|don'?t\s+use|do\s+not\s+use)\s+(?:`any`|\bany\b)\s+types?\b|\b(?:no|avoid|don'?t\s+use|do\s+not\s+use)\s+`any`|\bpas\s+de\s+(?:`any`|\bany\b))",
+        )
+        .unwrap()
+    })
+}
+
 /// Every deterministic rule we can confidently infer from `text`.
 ///
 /// Returns all matches (a single message may state several constraints), so the
@@ -97,6 +138,27 @@ pub fn infer_rules(text: &str) -> Vec<Rule> {
     if no_comments_re().is_match(text) {
         rules.push(Rule::ForbidInCode {
             pattern: r"(//|/\*|^\s*#|<!--)".to_string(),
+        });
+    }
+
+    // "No TODOs / FIXMEs" — forbid leftover markers in code.
+    if no_todo_re().is_match(text) {
+        rules.push(Rule::ForbidInCode {
+            pattern: r"\b(?:TODO|FIXME)\b".to_string(),
+        });
+    }
+
+    // "No console.log" — forbid JS/TS debug logging left in code.
+    if no_console_re().is_match(text) {
+        rules.push(Rule::ForbidInCode {
+            pattern: r"console\.(?:log|debug|info|warn|error)\b".to_string(),
+        });
+    }
+
+    // "No `any` type" — forbid TypeScript `any` annotations in code.
+    if no_any_type_re().is_match(text) {
+        rules.push(Rule::ForbidInCode {
+            pattern: r":\s*any\b".to_string(),
         });
     }
 
@@ -178,6 +240,18 @@ pub fn describe(rule: &Rule) -> (&'static str, crate::baseline::ConstraintType) 
     use crate::baseline::ConstraintType;
     match rule {
         Rule::ForbidPattern { .. } => ("TypeScript only, no JS files", ConstraintType::Tech),
+        // Several distinct code rules share the ForbidInCode mechanism; name each
+        // by its pattern so the panel can state the actual cause, not a generic
+        // "no comments". Keep these substrings in sync with `infer_rules`.
+        Rule::ForbidInCode { pattern } if pattern.contains("TODO") => {
+            ("No TODOs or FIXMEs in code", ConstraintType::Format)
+        }
+        Rule::ForbidInCode { pattern } if pattern.contains("console") => {
+            ("No console logging in code", ConstraintType::Format)
+        }
+        Rule::ForbidInCode { pattern } if pattern.contains("any") => {
+            ("No `any` type in code", ConstraintType::Tech)
+        }
         Rule::ForbidInCode { .. } => ("No comments in code", ConstraintType::Format),
         Rule::RequirePattern { .. } => ("Required pattern must be present", ConstraintType::Tech),
         Rule::MaxWords { .. } => ("Stay within the word limit", ConstraintType::Format),
@@ -281,5 +355,107 @@ mod tests {
         assert_eq!(max, Some(200));
         // Numbers unrelated to a word cap don't fire.
         assert!(infer_rules("use port 8080 and 3 retries").is_empty());
+    }
+
+    /// Helper: does `text` infer a code rule whose forbid pattern contains `frag`?
+    fn infers_code_pattern(text: &str, frag: &str) -> bool {
+        infer_rules(text)
+            .iter()
+            .any(|r| matches!(r, Rule::ForbidInCode { pattern } if pattern.contains(frag)))
+    }
+
+    #[test]
+    fn no_todo_inference() {
+        for s in [
+            "no TODOs left please",
+            "finish it, no todo",
+            "don't leave FIXMEs",
+            "no placeholders",
+            "pas de todo",
+            "sans placeholder",
+        ] {
+            assert!(
+                infers_code_pattern(s, "TODO"),
+                "should infer no-TODO from: {s}"
+            );
+        }
+        // "today" / prose must not fire (word-boundary + specific words).
+        assert!(!infers_code_pattern("ship it today", "TODO"));
+        assert!(infer_rules("what should I do today?").is_empty());
+    }
+
+    #[test]
+    fn no_console_inference() {
+        for s in [
+            "no console.log",
+            "remove console logs",
+            "don't use console.error",
+            "strip console statements",
+            "pas de console.log",
+        ] {
+            assert!(
+                infers_code_pattern(s, "console"),
+                "should infer no-console from: {s}"
+            );
+        }
+        // A game console mention without a prohibition doesn't fire.
+        assert!(!infers_code_pattern(
+            "the console shows the score",
+            "console"
+        ));
+    }
+
+    #[test]
+    fn no_any_type_inference() {
+        for s in [
+            "no any type",
+            "don't use any type",
+            "do not use any types",
+            "avoid any types",
+            "no `any`",
+            "pas de any",
+        ] {
+            assert!(
+                infers_code_pattern(s, "any"),
+                "should infer no-any from: {s}"
+            );
+        }
+        // Bare "any" without the type context stays quiet (precision).
+        assert!(!infers_code_pattern("use any approach you prefer", "any"));
+        // The everyday word "any" in prose must never trip it.
+        assert!(!infers_code_pattern(
+            "let me know if you have any questions",
+            "any"
+        ));
+        assert!(infer_rules("pick any font you like").is_empty());
+    }
+
+    #[test]
+    fn new_code_rules_are_named_distinctly() {
+        use crate::baseline::Rule;
+        let todo = describe(&Rule::ForbidInCode {
+            pattern: r"\b(?:TODO|FIXME)\b".into(),
+        })
+        .0;
+        let console = describe(&Rule::ForbidInCode {
+            pattern: r"console\.(?:log|debug|info|warn|error)\b".into(),
+        })
+        .0;
+        let any = describe(&Rule::ForbidInCode {
+            pattern: r":\s*any\b".into(),
+        })
+        .0;
+        let comments = describe(&Rule::ForbidInCode {
+            pattern: r"(//|/\*)".into(),
+        })
+        .0;
+        // Each ForbidInCode rule names its own cause — no generic collision.
+        assert!(todo.contains("TODO"));
+        assert!(console.to_lowercase().contains("console"));
+        assert!(any.contains("any"));
+        assert!(comments.to_lowercase().contains("comment"));
+        assert_ne!(todo, comments);
+        assert_ne!(console, comments);
+        assert_ne!(any, comments);
     }
 }

@@ -76,6 +76,7 @@ async fn main() {
     let _watcher = watch_dir.filter(|p| p.is_dir()).and_then(|dir| {
         let w = drifterr_proxy::watch_claude_sessions(&dir, state.clone());
         if w.is_some() {
+            state.set_watching_files(true);
             eprintln!(
                 "drifterr files    → watching {}  (Claude Code sessions)",
                 dir.display()

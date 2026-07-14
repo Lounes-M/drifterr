@@ -146,6 +146,9 @@ pub struct ConfigMeta {
     /// Whether opt-in auto-re-anchor is active.
     #[serde(rename = "autoReanchor")]
     pub auto_reanchor: bool,
+    /// Whether the Claude Code file channel is actively watching sessions.
+    #[serde(rename = "watchingClaudeCode")]
+    pub watching_claude_code: bool,
 }
 
 /// The upstream provider currently in effect. Runtime-mutable so the menubar's
@@ -186,6 +189,11 @@ pub struct AppState {
     /// Do Not Disturb: when on, the native shell suppresses all OS notifications
     /// (drift alerts + update alerts). The panel still updates. Off by default.
     pub notifications_muted: Arc<AtomicBool>,
+    /// True when the Claude Code file channel is active (the app is watching the
+    /// local session transcripts). Set by the embedder after the watcher starts,
+    /// surfaced at `GET /config` so the panel can show a "Watching Claude Code"
+    /// indicator. Purely informational.
+    pub watching_files: Arc<AtomicBool>,
     /// Current plan entitlement, set by the desktop app after login. Defaults to
     /// Free so the proxy works standalone. Gates paid capabilities (drift map,
     /// extra sessions, auto-re-anchor).
@@ -278,6 +286,7 @@ impl AppState {
             persisted: store.is_some(),
             judge: judge.label(),
             auto_reanchor,
+            watching_claude_code: false,
         };
         let judge = Arc::new(RwLock::new(judge));
         let upstream = ActiveUpstream {
@@ -296,6 +305,7 @@ impl AppState {
             auto_reanchor: Arc::new(AtomicBool::new(auto_reanchor)),
             auto_intent: Arc::new(AtomicBool::new(false)),
             notifications_muted: Arc::new(AtomicBool::new(false)),
+            watching_files: Arc::new(AtomicBool::new(false)),
             entitlement: Arc::new(RwLock::new(Entitlement::default())),
             upstream: Arc::new(RwLock::new(upstream)),
         }
@@ -304,6 +314,12 @@ impl AppState {
     /// Read the current entitlement (Free if the lock is poisoned).
     pub fn entitlement(&self) -> Entitlement {
         self.entitlement.read().map(|e| *e).unwrap_or_default()
+    }
+
+    /// Mark whether the Claude Code file channel is active (embedder-set).
+    pub fn set_watching_files(&self, on: bool) {
+        self.watching_files
+            .store(on, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -534,6 +550,10 @@ async fn config_handler(State(app): State<AppState>) -> Json<ConfigMeta> {
     }
     // Reflect the live auto-re-anchor toggle, not just the boot value.
     meta.auto_reanchor = app.auto_reanchor_on();
+    // Reflect whether the Claude Code file channel is currently watching.
+    meta.watching_claude_code = app
+        .watching_files
+        .load(std::sync::atomic::Ordering::Relaxed);
     // Reflect the live (possibly runtime-configured) judge, not just the boot one.
     if let Ok(j) = app.judge.read() {
         meta.judge = j.label();

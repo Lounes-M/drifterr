@@ -19,6 +19,28 @@ export function stateInfo(state) {
   return STATES[state] || { label: "Unknown", cls: "unknown", blurb: "" };
 }
 
+// --- icons -----------------------------------------------------------------
+// Inline Lucide (lucide.dev, ISC) glyphs — no CDN, no emoji, CSP-safe and
+// offline. `stroke: currentColor` so each icon inherits its button's colour.
+// Keep the raw path data verbatim from Lucide so the shapes stay pixel-accurate.
+const ICON_PATHS = {
+  "rotate-ccw": '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  sparkles: '<path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/>',
+};
+
+/// Build an inline SVG string for a Lucide icon name. `size` in px (default 16).
+export function icon(name, size = 16) {
+  const paths = ICON_PATHS[name];
+  if (!paths) return "";
+  return (
+    `<svg class="ic ic-${name}" width="${size}" height="${size}" viewBox="0 0 24 24" ` +
+    'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+    `stroke-linejoin="round" aria-hidden="true">${paths}</svg>`
+  );
+}
+
 const SIGNAL_LABELS = {
   constraint: "Constraints",
   saturation: "Saturation",
@@ -244,6 +266,10 @@ export function renderConfig(doc, cfg) {
   setText(doc, "cfg-judge", cfg ? cfg.judge : "—");
   setText(doc, "cfg-storage", cfg ? (cfg.persisted ? "SQLite (persisted)" : "In-memory") : "—");
   setText(doc, "cfg-version", cfg ? "v" + cfg.version : "—");
+  // "Watching Claude Code" confidence chip on the main panel — reflects the live
+  // file channel. Shown regardless of whether a session is active yet.
+  const watching = doc.getElementById("watching");
+  if (watching) watching.hidden = !(cfg && cfg.watchingClaudeCode);
 }
 
 /// Show/hide the settings view. With no `show` arg, toggles. Returns the new
@@ -806,7 +832,7 @@ export function renderIntent(doc, data) {
         rm.className = "intent-remove";
         rm.title = "Remove this constraint";
         rm.setAttribute("aria-label", "Remove constraint");
-        rm.textContent = "×";
+        rm.innerHTML = icon("x", 14);
         rm.addEventListener("click", () => retireConstraint(doc, c.id));
         li.appendChild(rm);
       }
@@ -1344,6 +1370,9 @@ export async function poll(doc, fetchImpl) {
     // never overwrite the form while the user is editing it.
     if (!intentEditorOpen(doc)) await loadIntent(doc, f);
     await loadJournal(doc, f);
+    // Cheap localhost read; keeps the "Watching Claude Code" chip and the live
+    // config (provider/version) fresh on the main panel without opening settings.
+    await loadConfig(doc, f);
   } catch (_e) {
     renderError(doc, "Drifterr proxy not reachable (is it running on " + apiBase() + "?)");
   }

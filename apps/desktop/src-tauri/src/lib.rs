@@ -132,6 +132,7 @@ fn start_embedded_proxy(app: &tauri::App) {
         .or_else(drifterr_proxy::default_claude_projects_dir);
     if let Some(dir) = watch_dir.filter(|p| p.is_dir()) {
         if let Some(watcher) = drifterr_proxy::watch_claude_sessions(&dir, state.clone()) {
+            state.set_watching_files(true);
             std::mem::forget(watcher);
         }
     }
