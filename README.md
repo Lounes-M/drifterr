@@ -176,6 +176,9 @@ Honest state of each capability — no claim here overshoots what actually runs.
 - [`SECURITY.md`](SECURITY.md) — reporting a vulnerability; the local-first boundary
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute; architecture non-negotiables
 - [`eval/SCHEMA.md`](eval/SCHEMA.md) — detection annotation schema + train/blind split
+- [`docs/FAQ.md`](docs/FAQ.md) — common questions (keys, providers, privacy, cost)
+- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — proxy, Claude Code, install warnings
+- [`packaging/`](packaging/) — Homebrew cask + winget manifest
 
 ## License
 
