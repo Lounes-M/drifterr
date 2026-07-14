@@ -34,11 +34,14 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
-      # Non-gating: prints the detection-quality report (state confusion +
-      # per-signal precision/recall/F1) so the number is visible on every PR.
-      # The pass/fail gate is fixtures.rs; this is measurement, not a barrier.
-      - name: Detection eval (report)
-        run: cargo run -q -p drifterr-engine --example eval -- eval/
+      # Prints the full detection-quality report (state confusion, per-signal
+      # precision/recall/F1, alert delay, uplift vs a saturation-only baseline)
+      # AND enforces the release gate: `--gate` fails the build on any
+      # hard-signal false positive (a constraint/saturation cause named wrongly,
+      # or a false RED). Zero hard false positives is non-negotiable — a hard
+      # signal that cries wolf kills trust.
+      - name: Detection eval (report + hard-FP gate)
+        run: cargo run -q -p drifterr-engine --example eval -- eval/ --gate
 
   desktop-app:
     name: Desktop app (Tauri build check)
