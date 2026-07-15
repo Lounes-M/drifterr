@@ -14,5 +14,10 @@ onnx = ["dep:ort", "dep:tokenizers", "dep:ndarray"]
 # All optional — only compiled with `--features onnx`. `ort` 2.x is a
 # prerelease, so it's pinned explicitly (bump when a stable 2.0 ships).
 ort = { version = "=2.0.0-rc.10", optional = true, features = ["download-binaries"] }
-tokenizers = { version = "0.20", optional = true }
+# default-features=false drops `esaxx_fast` — a training-time C++ suffix automaton
+# (esaxx-rs) we never use for inference. It compiled with the STATIC CRT (/MT)
+# while ort's prebuilt binaries are DYNAMIC (/MD), which broke the Windows link
+# (LNK2038). `onig` is kept (tokenizers 0.20 references it ungated) and did NOT
+# appear in the link error. `progressbar` is dropped too (unused).
+tokenizers = { version = "0.20", optional = true, default-features = false, features = ["onig"] }
 ndarray = { version = "0.16", optional = true }
