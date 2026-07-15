@@ -73,13 +73,48 @@ export DRIFTERR_EMBED_MODEL=/path/to/bge-small-onnx
 (For the shipped app, bundle the model as a Tauri resource and set
 `DRIFTERR_EMBED_MODEL` to its resource path at startup.)
 
-**Validation caveat:** the `onnx` feature pulls a native runtime (ONNX Runtime,
-via `ort`'s `download-binaries`) and is **not built in CI** — the default build,
-CI and the shipped app are unaffected until you opt in. `ort` 2.x is a
-prerelease pinned in `Cargo.toml`; the binding surface (`inputs!`,
-`try_extract_raw_tensor`, `Session.inputs`) targets that pin — if you bump `ort`,
-the run/extract calls in `src/onnx.rs` may need a minor adjustment. The logic
-(tokenize → run → mean-pool → L2-normalize) is stable.
+## Benchmark before bundling
+
+`examples/embed_bench.rs` reports the numbers that decide whether to ship the
+model: on-disk **size**, **cold-load** time, per-embed **latency** (mean/p50/p95
++ throughput), output **dim**, resident **memory**, and the goal-vs-drift
+**separation**. Works with either embedder:
+
+```bash
+# lexical baseline (zero-cost)
+cargo run -p drifterr-embeddings --example embed_bench
+# semantic ONNX model
+DRIFTERR_EMBED_MODEL=/path/to/bge cargo run -p drifterr-embeddings \
+  --features onnx --example embed_bench
+```
+
+For goal-drift **recall** on the annotated set (not just separation), run the
+detection eval with the semantic embedder wired in:
+`DRIFTERR_EMBED_MODEL=… cargo run -p drifterr-engine --features onnx --example eval -- eval/`.
+
+## Windows / MSVC link fix (LNK2038)
+
+The prebuilt ONNX Runtime binaries `ort` downloads are linked against the
+**dynamic** C runtime (`/MD`). If your build links the **static** CRT you get:
+
+```
+LNK2038: mismatch detected for 'RuntimeLibrary':
+         value 'MT_StaticRelease' doesn't match value 'MD_DynamicRelease'
+```
+
+The repo's [`.cargo/config.toml`](../../.cargo/config.toml) fixes this by forcing
+the dynamic CRT on the Windows MSVC target (`target-feature=-crt-static`). It's
+scoped to that target, so Linux/macOS and the shipped app are untouched, and it's
+a no-op for the default (lexical) build — rustc already defaults to `/MD` on
+MSVC. CI's `onnx-windows` job (`.github/workflows/ci.yml`) builds
+`--features onnx` on `windows-latest` to keep the fix validated.
+
+**Prerelease caveat:** `ort` 2.x is a pinned prerelease with a native download
+step, so the `onnx` feature is **out of the default build**; the ONNX CI step is
+allowed to fail so it surfaces the link result without gating the pipeline. The
+binding surface (`inputs!`, `try_extract_tensor`, `Session.inputs`) targets that
+pin — if you bump `ort`, the run/extract calls in `src/onnx.rs` may need a minor
+adjustment. The logic (tokenize → run → mean-pool → L2-normalize) is stable.
 
 ## Enabling the judge (decision-coherence, Signal 3)
 

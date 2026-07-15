@@ -327,29 +327,75 @@ pub fn infer_rule(text: &str) -> Option<Rule> {
     infer_rules(text).into_iter().next()
 }
 
-/// "don't use X", "do not use X", "stop using X", "avoid X", "no longer use X",
-/// "pas de X" — but NOT the JS/comments constraints (handled as rules above).
+/// Explicit-rejection phrasings the user might use to discard an approach/tech:
+/// "don't use X", "stop using X", "avoid X", "get rid of X", "instead of X",
+/// "rather than X", plus FR "n'utilise pas X", "au lieu de X", "plutôt que X",
+/// "abandonne X", "pas de X". A single leading verb-alternation, an optional
+/// filler group ("using"/"the"/"any"/"de"/"l'"…), then one capture for the
+/// object. Verbs prone to non-rejection idioms ("remove", "drop", "skip",
+/// "sans", "no more") are deliberately excluded to keep precision.
 fn rejected_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| {
         Regex::new(
-            r"(?i)\b(?:don'?t use|do not use|stop using|no longer use|avoid|n'utilise pas|pas de)\s+([a-z0-9][a-z0-9._+\-]{1,38})",
+            r"(?i)\b(?:don'?t\s+(?:use|want)|do\s+not\s+use|stop\s+using|no\s+longer\s+use|avoid|get\s+rid\s+of|ditch|steer\s+clear\s+of|stay\s+away\s+from|instead\s+of|rather\s+than|n'?utilise[rz]?\s+(?:pas|plus)|on\s+n'?utilise\s+pas|arr[êe]te[rz]?\s+d'utiliser|au\s+lieu\s+de?|plut[ôo]t\s+que|abandonne[rz]?|laisse[rz]?\s+tomber|pas\s+de|[ée]vite[rz]?)[\s']+(?:using\s+|use\s+of\s+|to\s+use\s+|utiliser\s+|the\s+|a\s+|an\s+|any\s+|de\s+|d'|l'|le\s+|la\s+|les\s+)*([a-z0-9][a-z0-9._+\-]{1,38})",
         )
         .unwrap()
     })
 }
 
+/// Objects that are pronouns/articles/idiom fragments, not a rejected
+/// technology — filtered so "avoid the trap"/"sans doute"-style captures don't
+/// pollute the decision set.
+fn is_nonspecific_object(lc: &str) -> bool {
+    matches!(
+        lc,
+        "it" | "this"
+            | "that"
+            | "these"
+            | "those"
+            | "them"
+            | "the"
+            | "a"
+            | "an"
+            | "any"
+            | "us"
+            | "me"
+            | "you"
+            | "him"
+            | "her"
+            | "doing"
+            | "using"
+            | "everything"
+            | "anything"
+            | "something"
+            | "nothing"
+            | "than"
+            | "doute"
+            | "cesse"
+    )
+}
+
 /// Extract decisions the user explicitly rejected, as short normalized phrases
 /// (e.g. "use bcrypt"). High-precision by design — it only matches clear
-/// "don't use X" style statements, so it rarely fires on prose.
+/// rejection statements, filters pronouns/idiom fragments, and skips phrasings
+/// the deterministic JS/comments rules already cover.
 pub fn infer_rejected_decisions(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for caps in rejected_re().captures_iter(text) {
         if let Some(obj) = caps.get(1) {
-            let object = obj.as_str().trim().trim_end_matches(['.', ',', ';']).trim();
-            // Drop phrasings that the JS/comments constraint rules already cover.
+            let object = obj
+                .as_str()
+                .trim()
+                .trim_end_matches(['.', ',', ';', ':', '!', '?'])
+                .trim();
             let lc = object.to_ascii_lowercase();
+            // Drop phrasings the deterministic rules already own, and pronoun /
+            // idiom captures that aren't a real rejected approach.
             if lc == "js" || lc == "javascript" || lc.starts_with("comment") {
+                continue;
+            }
+            if is_nonspecific_object(&lc) {
                 continue;
             }
             let phrase = format!("use {object}");
@@ -452,6 +498,48 @@ mod tests {
         );
         // Plain prose with no rejection phrasing → nothing.
         assert!(infer_rejected_decisions("we should ship this feature soon").is_empty());
+    }
+
+    #[test]
+    fn rejected_decisions_broadened_phrasings() {
+        // Broader EN rejection verbs, incl. comparative "instead of / rather than".
+        for (text, want) in [
+            ("let's get rid of jest here", "use jest"),
+            ("use vitest instead of jest", "use jest"),
+            ("rather than using moment, pick date-fns", "use moment"),
+            ("ditch webpack for this", "use webpack"),
+            ("steer clear of lodash", "use lodash"),
+            ("don't want mongodb in this project", "use mongodb"),
+        ] {
+            assert!(
+                infer_rejected_decisions(text).contains(&want.to_string()),
+                "want {want:?} from {text:?}, got {:?}",
+                infer_rejected_decisions(text)
+            );
+        }
+        // FR rejection phrasings.
+        for (text, want) in [
+            ("au lieu de redux, on prend zustand", "use redux"),
+            ("plutôt que moment on utilise luxon", "use moment"),
+            ("abandonne webpack", "use webpack"),
+            ("n'utilise pas axios", "use axios"),
+            ("au lieu d'utiliser jquery", "use jquery"),
+        ] {
+            assert!(
+                infer_rejected_decisions(text).contains(&want.to_string()),
+                "want {want:?} from {text:?}, got {:?}",
+                infer_rejected_decisions(text)
+            );
+        }
+        // Pronoun / idiom captures are filtered (no nonsense decisions).
+        assert!(
+            infer_rejected_decisions("avoid the trap of premature optimization")
+                .iter()
+                .all(|d| d != "use the")
+        );
+        assert!(infer_rejected_decisions("don't use it if you can help it").is_empty());
+        // A length rule ("no more than 200 words") must not read as a rejection.
+        assert!(infer_rejected_decisions("keep it to no more than 200 words").is_empty());
     }
 
     #[test]
