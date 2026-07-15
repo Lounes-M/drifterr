@@ -60,13 +60,16 @@ jobs:
       - name: Default build (lexical, no onnx)
         run: cargo build -p drifterr-embeddings
 
-      # 2) The real validation: build the semantic embedder with the native ONNX
-      #    runtime. This is where the LNK2038 CRT-mismatch used to fail; the
-      #    dynamic-CRT rustflags in .cargo/config.toml are what fix it. Now a HARD
-      #    gate — the semantic model ships by default (release.yml), so a Windows
-      #    link regression must fail CI, not slip through.
-      - name: ONNX feature build (link validation)
-        run: cargo build -p drifterr-embeddings --features onnx
+      # 2) The real validation: build the semantic embedder AND LINK it into an
+      #    executable (the embed_bench example). Building the library alone only
+      #    produces an rlib and never links the native objects together, so it
+      #    silently missed a CRT mismatch that only the final link exposes (ort's
+      #    prebuilt /MD vs a /MT-compiled C/C++ dep → LNK2038). Linking an example
+      #    forces the same link the shipped app does. Hard gate — the semantic
+      #    model ships by default (release.yml), so a Windows link regression must
+      #    fail CI here, before a release build hits it.
+      - name: ONNX feature build + link (example executable)
+        run: cargo build -p drifterr-embeddings --features onnx --example embed_bench
 
   desktop-app:
     name: Desktop app (Tauri build check)
