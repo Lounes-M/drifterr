@@ -78,6 +78,101 @@ const ENGINE_SIGNALS: [&str; 4] = ["constraint", "saturation", "goal_alignment",
 /// Signals that may legitimately drive RED. A wrong prediction here is the
 /// trust-killer the release gate protects against.
 const HARD_SIGNALS: [&str; 2] = ["constraint", "saturation"];
+/// Soft, advisory signals the pure engine emits (AMBER-capped).
+const SOFT_SIGNALS: [&str; 2] = ["goal_alignment", "degradation"];
+
+/// Release-gate thresholds, loaded from `eval/thresholds.conf` (falling back to
+/// these defaults). See that file + eval/SCHEMA.md for the enforcement tiers.
+struct Thresholds {
+    min_cases: usize,
+    hard_max_median_delay: i64,
+    soft_min_precision: f64,
+    soft_max_median_delay: i64,
+    baseline_min_uplift_pts: f64,
+    goal_min_recall: f64,
+}
+
+impl Default for Thresholds {
+    fn default() -> Self {
+        Thresholds {
+            min_cases: 30,
+            hard_max_median_delay: 0,
+            soft_min_precision: 0.60,
+            soft_max_median_delay: 2,
+            baseline_min_uplift_pts: 10.0,
+            goal_min_recall: 0.70,
+        }
+    }
+}
+
+impl Thresholds {
+    /// Load overrides from `eval/thresholds.conf` (a flat `key = number` file),
+    /// keeping defaults for anything absent or unparseable.
+    fn load() -> Self {
+        let mut t = Thresholds::default();
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("eval")
+            .join("thresholds.conf");
+        let Ok(text) = fs::read_to_string(&path) else {
+            return t;
+        };
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let Some((k, v)) = line.split_once('=') else {
+                continue;
+            };
+            let (k, v) = (k.trim(), v.trim());
+            match k {
+                "min_cases" => {
+                    if let Ok(n) = v.parse() {
+                        t.min_cases = n;
+                    }
+                }
+                "hard.max_median_delay" => {
+                    if let Ok(n) = v.parse() {
+                        t.hard_max_median_delay = n;
+                    }
+                }
+                "soft.min_precision" => {
+                    if let Ok(n) = v.parse() {
+                        t.soft_min_precision = n;
+                    }
+                }
+                "soft.max_median_delay" => {
+                    if let Ok(n) = v.parse() {
+                        t.soft_max_median_delay = n;
+                    }
+                }
+                "baseline.min_uplift_pts" => {
+                    if let Ok(n) = v.parse() {
+                        t.baseline_min_uplift_pts = n;
+                    }
+                }
+                "goal.min_recall" => {
+                    if let Ok(n) = v.parse() {
+                        t.goal_min_recall = n;
+                    }
+                }
+                _ => {}
+            }
+        }
+        t
+    }
+}
+
+/// Median of a slice (rounds the lower-middle for even counts). Empty ⇒ None.
+fn median_i64(xs: &mut [i64]) -> Option<i64> {
+    if xs.is_empty() {
+        return None;
+    }
+    xs.sort_unstable();
+    Some(xs[xs.len() / 2])
+}
 
 fn signal_str(k: SignalKind) -> &'static str {
     match k {
@@ -192,7 +287,8 @@ fn main() -> ExitCode {
     print_signal_metrics(&rows);
     print_alert_delay(&rows);
     print_baseline_uplift(&rows);
-    let hard_fp = print_hard_signal_gate(&rows);
+    let thr = Thresholds::load();
+    let release_ok = print_release_gate(&rows, &thr);
 
     if !skipped.is_empty() {
         println!("\nSkipped (judge signals — evaluated separately):");
@@ -202,10 +298,10 @@ fn main() -> ExitCode {
     }
     println!();
 
-    // Gate mode: fail the process on any hard-signal false positive.
-    if gate && hard_fp > 0 {
+    // Gate mode: fail the process if any RELEASE-blocking threshold was missed.
+    if gate && !release_ok {
         eprintln!(
-            "GATE FAILED: {hard_fp} hard-signal false positive(s). Hard signals must never cry wolf."
+            "GATE FAILED: a release-blocking threshold was not met (see RELEASE GATE above)."
         );
         return ExitCode::FAILURE;
     }
@@ -380,60 +476,200 @@ fn print_baseline_uplift(rows: &[Row]) {
     );
 }
 
-/// The release go/no-go. Counts the two trust-killers and returns the total so
-/// `--gate` can fail the build on any of them:
-///   * hard false positive — a hard signal (constraint/saturation) named as the
-///     cause when the annotation says the cause is something else (or nothing);
-///   * false RED — predicting RED when the case is not RED.
+/// The release go/no-go, against `thresholds.conf`. Prints every gated metric
+/// with its threshold and verdict, and returns whether the RELEASE-blocking
+/// gates all pass (the value `--gate` acts on). Two tiers:
+///   * non-negotiables (hard FP / false RED / premature / hard delay) — always
+///     block; valid on any set;
+///   * statistical (soft precision/delay, uplift) — block only once the relevant
+///     case count reaches `min_cases`, else reported `n/a`.
 ///
-/// Returns the number of offending cases (0 = clean).
-fn print_hard_signal_gate(rows: &[Row]) -> usize {
-    let hard_fps: Vec<&Row> = rows
+/// `goal-drift recall` is reported as a *claim* gate — it never blocks the
+/// release, only decides whether the "semantic goal detection" label is earned.
+fn print_release_gate(rows: &[Row], thr: &Thresholds) -> bool {
+    let n = rows.len();
+    let hard = |s: &str| HARD_SIGNALS.contains(&s);
+    let soft = |s: &str| SOFT_SIGNALS.contains(&s);
+
+    // --- non-negotiables ---
+    let hard_fp = rows
         .iter()
-        .filter(|r| HARD_SIGNALS.contains(&r.pred_sig.as_str()) && r.pred_sig != r.exp_sig)
-        .collect();
-    let false_reds: Vec<&Row> = rows
+        .filter(|r| hard(&r.pred_sig) && r.pred_sig != r.exp_sig)
+        .count();
+    let false_red = rows
         .iter()
         .filter(|r| r.pred_state == "red" && r.exp_state != "red")
+        .count();
+    let premature = rows
+        .iter()
+        .filter(|r| {
+            hard(&r.pred_sig) && matches!((r.exp_turn, r.pred_turn), (Some(e), Some(p)) if p < e)
+        })
+        .count();
+    let mut hard_delays: Vec<i64> = rows
+        .iter()
+        .filter(|r| r.exp_sig == r.pred_sig && hard(&r.pred_sig))
+        .filter_map(|r| match (r.exp_turn, r.pred_turn) {
+            (Some(e), Some(p)) => Some(p as i64 - e as i64),
+            _ => None,
+        })
         .collect();
+    let hard_delay_med = median_i64(&mut hard_delays);
 
-    // Union of the two (a case can be both).
-    let offenders: Vec<&&Row> =
-        hard_fps
-            .iter()
-            .chain(false_reds.iter())
-            .fold(Vec::new(), |mut acc, r| {
-                if !acc.iter().any(|x: &&&Row| x.name == r.name) {
-                    acc.push(r);
-                }
-                acc
-            });
+    // --- statistical ---
+    let soft_pred: Vec<&Row> = rows.iter().filter(|r| soft(&r.pred_sig)).collect();
+    let soft_correct = soft_pred.iter().filter(|r| r.pred_sig == r.exp_sig).count();
+    let soft_precision = if soft_pred.is_empty() {
+        1.0
+    } else {
+        soft_correct as f64 / soft_pred.len() as f64
+    };
+    let mut soft_delays: Vec<i64> = rows
+        .iter()
+        .filter(|r| r.exp_sig == r.pred_sig && soft(&r.pred_sig))
+        .filter_map(|r| match (r.exp_turn, r.pred_turn) {
+            (Some(e), Some(p)) => Some(p as i64 - e as i64),
+            _ => None,
+        })
+        .collect();
+    let soft_delay_n = soft_delays.len();
+    let soft_delay_med = median_i64(&mut soft_delays);
 
-    println!("\n{}", "-".repeat(66));
-    println!("RELEASE GATE — hard signals must never cry wolf");
-    println!("{}", "-".repeat(66));
-    let n = rows.len();
-    let rate = if n == 0 {
+    let engine_correct = rows.iter().filter(|r| r.exp_state == r.pred_state).count();
+    let naive_correct = rows.iter().filter(|r| r.exp_state == r.naive_state).count();
+    let uplift = if n == 0 {
         0.0
     } else {
-        100.0 * offenders.len() as f64 / n as f64
+        100.0 * (engine_correct as f64 - naive_correct as f64) / n as f64
+    };
+
+    // --- claim gate ---
+    let goal_total = rows
+        .iter()
+        .filter(|r| r.exp_sig == "goal_alignment")
+        .count();
+    let goal_hit = rows
+        .iter()
+        .filter(|r| r.exp_sig == "goal_alignment" && r.pred_sig == "goal_alignment")
+        .count();
+    let goal_recall = if goal_total == 0 {
+        0.0
+    } else {
+        goal_hit as f64 / goal_total as f64
+    };
+
+    // Verdicts. `ok` accumulates only the RELEASE-blocking gates.
+    let mut ok = true;
+    let pf = |pass: bool| if pass { "PASS" } else { "FAIL" };
+    // A statistical gate: enforced only at ≥ min_cases, else n/a.
+    let stat = |pass: bool, cases: usize, block: &mut bool| -> String {
+        if cases < thr.min_cases {
+            format!("n/a (need {} cases, have {cases})", thr.min_cases)
+        } else {
+            if !pass {
+                *block = false;
+            }
+            pf(pass).to_string()
+        }
+    };
+
+    if hard_fp > 0 || false_red > 0 || premature > 0 {
+        ok = false;
+    }
+    let hard_delay_ok = hard_delay_med.is_none_or(|m| m <= thr.hard_max_median_delay);
+    if !hard_delay_ok {
+        ok = false;
+    }
+
+    println!("\n{}", "-".repeat(66));
+    println!("RELEASE GATE  (thresholds: eval/thresholds.conf)");
+    println!("{}", "-".repeat(66));
+    println!("Non-negotiable — always enforced:");
+    println!(
+        "  hard-signal false positives   {hard_fp:>6}       required 0    {}",
+        pf(hard_fp == 0)
+    );
+    println!(
+        "  false REDs                    {false_red:>6}       required 0    {}",
+        pf(false_red == 0)
+    );
+    println!(
+        "  premature hard alerts         {premature:>6}       required 0    {}",
+        pf(premature == 0)
+    );
+    match hard_delay_med {
+        Some(m) => println!(
+            "  hard median delay            {m:>6} turns  ≤ {}          {}",
+            thr.hard_max_median_delay,
+            pf(hard_delay_ok)
+        ),
+        None => println!(
+            "  hard median delay             {:>6}       ≤ {}          n/a (no timed cases)",
+            "—", thr.hard_max_median_delay
+        ),
+    }
+
+    println!("Statistical — enforced at ≥ {} cases:", thr.min_cases);
+    let v_soft_p = stat(
+        soft_precision >= thr.soft_min_precision,
+        soft_pred.len(),
+        &mut ok,
+    );
+    println!(
+        "  soft precision              {:>6.2} (n={})   ≥ {:.2}       {v_soft_p}",
+        soft_precision,
+        soft_pred.len(),
+        thr.soft_min_precision
+    );
+    let v_soft_d = match soft_delay_med {
+        Some(m) => {
+            let s = stat(m <= thr.soft_max_median_delay, soft_delay_n, &mut ok);
+            format!(
+                "{m} turns (n={soft_delay_n})   ≤ {}       {s}",
+                thr.soft_max_median_delay
+            )
+        }
+        None => format!(
+            "—       ≤ {}       n/a (no timed cases)",
+            thr.soft_max_median_delay
+        ),
+    };
+    println!("  soft median delay            {v_soft_d}");
+    let v_uplift = stat(uplift >= thr.baseline_min_uplift_pts, n, &mut ok);
+    println!(
+        "  uplift vs baseline          {:>+6.1} pts (n={n})  ≥ {:+.1}   {v_uplift}",
+        uplift, thr.baseline_min_uplift_pts
+    );
+
+    println!("Claim gate — labels the 'semantic goal' signal, never blocks release:");
+    let goal_verdict = if goal_total < thr.min_cases {
+        format!("n/a (need {} goal cases, have {goal_total})", thr.min_cases)
+    } else if goal_recall >= thr.goal_min_recall {
+        "EARNED".to_string()
+    } else {
+        "NOT EARNED — keep goal signal 'best-effort'".to_string()
     };
     println!(
-        "  hard-signal false positives: {}    false REDs: {}",
-        hard_fps.len(),
-        false_reds.len()
+        "  goal-drift recall           {:>5.0}% (n={goal_total})   ≥ {:.0}%     {goal_verdict}",
+        100.0 * goal_recall,
+        100.0 * thr.goal_min_recall
     );
-    println!(
-        "  offending cases: {}/{} = {rate:.1}%   →   {}",
-        offenders.len(),
-        n,
-        if offenders.is_empty() { "PASS" } else { "FAIL" }
-    );
-    for r in &offenders {
+
+    // Offending case detail for the non-negotiables.
+    for r in rows.iter().filter(|r| {
+        (hard(&r.pred_sig) && r.pred_sig != r.exp_sig)
+            || (r.pred_state == "red" && r.exp_state != "red")
+    }) {
         println!(
             "    ✗ {}  (expected {}/{}, got {}/{})",
             r.name, r.exp_state, r.exp_sig, r.pred_state, r.pred_sig
         );
     }
-    offenders.len()
+
+    println!(
+        "{}\n  RELEASE: {}",
+        "-".repeat(66),
+        if ok { "PASS" } else { "FAIL" }
+    );
+    ok
 }
