@@ -1,6 +1,6 @@
 # winget default-locale manifest. Template.
 PackageIdentifier: Drifterr.Drifterr
-PackageVersion: 0.2.3
+PackageVersion: 0.2.4
 PackageLocale: en-US
 Publisher: Drifterr
 PublisherUrl: https://drifterr.app/
