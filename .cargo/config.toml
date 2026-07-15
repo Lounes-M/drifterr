@@ -1,0 +1,21 @@
+# Cargo build configuration.
+#
+# ── ONNX Runtime link fix (Windows / MSVC) ───────────────────────────────────
+# The optional `onnx` feature (crate `drifterr-embeddings`) pulls ONNX Runtime
+# via `ort`'s `download-binaries`. Microsoft ships those prebuilt binaries linked
+# against the *dynamic* C runtime (/MD). If the Rust build links the *static* CRT
+# (/MT, `target-feature=+crt-static`), the linker reports:
+#
+#   LNK2038: mismatch detected for 'RuntimeLibrary':
+#            value 'MT_StaticRelease' doesn't match value 'MD_DynamicRelease'
+#
+# Forcing the dynamic CRT below makes our objects match the prebuilt ORT libs and
+# resolves the LNK2038. This is scoped to the Windows MSVC target only, so it has
+# ZERO effect on the Linux/macOS builds or the shipped Tauri app.
+#
+# It is also a no-op for the DEFAULT (lexical, no-`onnx`) build: rustc already
+# defaults to the dynamic CRT on MSVC — `-crt-static` just makes that explicit so
+# the setting can never drift. Validated in CI by the `onnx-windows` job
+# (.github/workflows/ci.yml), which builds `--features onnx` on windows-latest.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=-crt-static"]

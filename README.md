@@ -153,7 +153,7 @@ Honest state of each capability — no claim here overshoots what actually runs.
 |---|---|---|
 | Proxy channel (relay + exact saturation) | ✅ shipped | Byte-for-byte SSE passthrough, detection off the response path |
 | Claude Code channel (file watch) | ✅ shipped | **Zero-config** — auto-watches `~/.claude/projects`, no keys |
-| Constraint signal (deterministic, hard) | ✅ shipped | EN/FR phrasings; code rules (no JS/TODO/console.log/`any`) |
+| Constraint signal (deterministic, hard) | ✅ shipped | EN/FR phrasings; code rules (no JS/TODO/console.log/`any`/eval/secrets, no new deps, protected files, word & line caps) |
 | Saturation signal (hard) | ✅ shipped | Exact only via the proxy |
 | Degradation signal (soft) | ✅ shipped | Looping, verbosity, hedging (EN/FR) |
 | Goal-alignment signal (soft) | 🚧 partial | Ships a **local lexical** embedder; the local ONNX semantic model is behind a feature flag (Windows link WIP) |
@@ -162,7 +162,7 @@ Honest state of each capability — no claim here overshoots what actually runs.
 | Re-anchor (snapshot + preamble) | ✅ shipped | Copy or auto-inject (proxy channel) |
 | Standing orders (cross-session rules) | ✅ shipped | |
 | Menubar app (tray + panel) | ✅ shipped | Auto-hide on blur, resumes state |
-| Detection eval harness + release gate | ✅ shipped | Metrics + zero-hard-FP gate ([`eval/SCHEMA.md`](eval/SCHEMA.md)) |
+| Detection eval harness + release gate | ✅ shipped | Metrics + zero-hard-FP gate, tunable thresholds ([`eval/thresholds.conf`](eval/thresholds.conf), [`eval/SCHEMA.md`](eval/SCHEMA.md)) |
 | Egress guarantee (CI-enforced) | ✅ shipped | [`crates/proxy/tests/egress.rs`](crates/proxy/tests/egress.rs) |
 | Browser extension (MV3) | 🚧 partial | Built; not store-published |
 | Signed / notarized desktop builds | 📋 planned | Ships **unsigned** today (Gatekeeper right-click → Open on macOS) |

@@ -46,10 +46,18 @@ pub async fn decision_coherence(
     }
     let decision = best.0;
 
+    // A decision-specific framing (sharper than a bare "does it reintroduce?"):
+    // spell out what counts as a violation and, crucially, what does NOT — merely
+    // naming the rejected approach to avoid or re-reject it is fine. This cuts the
+    // most common false positive without loosening the "under-claim" stance.
     let question = format!(
-        "A previously REJECTED decision was: \"{}\". Does the assistant message \
-         below reintroduce, re-propose, or rely on that rejected decision? \
-         Answer yes only if it clearly does.",
+        "Earlier in this session the user EXPLICITLY REJECTED this decision:\n  \
+         \"{}\"\n\nDoes the assistant message below REINTRODUCE it — re-propose \
+         it, adopt it, or silently build on it as if it were the chosen \
+         approach?\n\nAnswer YES only if the message actually uses or advocates \
+         the rejected decision. Answer NO if it merely mentions the rejected \
+         thing to avoid it, rejects it again, compares it unfavourably, or is \
+         unrelated. When unsure, answer NO.",
         decision.text
     );
     let answer = judge.check(&question, &last_assistant.content).await;

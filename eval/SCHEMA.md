@@ -7,6 +7,8 @@ asserting it. The harness that consumes these files is
 
 The go/no-go metric is **zero hard-signal false positives** — see the RELEASE
 GATE section the harness prints, and run it with `--gate` in CI to enforce it.
+The gate's numbers live in one editable place, [`thresholds.conf`](thresholds.conf)
+— see [Release-gate thresholds](#release-gate-thresholds) below.
 
 ## File format
 
@@ -75,6 +77,41 @@ To avoid over-fitting the engine to the cases we look at:
   A green gate here — zero hard-signal false positives on cases you didn't tune
   on — is the release signal. Keep the split ratio ~70/30 (dev/blind) and grow
   both as real annotated sessions come in.
+
+## Release-gate thresholds
+
+The `--gate` numbers are **not** hard-coded in the harness. They live in
+[`thresholds.conf`](thresholds.conf) — a flat `key = number` file (`#` comments
+and blanks ignored) that `eval.rs` loads at startup, falling back to built-in
+defaults for anything absent or unparseable. Edit that file to retune; no
+recompile of the metric logic is needed.
+
+The harness prints every gated metric next to its threshold and a verdict, in
+**two enforcement tiers plus one claim gate**:
+
+- **Non-negotiables** — always block the release, valid on *any* set size.
+  Hard-signal false positives, false REDs, and premature hard alerts are fixed
+  at **0** (a hard signal that cries wolf is the one unforgivable failure, per
+  `CLAUDE.md`). The hard-signal **median alert delay** must be
+  `≤ hard.max_median_delay` (default `0` — a deterministic rule is caught on the
+  turn it happens).
+- **Statistical** — soft-signal precision (`soft.min_precision`), soft median
+  delay (`soft.max_median_delay`), and uplift over the naive saturation-only
+  baseline (`baseline.min_uplift_pts`). These auto-become hard gates once the
+  relevant case count reaches `min_cases` (default `30`); below that they're
+  reported `n/a (need N cases)` so CI never fails for lack of data.
+- **Claim gate** — `goal.min_recall` gates only the *"semantic goal detection
+  works"* claim/label, **never** the release. Below it (or below `min_cases`
+  goal cases), goal alignment stays labeled best-effort in the UI + README.
+
+| key | default | tier | meaning |
+|---|---|---|---|
+| `min_cases` | 30 | — | case count at which statistical gates turn on |
+| `hard.max_median_delay` | 0 | non-negotiable | max median turns late for a hard signal |
+| `soft.min_precision` | 0.60 | statistical | min precision of soft (AMBER) predictions |
+| `soft.max_median_delay` | 2 | statistical | max median turns late for a soft signal |
+| `baseline.min_uplift_pts` | 10 | statistical | min state-accuracy points over naive baseline |
+| `goal.min_recall` | 0.70 | claim only | recall to earn the "semantic goal" label |
 
 ## Adding real sessions
 

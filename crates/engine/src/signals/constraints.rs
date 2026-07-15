@@ -92,6 +92,18 @@ fn apply_rule(rule: &Rule, content: &str) -> Option<Option<String>> {
                 None
             }
         }
+        Rule::MaxLines { max } => {
+            // Check each fenced block independently — a "keep it short" rule is
+            // about the size of a given code unit, not the whole reply. No fences
+            // ⇒ nothing to measure ⇒ satisfied (never guess prose is code).
+            for block in code_blocks(content) {
+                let lines = block.trim_matches('\n').lines().count();
+                if lines > *max {
+                    return Some(Some(format!("{lines} lines (limit {max})")));
+                }
+            }
+            None
+        }
     }
 }
 
@@ -224,6 +236,70 @@ mod tests {
         // Only c1 fires: judge-checkable and inactive are skipped.
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].evidence.constraint_id.as_deref(), Some("c1"));
+    }
+
+    #[test]
+    fn max_lines_only_in_code() {
+        let c = det("cl", "keep it under 3 lines", None);
+        // 4-line fenced block → violation; 2-line block → ok.
+        let long = "```rs\nlet a = 1;\nlet b = 2;\nlet c = 3;\nlet d = 4;\n```";
+        assert!(check(&c, long).unwrap().is_some());
+        let short = "```rs\nlet a = 1;\nlet b = 2;\n```";
+        assert!(check(&c, short).is_none());
+        // No fence ⇒ nothing to measure ⇒ satisfied, even if the prose is long.
+        let prose = "one\ntwo\nthree\nfour\nfive\nsix";
+        assert!(check(&c, prose).is_none());
+    }
+
+    #[test]
+    fn no_new_deps_fires_only_on_install_with_package() {
+        let c = det("cd", "no new dependencies", None);
+        // Install command that names a package → violation.
+        assert!(check(&c, "```bash\nnpm install express\n```")
+            .unwrap()
+            .is_some());
+        assert!(check(&c, "```sh\ncargo add serde\n```").unwrap().is_some());
+        assert!(check(&c, "```\nnpm i -D typescript\n```")
+            .unwrap()
+            .is_some());
+        // Reinstalling existing deps (no package) → no violation.
+        assert!(check(&c, "```bash\nnpm install\n```").is_none());
+        // Installing from a lockfile/requirements → no violation (existing deps).
+        assert!(check(&c, "```bash\npip install -r requirements.txt\n```").is_none());
+        // A prose mention without a fenced command → under-claimed, no violation.
+        assert!(check(&c, "you could run npm install lodash").is_none());
+    }
+
+    #[test]
+    fn protected_file_fires_on_diff_header_only() {
+        let c = det("cf", "don't touch package.json", None);
+        // A unified-diff header naming the file → violation.
+        let diff = "Here's the change:\n```diff\n--- a/package.json\n+++ b/package.json\n@@\n```";
+        assert!(check(&c, diff).unwrap().is_some());
+        // Merely mentioning the file in prose → no violation (precision).
+        assert!(check(&c, "I looked at package.json but left it as-is").is_none());
+        // A different file's diff must not trip this constraint.
+        assert!(check(&c, "```diff\n+++ b/README.md\n```").is_none());
+    }
+
+    #[test]
+    fn no_eval_fires_in_code_only() {
+        let c = det("ce", "no eval", None);
+        assert!(check(&c, "```js\nconst x = eval(src);\n```")
+            .unwrap()
+            .is_some());
+        // "evaluate" in prose (or code) is not eval(.
+        assert!(check(&c, "```js\nconst r = evaluate(x);\n```").is_none());
+        assert!(check(&c, "we should evaluate this").is_none());
+    }
+
+    #[test]
+    fn no_secrets_fires_on_secret_shapes() {
+        let c = det("cs", "no hardcoded secrets", None);
+        let aws = "```py\nAWS_KEY = \"AKIAIOSFODNN7EXAMPLE\"\n```";
+        assert!(check(&c, aws).unwrap().is_some());
+        // A placeholder / ordinary assignment must NOT fire (no real secret shape).
+        assert!(check(&c, "```py\napi_key = \"YOUR_KEY_HERE\"\n```").is_none());
     }
 
     #[test]

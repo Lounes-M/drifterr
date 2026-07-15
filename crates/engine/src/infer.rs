@@ -117,6 +117,110 @@ fn no_any_type_re() -> &'static Regex {
     })
 }
 
+/// "no new dependencies", "don't add packages/libraries", "no new deps",
+/// "pas de nouvelle dépendance", "n'ajoute pas de dépendances". A very common
+/// Claude Code guardrail. Checked by forbidding package-manager install commands
+/// (that name a package) inside code — see [`INSTALL_CMD_PATTERN`].
+fn no_new_deps_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?:no\s+(?:new\s+|additional\s+|extra\s+)?(?:dependenc(?:y|ies)|deps?|packages?|libraries|libs?|modules?)|(?:don'?t|do\s+not|never|no\s+need\s+to)\s+(?:add|install|introduce|pull\s+in)\s+(?:any\s+|a\s+|new\s+)?(?:dependenc(?:y|ies)|deps?|packages?|libraries|libs?)|(?:n'?ajoute[rz]?\s+pas|sans|pas\s+de)\s+(?:nouvelles?\s+)?(?:d[ée]pendances?|paquets?|librairies?))\b",
+        )
+        .unwrap()
+    })
+}
+
+/// A package-manager install command that names a package (so `npm install`
+/// alone — reinstalling existing deps — never fires). Only whitelisted install
+/// flags are tolerated before the package, so `pip install -r requirements.txt`
+/// (installing *existing* deps from a file) does NOT match. Line-anchored and
+/// checked inside code blocks only, keeping it false-positive-free.
+const INSTALL_CMD_PATTERN: &str = r"(?im)^[ \t]*(?:sudo[ \t]+)?(?:npm[ \t]+(?:install|i|add)|yarn[ \t]+add|pnpm[ \t]+(?:add|install)|bun[ \t]+add|pip3?[ \t]+install|cargo[ \t]+add|go[ \t]+get|gem[ \t]+install|composer[ \t]+require|poetry[ \t]+add)[ \t]+(?:(?:--save(?:-dev|-exact)?|--global|--dev|--user|--production|--upgrade|-[DgUSEPw])[ \t]+)*[@a-zA-Z0-9][\w@./+-]*";
+
+/// "no eval", "don't use eval", "avoid eval", "pas de eval" — forbid the
+/// dynamic-code `eval(` call in code (a classic security/quality constraint).
+fn no_eval_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?:no|don'?t\s+use|do\s+not\s+use|avoid|never\s+use|pas\s+de|sans)\s+eval\b",
+        )
+        .unwrap()
+    })
+}
+
+/// "no hardcoded secrets/keys/passwords", "don't hardcode credentials", "no
+/// secrets in code", "pas de secrets en dur". Checked by scanning code for
+/// unambiguous secret *shapes* (see [`SECRET_PATTERN`]), never a loose
+/// `password = "..."` (which would false-positive on placeholders).
+fn no_secrets_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r#"(?i)(?:\bno\s+hard[\s-]?coded?\s+(?:secrets?|keys?|api[\s-]?keys?|passwords?|credentials?|tokens?)|(?:don'?t|do\s+not|never)\s+hard[\s-]?code|\bno\s+(?:secrets?|api[\s-]?keys?|credentials?|tokens?)\s+(?:in\s+(?:the\s+)?code|committed|hard[\s-]?coded)|\bpas\s+de\s+(?:secrets?|cl[ée]s?|mots?\s+de\s+passe|identifiants?)\s+en\s+dur)"#,
+        )
+        .unwrap()
+    })
+}
+
+/// Unambiguous secret shapes: AWS access-key id, a PEM private-key header, and
+/// common provider token prefixes (GitHub, Slack, OpenAI, Google). Each is
+/// specific enough to be false-positive-free; deliberately *not* a generic
+/// `KEY = "..."` assignment, which trips on example/placeholder values.
+const SECRET_PATTERN: &str = r#"(?:AKIA[0-9A-Z]{16}|-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----|ghp_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{20,}|xox[baprs]-[0-9A-Za-z-]{10,}|sk-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{35})"#;
+
+/// "don't touch/modify/edit/change X", "leave X alone", "ne touche pas à X" —
+/// where X names a file or path. Captures the file so a per-file protected rule
+/// can be built. Deliberately high-precision: the captured token must look like a
+/// file (has an extension or a path separator), checked by the caller.
+fn protected_file_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?:(?:don'?t|do\s+not|never|please\s+don'?t)\s+(?:ever\s+)?(?:touch|modify|change|edit|alter|rewrite|refactor)\s+(?:the\s+|module\s+|file\s+)*(\.?[A-Za-z0-9_][\w./-]*)|\bleave\s+(?:the\s+)?(\.?[A-Za-z0-9_][\w./-]*)\s+(?:alone|untouched|as[\s-]is)|\bne\s+(?:touche[rz]?|modifie[rz]?|change[rz]?|[ée]dite[rz]?)\s+pas\s+(?:à\s+la\s+|à\s+|au\s+|le\s+|la\s+|l')*(\.?[A-Za-z0-9_][\w./-]*))",
+        )
+        .unwrap()
+    })
+}
+
+/// The tightest inferable *line* cap in `text` (mirrors [`infer_max_words`] for
+/// "under 50 lines" / "50 lines max" / "moins de 50 lignes"), if any.
+fn infer_max_lines(text: &str) -> Option<usize> {
+    static PREFIX: OnceLock<Regex> = OnceLock::new();
+    static SUFFIX: OnceLock<Regex> = OnceLock::new();
+    let prefix = PREFIX.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?:under|below|at\s+most|no\s+more\s+than|max(?:imum)?(?:\s+of)?|within|less\s+than|fewer\s+than|moins\s+de|au\s+plus|maximum\s+de)\s+(\d{1,6})\s+(?:lines?|lignes?)(?:\s+of\s+code)?\b",
+        )
+        .unwrap()
+    });
+    let suffix = SUFFIX.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(\d{1,6})\s+(?:lines?|lignes?)(?:\s+of\s+code)?\s+(?:max|maximum|or\s+(?:fewer|less)|ou\s+moins)\b",
+        )
+        .unwrap()
+    });
+    let mut best: Option<usize> = None;
+    for re in [prefix, suffix] {
+        for caps in re.captures_iter(text) {
+            if let Ok(n) = caps[1].parse::<usize>() {
+                if n > 0 {
+                    best = Some(best.map_or(n, |b| b.min(n)));
+                }
+            }
+        }
+    }
+    best
+}
+
+/// Strip *trailing* sentence punctuation/quotes from a captured file token, so
+/// "config.py." or "package.json," yields the bare path. Trailing-only, so a
+/// leading dot (`.env`, `.gitignore`) is preserved.
+fn clean_file_token(tok: &str) -> &str {
+    tok.trim_end_matches(['.', ',', ';', ':', '!', '?', ')', '"', '\''])
+}
+
 /// Every deterministic rule we can confidently infer from `text`.
 ///
 /// Returns all matches (a single message may state several constraints), so the
@@ -167,6 +271,53 @@ pub fn infer_rules(text: &str) -> Vec<Rule> {
         rules.push(Rule::MaxWords { max });
     }
 
+    // "under 50 lines" / "50 lines max" — a per-code-block length cap.
+    if let Some(max) = infer_max_lines(text) {
+        rules.push(Rule::MaxLines { max });
+    }
+
+    // "No new dependencies" — forbid install commands that name a package.
+    if no_new_deps_re().is_match(text) {
+        rules.push(Rule::ForbidInCode {
+            pattern: INSTALL_CMD_PATTERN.to_string(),
+        });
+    }
+
+    // "No eval" — forbid the dynamic-code eval() call in code.
+    if no_eval_re().is_match(text) {
+        rules.push(Rule::ForbidInCode {
+            pattern: r"\beval\s*\(".to_string(),
+        });
+    }
+
+    // "No hardcoded secrets" — scan code for unambiguous secret shapes.
+    if no_secrets_re().is_match(text) {
+        rules.push(Rule::ForbidInCode {
+            pattern: SECRET_PATTERN.to_string(),
+        });
+    }
+
+    // "Don't touch <file>" — forbid a unified-diff header naming that file.
+    // Parameterized per captured path; a prose mention won't match a diff line,
+    // and tool-only edits (no diff text) are under-claimed by design.
+    for caps in protected_file_re().captures_iter(text) {
+        let Some(tok) = caps.get(1).or_else(|| caps.get(2)).or_else(|| caps.get(3)) else {
+            continue;
+        };
+        let file = clean_file_token(tok.as_str());
+        // Must look like a file: an extension or a path separator. This keeps
+        // "don't touch it/that" from ever producing a rule.
+        if !(file.contains('/') || file.contains('.')) || file.len() < 3 {
+            continue;
+        }
+        let esc = regex::escape(file);
+        let pattern = format!(r"(?m)^(?:diff --git |\+\+\+ |--- )[ab]/(?:\S*/)?{esc}\b");
+        let rule = Rule::ForbidPattern { pattern };
+        if !rules.contains(&rule) {
+            rules.push(rule);
+        }
+    }
+
     rules
 }
 
@@ -176,29 +327,75 @@ pub fn infer_rule(text: &str) -> Option<Rule> {
     infer_rules(text).into_iter().next()
 }
 
-/// "don't use X", "do not use X", "stop using X", "avoid X", "no longer use X",
-/// "pas de X" — but NOT the JS/comments constraints (handled as rules above).
+/// Explicit-rejection phrasings the user might use to discard an approach/tech:
+/// "don't use X", "stop using X", "avoid X", "get rid of X", "instead of X",
+/// "rather than X", plus FR "n'utilise pas X", "au lieu de X", "plutôt que X",
+/// "abandonne X", "pas de X". A single leading verb-alternation, an optional
+/// filler group ("using"/"the"/"any"/"de"/"l'"…), then one capture for the
+/// object. Verbs prone to non-rejection idioms ("remove", "drop", "skip",
+/// "sans", "no more") are deliberately excluded to keep precision.
 fn rejected_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| {
         Regex::new(
-            r"(?i)\b(?:don'?t use|do not use|stop using|no longer use|avoid|n'utilise pas|pas de)\s+([a-z0-9][a-z0-9._+\-]{1,38})",
+            r"(?i)\b(?:don'?t\s+(?:use|want)|do\s+not\s+use|stop\s+using|no\s+longer\s+use|avoid|get\s+rid\s+of|ditch|steer\s+clear\s+of|stay\s+away\s+from|instead\s+of|rather\s+than|n'?utilise[rz]?\s+(?:pas|plus)|on\s+n'?utilise\s+pas|arr[êe]te[rz]?\s+d'utiliser|au\s+lieu\s+de?|plut[ôo]t\s+que|abandonne[rz]?|laisse[rz]?\s+tomber|pas\s+de|[ée]vite[rz]?)[\s']+(?:using\s+|use\s+of\s+|to\s+use\s+|utiliser\s+|the\s+|a\s+|an\s+|any\s+|de\s+|d'|l'|le\s+|la\s+|les\s+)*([a-z0-9][a-z0-9._+\-]{1,38})",
         )
         .unwrap()
     })
 }
 
+/// Objects that are pronouns/articles/idiom fragments, not a rejected
+/// technology — filtered so "avoid the trap"/"sans doute"-style captures don't
+/// pollute the decision set.
+fn is_nonspecific_object(lc: &str) -> bool {
+    matches!(
+        lc,
+        "it" | "this"
+            | "that"
+            | "these"
+            | "those"
+            | "them"
+            | "the"
+            | "a"
+            | "an"
+            | "any"
+            | "us"
+            | "me"
+            | "you"
+            | "him"
+            | "her"
+            | "doing"
+            | "using"
+            | "everything"
+            | "anything"
+            | "something"
+            | "nothing"
+            | "than"
+            | "doute"
+            | "cesse"
+    )
+}
+
 /// Extract decisions the user explicitly rejected, as short normalized phrases
 /// (e.g. "use bcrypt"). High-precision by design — it only matches clear
-/// "don't use X" style statements, so it rarely fires on prose.
+/// rejection statements, filters pronouns/idiom fragments, and skips phrasings
+/// the deterministic JS/comments rules already cover.
 pub fn infer_rejected_decisions(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for caps in rejected_re().captures_iter(text) {
         if let Some(obj) = caps.get(1) {
-            let object = obj.as_str().trim().trim_end_matches(['.', ',', ';']).trim();
-            // Drop phrasings that the JS/comments constraint rules already cover.
+            let object = obj
+                .as_str()
+                .trim()
+                .trim_end_matches(['.', ',', ';', ':', '!', '?'])
+                .trim();
             let lc = object.to_ascii_lowercase();
+            // Drop phrasings the deterministic rules already own, and pronoun /
+            // idiom captures that aren't a real rejected approach.
             if lc == "js" || lc == "javascript" || lc.starts_with("comment") {
+                continue;
+            }
+            if is_nonspecific_object(&lc) {
                 continue;
             }
             let phrase = format!("use {object}");
@@ -239,6 +436,12 @@ fn constraint_cue_re() -> &'static Regex {
 pub fn describe(rule: &Rule) -> (&'static str, crate::baseline::ConstraintType) {
     use crate::baseline::ConstraintType;
     match rule {
+        // ForbidPattern covers the no-JS rule and the parameterized protected-file
+        // rule; the diff-header pattern distinguishes the latter.
+        Rule::ForbidPattern { pattern } if pattern.contains("diff --git") => (
+            "A protected file must not be modified",
+            ConstraintType::Tech,
+        ),
         Rule::ForbidPattern { .. } => ("TypeScript only, no JS files", ConstraintType::Tech),
         // Several distinct code rules share the ForbidInCode mechanism; name each
         // by its pattern so the panel can state the actual cause, not a generic
@@ -249,12 +452,22 @@ pub fn describe(rule: &Rule) -> (&'static str, crate::baseline::ConstraintType) 
         Rule::ForbidInCode { pattern } if pattern.contains("console") => {
             ("No console logging in code", ConstraintType::Format)
         }
-        Rule::ForbidInCode { pattern } if pattern.contains("any") => {
+        Rule::ForbidInCode { pattern } if pattern.contains(":\\s*any") => {
             ("No `any` type in code", ConstraintType::Tech)
+        }
+        Rule::ForbidInCode { pattern } if pattern.contains("npm") => {
+            ("No new dependencies", ConstraintType::Tech)
+        }
+        Rule::ForbidInCode { pattern } if pattern.contains("eval") => {
+            ("No eval() calls in code", ConstraintType::Tech)
+        }
+        Rule::ForbidInCode { pattern } if pattern.contains("AKIA") => {
+            ("No hardcoded secrets in code", ConstraintType::Tech)
         }
         Rule::ForbidInCode { .. } => ("No comments in code", ConstraintType::Format),
         Rule::RequirePattern { .. } => ("Required pattern must be present", ConstraintType::Tech),
         Rule::MaxWords { .. } => ("Stay within the word limit", ConstraintType::Format),
+        Rule::MaxLines { .. } => ("Stay within the code line limit", ConstraintType::Format),
     }
 }
 
@@ -285,6 +498,48 @@ mod tests {
         );
         // Plain prose with no rejection phrasing → nothing.
         assert!(infer_rejected_decisions("we should ship this feature soon").is_empty());
+    }
+
+    #[test]
+    fn rejected_decisions_broadened_phrasings() {
+        // Broader EN rejection verbs, incl. comparative "instead of / rather than".
+        for (text, want) in [
+            ("let's get rid of jest here", "use jest"),
+            ("use vitest instead of jest", "use jest"),
+            ("rather than using moment, pick date-fns", "use moment"),
+            ("ditch webpack for this", "use webpack"),
+            ("steer clear of lodash", "use lodash"),
+            ("don't want mongodb in this project", "use mongodb"),
+        ] {
+            assert!(
+                infer_rejected_decisions(text).contains(&want.to_string()),
+                "want {want:?} from {text:?}, got {:?}",
+                infer_rejected_decisions(text)
+            );
+        }
+        // FR rejection phrasings.
+        for (text, want) in [
+            ("au lieu de redux, on prend zustand", "use redux"),
+            ("plutôt que moment on utilise luxon", "use moment"),
+            ("abandonne webpack", "use webpack"),
+            ("n'utilise pas axios", "use axios"),
+            ("au lieu d'utiliser jquery", "use jquery"),
+        ] {
+            assert!(
+                infer_rejected_decisions(text).contains(&want.to_string()),
+                "want {want:?} from {text:?}, got {:?}",
+                infer_rejected_decisions(text)
+            );
+        }
+        // Pronoun / idiom captures are filtered (no nonsense decisions).
+        assert!(
+            infer_rejected_decisions("avoid the trap of premature optimization")
+                .iter()
+                .all(|d| d != "use the")
+        );
+        assert!(infer_rejected_decisions("don't use it if you can help it").is_empty());
+        // A length rule ("no more than 200 words") must not read as a rejection.
+        assert!(infer_rejected_decisions("keep it to no more than 200 words").is_empty());
     }
 
     #[test]
@@ -428,6 +683,101 @@ mod tests {
             "any"
         ));
         assert!(infer_rules("pick any font you like").is_empty());
+    }
+
+    #[test]
+    fn no_new_deps_inference() {
+        for s in [
+            "no new dependencies",
+            "don't add any dependencies",
+            "no new packages please",
+            "never install new libraries",
+            "pas de nouvelles dépendances",
+            "n'ajoute pas de dépendances",
+        ] {
+            assert!(
+                infer_rules(s).iter().any(
+                    |r| matches!(r, Rule::ForbidInCode { pattern } if pattern.contains("npm"))
+                ),
+                "should infer no-new-deps from: {s}"
+            );
+        }
+        // A plain feature ask must not fire.
+        assert!(infer_rules("add a login page").is_empty());
+        assert!(infer_rules("write the dependency injection container").is_empty());
+    }
+
+    #[test]
+    fn no_eval_inference() {
+        for s in ["no eval", "don't use eval", "avoid eval", "pas de eval"] {
+            assert!(
+                infers_code_pattern(s, "eval"),
+                "should infer no-eval from: {s}"
+            );
+        }
+        // "evaluate" / "retrieval" must not fire (word boundary in the cue).
+        assert!(infer_rules("please evaluate the tradeoffs").is_empty());
+    }
+
+    #[test]
+    fn no_secrets_inference() {
+        for s in [
+            "no hardcoded secrets",
+            "don't hardcode API keys",
+            "no credentials in code",
+            "pas de secrets en dur",
+        ] {
+            assert!(
+                infers_code_pattern(s, "AKIA"),
+                "should infer no-secrets from: {s}"
+            );
+        }
+        assert!(infer_rules("keep the design secret for now").is_empty());
+    }
+
+    #[test]
+    fn protected_file_inference() {
+        // A named file/path yields a diff-header ForbidPattern for that file.
+        let rules = infer_rules("please don't touch package.json");
+        assert!(rules
+            .iter()
+            .any(|r| matches!(r, Rule::ForbidPattern { pattern }
+                if pattern.contains(r"package\.json") && pattern.contains("diff --git"))));
+        // A leading dot (dotfile) is preserved, not stripped.
+        assert!(infer_rules("don't modify .env")
+            .iter()
+            .any(|r| matches!(r, Rule::ForbidPattern { pattern } if pattern.contains(r"\.env"))));
+        // Path with separators works too.
+        assert!(infer_rules("do not edit src/db/schema.sql").iter().any(
+            |r| matches!(r, Rule::ForbidPattern { pattern } if pattern.contains(r"schema\.sql"))
+        ));
+        // FR + "leave X alone".
+        assert!(!infer_rules("ne touche pas à config.toml").is_empty());
+        assert!(!infer_rules("leave Cargo.lock alone").is_empty());
+        // A non-file object ("it", a bare word) produces no rule (precision).
+        assert!(infer_rules("don't touch it").is_empty());
+        assert!(infer_rules("don't change the plan").is_empty());
+    }
+
+    #[test]
+    fn line_limit_inference() {
+        for (text, expect) in [
+            ("keep functions under 40 lines", 40usize),
+            ("no more than 100 lines", 100),
+            ("50 lines max", 50),
+            ("moins de 30 lignes", 30),
+            ("under 200 lines of code", 200),
+        ] {
+            let max = infer_rules(text).into_iter().find_map(|r| match r {
+                Rule::MaxLines { max } => Some(max),
+                _ => None,
+            });
+            assert_eq!(max, Some(expect), "for: {text}");
+        }
+        // The tightest cap wins; word caps stay a separate rule.
+        assert!(infer_rules("under 200 words")
+            .iter()
+            .all(|r| !matches!(r, Rule::MaxLines { .. })));
     }
 
     #[test]
