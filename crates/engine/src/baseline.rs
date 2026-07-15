@@ -82,6 +82,12 @@ pub enum Rule {
     ForbidInCode { pattern: String },
     /// Violated if word count exceeds `max`.
     MaxWords { max: usize },
+    /// Violated if any fenced code block is longer than `max` lines. The
+    /// deterministic, per-code-block cousin of a "keep functions short" rule —
+    /// we can count lines exactly, so it stays false-positive-free (per-function
+    /// length needs a real parser and belongs to the judge path). No fences ⇒
+    /// nothing to measure ⇒ satisfied.
+    MaxLines { max: usize },
 }
 
 /// A decision made during the session. Tracked over time; `rejected` marks

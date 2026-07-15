@@ -153,7 +153,7 @@ Honest state of each capability — no claim here overshoots what actually runs.
 |---|---|---|
 | Proxy channel (relay + exact saturation) | ✅ shipped | Byte-for-byte SSE passthrough, detection off the response path |
 | Claude Code channel (file watch) | ✅ shipped | **Zero-config** — auto-watches `~/.claude/projects`, no keys |
-| Constraint signal (deterministic, hard) | ✅ shipped | EN/FR phrasings; code rules (no JS/TODO/console.log/`any`) |
+| Constraint signal (deterministic, hard) | ✅ shipped | EN/FR phrasings; code rules (no JS/TODO/console.log/`any`/eval/secrets, no new deps, protected files, word & line caps) |
 | Saturation signal (hard) | ✅ shipped | Exact only via the proxy |
 | Degradation signal (soft) | ✅ shipped | Looping, verbosity, hedging (EN/FR) |
 | Goal-alignment signal (soft) | 🚧 partial | Ships a **local lexical** embedder; the local ONNX semantic model is behind a feature flag (Windows link WIP) |

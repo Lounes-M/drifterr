@@ -39,8 +39,9 @@ export DRIFTERR_CONTROL_ADDR=127.0.0.1:8791
   Auto-intent with your OpenRouter key).
 - **Constraints must be stated to be caught.** The deterministic signal catches
   rules you actually wrote ("no JS", "TypeScript only", "no console.log",
-  "no TODOs", a word limit…). Vague intent → fewer catches, by design (we
-  under-claim rather than cry wolf).
+  "no TODOs", "no `any` type", "no new dependencies", "no eval",
+  "no hardcoded secrets", "don't touch package.json", a word or line limit…).
+  Vague intent → fewer catches, by design (we under-claim rather than cry wolf).
 - **Saturation is only exact via the proxy.** On the file/extension channels
   it's estimated; the panel marks whether it's exact.
 
