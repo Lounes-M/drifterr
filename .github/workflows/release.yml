@@ -14,11 +14,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release tag to build (e.g. v0.2.3)"
+        description: "Release tag to build (e.g. v0.2.5)"
         required: true
-        default: "v0.2.3"
-      semantic:
-        description: "Bundle the ONNX semantic model (+~130MB). OFF by default — the ONNX build currently fails to link on Windows (LNK2038 CRT mismatch); leave unchecked until that's fixed."
+        default: "v0.2.5"
+      lexical_only:
+        description: "Ship WITHOUT the semantic model (smaller, lexical-embedder-only build). Leave unchecked for the normal semantic release."
         type: boolean
         required: false
         default: false
@@ -27,12 +27,12 @@ jobs:
   release:
     permissions:
       contents: write
-    # Semantic is OFF by default (both tag pushes and manual runs) because the
-    # ONNX build does not yet link on Windows. Only a manual run with the box
-    # explicitly checked builds semantic. This keeps every default release on the
-    # proven lexical path.
+    # Semantic (ONNX) model is bundled BY DEFAULT — it links on all three
+    # platforms (validated by the `onnx-windows` CI job). Every tag push and
+    # normal manual run ships semantic goal detection. A manual run can opt OUT
+    # with `lexical_only` for a smaller lexical-only build.
     env:
-      SEMANTIC: ${{ github.event_name == 'workflow_dispatch' && inputs.semantic }}
+      SEMANTIC: ${{ github.event_name != 'workflow_dispatch' || !inputs.lexical_only }}
     strategy:
       fail-fast: false
       # Build platforms ONE AT A TIME. tauri-action merges each job's platform

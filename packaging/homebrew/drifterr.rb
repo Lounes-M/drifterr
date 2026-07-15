@@ -1,7 +1,7 @@
 # Homebrew Cask for Drifterr (macOS). See ../README.md for how to fill sha256
 # and publish. Install from a tap once published:  brew install --cask drifterr
 cask "drifterr" do
-  version "0.2.4"
+  version "0.2.5"
   # Pin the DMG checksum per release (see ../checksums.sh). `:no_check` is fine
   # for a personal tap while unsigned; a real sha256 is required for homebrew/cask.
   sha256 :no_check

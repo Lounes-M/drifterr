@@ -62,14 +62,10 @@ jobs:
 
       # 2) The real validation: build the semantic embedder with the native ONNX
       #    runtime. This is where the LNK2038 CRT-mismatch used to fail; the
-      #    dynamic-CRT rustflags in .cargo/config.toml are what fix it.
-      #
-      #    `ort` 2.x is a pinned prerelease with a native download step, so this
-      #    step is allowed to fail without blocking the pipeline — it exists to
-      #    surface the link result (green = fix holds; red = the ort binding
-      #    needs a bump). Flip `continue-on-error` off once ort ships a stable 2.0.
+      #    dynamic-CRT rustflags in .cargo/config.toml are what fix it. Now a HARD
+      #    gate — the semantic model ships by default (release.yml), so a Windows
+      #    link regression must fail CI, not slip through.
       - name: ONNX feature build (link validation)
-        continue-on-error: true
         run: cargo build -p drifterr-embeddings --features onnx
 
   desktop-app:
