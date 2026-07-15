@@ -37,8 +37,13 @@ Lambda-latency goal drifting to a marketing redesign):
 
 | | goal · on-topic | goal · drift | separation |
 |---|---|---|---|
-| lexical (`BagEmbedder`) | 0.22 | 0.17 | **0.05** — too small to trip any threshold |
-| ONNX `bge-small-en-v1.5` | 0.62 | 0.36 | **0.26** — clean |
+| lexical (`BagEmbedder`) | 0.18 | 0.10 | **0.07** — too small to trip any threshold |
+| ONNX `bge-small-en-v1.5` | 0.61 | 0.39 | **0.22** — clean |
+
+Measured cost of the ONNX model (`embed_bench`, `bge-small-en-v1.5`): **~127 MB**
+on disk (384-dim), **~1.1 s** one-time cold load, **~6.6 ms** mean per-embed
+latency (p95 8.4 ms, ~150 embeds/s), **~240 MB** resident memory. Turns are
+embedded off the response path, so the latency never touches a user request.
 
 That separation is decisive end-to-end: on the harder eval set
 (`cargo run -p drifterr-engine --features onnx --example eval -- eval/`, with

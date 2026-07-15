@@ -156,7 +156,7 @@ Honest state of each capability — no claim here overshoots what actually runs.
 | Constraint signal (deterministic, hard) | ✅ shipped | EN/FR phrasings; code rules (no JS/TODO/console.log/`any`/eval/secrets, no new deps, protected files, word & line caps) |
 | Saturation signal (hard) | ✅ shipped | Exact only via the proxy |
 | Degradation signal (soft) | ✅ shipped | Looping, verbosity, hedging (EN/FR) |
-| Goal-alignment signal (soft) | 🚧 partial | Ships a **local lexical** embedder; the local ONNX semantic model is behind a feature flag (Windows link WIP) |
+| Goal-alignment signal (soft) | ✅ shipped | Local **ONNX semantic** model (bge-small, 384-dim, ~127MB) bundled by default since 0.2.5; lexical fallback. Goal↔drift separation 0.07→0.22; eval accuracy 67%→100% |
 | Decision-coherence judge (soft) | ✅ shipped | Opt-in, BYOK (your OpenRouter key); fail-safe (degrades, never blocks) |
 | Auto-intent (AI infers goal + constraints) | ✅ shipped | Opt-in, BYOK; continuous re-baseline |
 | Re-anchor (snapshot + preamble) | ✅ shipped | Copy or auto-inject (proxy channel) |
