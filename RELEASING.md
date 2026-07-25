@@ -21,13 +21,37 @@ matching private key as repo secrets:
 > **both** the `pubkey` in `tauri.conf.json` and these secrets, or existing
 > installs won't accept updates.
 
-## Code signing & notarization (removes the install warning)
+## Signing and notarization (removes the install warning)
 
-Unsigned builds trigger a Gatekeeper (macOS) / SmartScreen (Windows) warning on
-first launch. The workflow is **already wired** for both — it stays unsigned
-until you add the secrets, then signs automatically with no workflow change.
+**This is the highest-impact item in the whole install funnel.** Unsigned builds
+make macOS say *"Drifterr is damaged and can't be opened"* and make Windows hide
+the install button behind SmartScreen. Most people who hit that do not work around
+it — they conclude the download is broken and leave, and we never hear about it.
 
-### macOS — signed + notarized (highest impact; Gatekeeper is strict)
+The workflow is fully wired for both platforms and **signs automatically as soon
+as the secrets exist**, with no workflow edit needed:
+
+- **No certificates configured** → the build still succeeds and ships unsigned,
+  and the job log carries a loud `Unsigned build` warning. A missing secret can
+  never fail a release.
+- **Certificates configured** → artifacts are signed (and notarized on macOS),
+  then *verified* in a follow-up step, so a silently-unsigned release is not
+  possible.
+
+While the `Unsigned build` warning still appears, the first-launch instructions on
+[drifterr.app/download](https://drifterr.app/download) (`apps/landing/download.html`,
+section `#firstrun`) **must stay up** — that block is the only thing standing
+between a user and a dead end. Remove it in the same PR that lands working
+signatures, not before.
+
+> Implementation note: `APPLE_CERTIFICATE` is deliberately *not* passed to
+> tauri-action. It treats the variable as "signing requested" whenever it is
+> merely defined, so an empty value made it run `security import` on nothing and
+> fail the macOS build outright — which is why signing sat disabled. The workflow
+> now imports the certificate into a throwaway runner keychain itself and passes
+> only the identity.
+
+### macOS — signed + notarized (Gatekeeper is strict)
 
 Prereq: an **Apple Developer account** ($99/yr) with a *Developer ID
 Application* certificate.
@@ -46,19 +70,40 @@ Application* certificate.
    | `APPLE_ID` | your Apple ID email |
    | `APPLE_PASSWORD` | the app-specific password from step 2 |
    | `APPLE_TEAM_ID` | your 10-char Team ID |
-4. Cut a release. tauri-action signs the universal `.app`/`.dmg` and notarizes it;
-   the warning is gone. (First notarization can add a few minutes to the job.)
+4. Cut a release. The universal `.app`/`.dmg` is signed and notarized, then
+   verified with `codesign --verify --deep --strict` and `spctl --assess` — the same
+   check a user's Mac performs. (First notarization can add a few minutes.)
 
-### Windows — SmartScreen
+`APPLE_CERTIFICATE` + `APPLE_SIGNING_IDENTITY` alone enable signing; adding
+`APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` also enables notarization. Signing
+without notarizing still shows a warning, so the job emits a warning telling you
+so — treat all six as one unit.
 
-Unsigned `.exe` shows SmartScreen ("More info → Run anyway"). To remove it you
-need a code-signing certificate (an OV/EV cert from a CA, or **Azure Trusted
-Signing** — cheapest for indies). Two routes, both configured in
-`tauri.conf.json` under `bundle.windows`:
-- **Thumbprint**: import the cert on the runner, set `"certificateThumbprint"`.
-- **Azure Trusted Signing**: set a `"signCommand"` that calls their signer.
-Not wired yet (no CA cert); the SmartScreen tip on the download page covers users
-until then. Reputation also builds automatically as more people run the app.
+### Windows — Authenticode (removes SmartScreen)
+
+Get a code-signing certificate: an OV/EV cert from a CA, or **Azure Trusted
+Signing** (cheapest route for an indie). Export it as a `.pfx`, then base64 it
+(`base64 -w0 drifterr.pfx`) and add:
+
+| Secret | Value |
+|---|---|
+| `WINDOWS_CERTIFICATE` | the base64 `.pfx` |
+| `WINDOWS_CERTIFICATE_PASSWORD` | its password (omit if none) |
+
+Signing happens **during bundling**, via `apps/desktop/src-tauri/windows-sign.conf.json`
+(added to the build args only when the certificate exists) which points
+`bundle.windows.signCommand` at `apps/desktop/scripts/sign-windows.ps1`. That way
+both the app `.exe` and the installer are signed, each one SHA-256 signed,
+RFC-3161 timestamped, and verified with `signtool verify /pa` before the build
+continues.
+
+Timestamping is not optional: without it every signature stops validating the day
+the certificate expires, retroactively breaking releases already in the wild.
+Override the default timestamp authority with `WINDOWS_TIMESTAMP_URL` if needed.
+
+Note that SmartScreen reputation also accrues over time — a brand-new OV
+certificate may still warn for the first while, though far less than no signature
+at all. EV certificates get reputation immediately.
 
 ## Versioning
 
