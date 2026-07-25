@@ -53,12 +53,67 @@
               <span id="rec-label">Download for macOS</span>
             </button>
             <div class="rec-sub">
-              <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Free forever</span>
+              <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> No account needed</span>
+              <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> 14 days of Pro, no card</span>
               <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Local-first</span>
             </div>
           </div>
         </div>
         <button class="see-all" id="see-all" type="button">Not your device? See all platforms ↓</button>
+      </section>
+
+      <!--
+        First-launch warning. The builds are not yet signed/notarized, so macOS
+        Gatekeeper and Windows SmartScreen both block them on first open. Burying
+        that in docs meant users downloaded the app, hit "Drifterr is damaged and
+        can't be opened", and left believing the app was broken. It must be on
+        this page, above the fold-ish, and it must say exactly which clicks fix
+        it. Delete this section only once signed builds actually ship — see
+        RELEASING.md ("Signing and notarization").
+      -->
+      <section class="sec" id="firstrun">
+        <div class="notice reveal">
+          <div class="notice-head">
+            <span class="notice-ic" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.2 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.2a2 2 0 0 0-3.4 0z"/></svg>
+            </span>
+            <div>
+              <b>Read this before you open it: the app isn't code-signed yet.</b>
+              <p>Your OS will warn you on first launch. Nothing is wrong with the download — we haven't bought the signing certificates yet. Here's the exact way through, and you only do it once.</p>
+            </div>
+          </div>
+          <div class="notice-grid">
+            <div class="notice-os" data-os-block="mac">
+              <span class="notice-tag">macOS</span>
+              <p>You'll see <i>"Drifterr can't be opened because it is from an unidentified developer"</i> — or <i>"is damaged and can't be opened"</i>.</p>
+              <ol>
+                <li>Open <b>Applications</b> in Finder.</li>
+                <li><b>Right-click</b> (or Control-click) <b>Drifterr</b> → <b>Open</b>.</li>
+                <li>Click <b>Open</b> again in the dialog.</li>
+              </ol>
+              <p class="notice-alt">Still blocked? Run <code>xattr -dr com.apple.quarantine /Applications/Drifterr.app</code> and reopen. Auto-update is unreliable while unsigned, so update by downloading the new build.</p>
+            </div>
+            <div class="notice-os" data-os-block="win">
+              <span class="notice-tag">Windows</span>
+              <p>SmartScreen shows <i>"Windows protected your PC"</i> and hides the install button.</p>
+              <ol>
+                <li>Click <b>More info</b>.</li>
+                <li>Click <b>Run anyway</b>.</li>
+              </ol>
+              <p class="notice-alt">The installer is per-user and needs no admin rights.</p>
+            </div>
+            <div class="notice-os" data-os-block="linux">
+              <span class="notice-tag">Linux</span>
+              <p>No signature prompt, but the AppImage needs the executable bit.</p>
+              <ol>
+                <li><code>chmod +x Drifterr-*.AppImage</code></li>
+                <li><code>./Drifterr-*.AppImage</code></li>
+              </ol>
+              <p class="notice-alt">The <code>.deb</code> installs normally with <code>apt install ./drifterr_*.deb</code>.</p>
+            </div>
+          </div>
+          <p class="notice-foot">Want to check the download first? Every release publishes SHA-256 checksums next to the binaries — verify before you run, and <a href="/proof">see what the app does and doesn't send</a>.</p>
+        </div>
       </section>
 
       <section class="sec" id="all">
@@ -122,6 +177,7 @@
       <div class="tip" id="toast-tip"></div>
     </div>
 
+    <script src="config.js"></script>
     <script type="module" src="download.js"></script>
   </body>
 </html>

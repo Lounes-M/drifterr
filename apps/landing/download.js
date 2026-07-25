@@ -2,6 +2,8 @@
 // runs the actual downloads through the on-domain redirect (/dl/<os>), copies
 // CLI commands, and shows an animated progress toast. No external deps.
 
+import * as analytics from "./analytics.js";
+
 const REPO = "Lounes-M/drifterr";
 
 const APPLE = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 12.04c-.03-2.6 2.13-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.89-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.78 1.3 10.33.86 1.25 1.88 2.65 3.22 2.6 1.29-.05 1.78-.83 3.34-.83 1.56 0 2 .83 3.37.81 1.39-.03 2.27-1.27 3.12-2.53.98-1.45 1.39-2.85 1.41-2.92-.03-.01-2.71-1.04-2.74-4.13M14.6 4.6c.71-.86 1.19-2.06 1.06-3.25-1.02.04-2.26.68-3 1.54-.66.76-1.24 1.98-1.08 3.15 1.14.09 2.31-.58 3.02-1.44"/></svg>';
@@ -79,8 +81,16 @@ function showMsgToast(msg) {
 }
 
 async function triggerDownload(osKey) {
+  analytics.track("download_click", { os: osKey });
   const ok = await releaseReady();
-  if (!ok) { showMsgToast("The installer isn't out yet — landing here very soon. ⏳"); return; }
+  if (!ok) {
+    // Worth measuring on its own: "wanted it, couldn't have it" is a different
+    // funnel loss from "never clicked".
+    analytics.track("download_failed", { os: osKey });
+    showMsgToast("The installer isn't out yet — landing here very soon. ⏳");
+    return;
+  }
+  analytics.track("download_started", { os: osKey });
   // hidden iframe keeps the page (and the toast) put while the file downloads
   let f = document.getElementById("dl-frame");
   if (!f) { f = document.createElement("iframe"); f.id = "dl-frame"; f.style.display = "none"; document.body.appendChild(f); }
@@ -126,6 +136,16 @@ function init() {
   document.getElementById("rec-meta").textContent = cfg.meta;
   document.getElementById("rec-label").textContent = cfg.label;
   document.getElementById("rec-btn").addEventListener("click", () => triggerDownload(os));
+
+  // First-launch notice: promote the visitor's own platform to the front, so the
+  // steps that apply to them are the first thing they read. The `.deb` tile maps
+  // onto the same Linux block.
+  const noticeOs = os === "deb" ? "linux" : os;
+  const mine = document.querySelector(`[data-os-block="${noticeOs}"]`);
+  if (mine) mine.classList.add("mine");
+
+  // Funnel: page view + whether the unsigned-build help was actually seen.
+  analytics.init(document);
 
   // platform tiles
   document.querySelectorAll(".dl[data-os]").forEach((b) => b.addEventListener("click", () => triggerDownload(b.dataset.os)));
