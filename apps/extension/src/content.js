@@ -11,9 +11,47 @@
   let lastSignature = "";
   let pendingPreamble = "";
 
+  /// Record why extraction produced nothing, so the popup can tell the user.
+  ///
+  /// These scrapers read the DOM internals of sites we don't control, so a redesign
+  /// silently breaking them is the expected steady state, not an edge case. Without
+  /// this the failure is invisible: Drifterr reports no drift forever and the user
+  /// concludes detection is useless rather than blind. Stored rather than sent, since
+  /// nothing here needs to leave the browser.
+  function recordHealth(diag) {
+    try {
+      chrome.storage?.local?.set({
+        drifterrHealth: {
+          reason: diag.reason,
+          host: diag.host,
+          turns: diag.turns || 0,
+          at: Date.now(),
+        },
+      });
+      // Log the breakage once per page so it shows up in a bug report.
+      if (diag.reason === "selectors_stale" && !window.__drifterrWarned) {
+        window.__drifterrWarned = true;
+        console.warn(
+          "[Drifterr] Could not read this conversation — " +
+            diag.host +
+            " has likely changed its layout. Drift is NOT being tracked on this page."
+        );
+      }
+    } catch (_e) {
+      /* storage unavailable — the console warning above is still useful */
+    }
+  }
+
   function tick() {
     try {
-      const result = window.DrifterrParse && window.DrifterrParse.extract();
+      const parse = window.DrifterrParse;
+      if (!parse) return;
+      // Diagnose first: this is what distinguishes "nothing to read" from "we can no
+      // longer read it", which `extract()` alone cannot express.
+      const diag = parse.diagnose ? parse.diagnose() : null;
+      if (diag) recordHealth(diag);
+
+      const result = parse.extract();
       if (!result || !result.turns.length) return;
       // Only send when the conversation actually changed.
       const signature = result.turns.map((t) => t.role[0] + t.content.length).join("|");

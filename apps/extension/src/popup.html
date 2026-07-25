@@ -24,6 +24,16 @@
         border-radius: 10px; background: linear-gradient(90deg, #ff7847, #ff3d81);
       }
       .off { color: #86849a; font-size: 12px; margin-top: 8px; }
+      .health {
+        margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; font-size: 11.5px;
+        line-height: 1.45; background: rgba(255,255,255,.06); color: #a3a1b4;
+      }
+      /* A broken scraper is a loud state, not a footnote: the user needs to know
+         drift is not being tracked at all on this page. */
+      .health.broken {
+        background: rgba(255,77,109,.14); border: 1px solid rgba(255,77,109,.4);
+        color: #ffb3c1;
+      }
     </style>
   </head>
   <body>
@@ -36,6 +46,12 @@
         </div>
       </div>
       <p id="detail" class="detail" hidden></p>
+      <!--
+        Scraper health. Without this, a site redesign that breaks our selectors is
+        indistinguishable from "no drift" — the worst possible failure mode for a
+        monitoring tool, because it looks like everything is fine.
+      -->
+      <p id="health" class="health" hidden></p>
       <p id="off" class="off" hidden>Start the Drifterr app (or run the proxy) to see live status.</p>
       <a class="btn" href="http://localhost:8788/" target="_blank" rel="noopener">Open panel</a>
     </div>
