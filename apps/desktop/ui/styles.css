@@ -637,6 +637,26 @@ code { font-family: var(--mono); }
 .gate-msg.ok { background: rgba(52, 232, 158, 0.1); border: 1px solid rgba(52, 232, 158, 0.32); color: #9ff0cf; }
 .gate-msg[hidden] { display: none; }
 
+/* Re-anchor outcome — the answer to "did that actually work?". Three states, and
+   the neutral one is deliberately not styled as a success. */
+.reanchor-outcome {
+  display: flex; gap: 9px; align-items: flex-start;
+  padding: 10px 12px; border-radius: 11px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--edge);
+}
+.reanchor-outcome[hidden] { display: none; }
+.ro-badge {
+  flex: 0 0 auto; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 3px 7px; border-radius: 999px; white-space: nowrap;
+}
+.ro-text { font-size: 12px; line-height: 1.5; color: var(--ink-soft); }
+.reanchor-outcome.held { background: rgba(52, 232, 158, 0.08); border-color: rgba(52, 232, 158, 0.28); }
+.reanchor-outcome.held .ro-badge { background: rgba(52, 232, 158, 0.18); color: #9ff0cf; }
+.reanchor-outcome.broke { background: rgba(255, 77, 109, 0.08); border-color: rgba(255, 77, 109, 0.3); }
+.reanchor-outcome.broke .ro-badge { background: rgba(255, 77, 109, 0.18); color: #ffb3c1; }
+.reanchor-outcome.pending .ro-badge { background: rgba(255, 255, 255, 0.1); color: var(--ink-faint); }
+
 .acct-buttons { display: flex; gap: 8px; margin-top: 10px; }
 .acct-buttons .mini-btn { flex: 1; }
 

@@ -86,6 +86,43 @@ export function apiBase() {
   return "http://127.0.0.1:8788";
 }
 
+/// Report whether the last re-anchor actually held.
+///
+/// Three honest states, and the third one matters: "still checking" is shown rather
+/// than rounded up to success. A re-anchor success rate that counts undecided cases
+/// as wins is the same species of invented number as the "52 min saved" stat this
+/// mechanism exists to replace.
+export function renderReanchorOutcome(doc, mark) {
+  const el = doc.getElementById("reanchor-outcome");
+  if (!el) return;
+  if (!mark) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  const broke = Number.isFinite(mark.brokeAgainAtTurn);
+  const held = mark.heldTurns || 0;
+  const cause = mark.constraintId ? `“${mark.constraintId}”` : mark.signal;
+
+  let cls, badge, text;
+  if (broke) {
+    cls = "broke";
+    badge = "Didn't hold";
+    text = `${cause} came back on turn ${mark.brokeAgainAtTurn + 1}. Consider restating it more explicitly, or retiring it if you've changed your mind.`;
+  } else if (held >= 2) {
+    cls = "held";
+    badge = "Re-anchor held";
+    text = `${cause} has stayed clear for ${held} turn${held > 1 ? "s" : ""} since you re-anchored.`;
+  } else {
+    cls = "pending";
+    badge = "Checking";
+    text = `Watching whether ${cause} stays clear — ${held} turn${held === 1 ? "" : "s"} so far.`;
+  }
+  el.className = "reanchor-outcome session-only " + cls;
+  setText(doc, "ro-badge", badge);
+  setText(doc, "ro-text", text);
+}
+
 /// Show the effective plan from a `/status` entitlement.
 ///
 /// The proxy resolves the plan, including the local first-run trial, so this is
@@ -189,6 +226,8 @@ export function render(doc, data) {
     const re = doc.getElementById("reanchor");
     if (re) re.hidden = true;
   }
+
+  renderReanchorOutcome(doc, cur.reanchor);
 
   // Drift score (0–100 display aggregate).
   const drift = clampPct(cur.driftScore);

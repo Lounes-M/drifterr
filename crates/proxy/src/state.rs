@@ -163,6 +163,10 @@ pub struct SessionStatus {
     /// A pending Auto-intent goal shift the user needs to confirm/deny, if any.
     #[serde(rename = "intentShift", skip_serializing_if = "Option::is_none")]
     pub intent_shift: Option<IntentShift>,
+    /// The last re-anchor and whether it held — closes the loop on the product's
+    /// headline action instead of leaving the user to guess whether it worked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reanchor: Option<ReanchorMark>,
     #[serde(rename = "updatedAt")]
     pub updated_at: i64,
 }
@@ -190,7 +194,58 @@ pub struct SessionState {
     /// transcript at the last call so an unchanged transcript is never re-sent.
     synth_calls: usize,
     last_synth_hash: u64,
+    /// The last re-anchor and whether it actually worked — see [`ReanchorMark`].
+    reanchor: Option<ReanchorMark>,
 }
+
+/// A re-anchor, plus what happened afterwards.
+///
+/// # Why this exists
+///
+/// Re-anchor was the product's headline action and nothing measured whether it did
+/// anything. The user clicked, pasted, and then had to *believe* it helped. That's
+/// a broken loop in both directions: the user gets no confirmation, and the project
+/// gets no evidence — which is exactly why the site had to reach for an invented
+/// "52 min saved" figure instead of a real one.
+///
+/// So each re-anchor records the cause it was meant to fix, and subsequent turns are
+/// checked against it. Either the cause stays quiet (the re-anchor held, and we can
+/// say for how many turns) or it comes back (it didn't, and we say that too). The
+/// honest answer is the useful one: "held for 12 turns" is worth something precisely
+/// because "broke again on turn 3" is a possible outcome.
+#[derive(Debug, Clone, Serialize)]
+pub struct ReanchorMark {
+    /// Turn count at the moment of re-anchoring.
+    #[serde(rename = "atTurn")]
+    pub at_turn: usize,
+    /// The signal that was firing then — the thing the re-anchor was meant to fix.
+    pub signal: String,
+    /// The specific constraint, when the cause was a constraint violation. This is
+    /// what makes "did it hold" a precise question rather than a vague one.
+    #[serde(rename = "constraintId", skip_serializing_if = "Option::is_none")]
+    pub constraint_id: Option<String>,
+    /// Assistant turns observed since, with the cause staying quiet.
+    #[serde(rename = "heldTurns")]
+    pub held_turns: usize,
+    /// The turn the same cause reappeared, if it did. `None` = still holding.
+    #[serde(rename = "brokeAgainAtTurn", skip_serializing_if = "Option::is_none")]
+    pub broke_again_at_turn: Option<usize>,
+}
+
+impl ReanchorMark {
+    /// Did the re-anchor hold? `None` until enough turns have passed to mean
+    /// anything — claiming success on zero subsequent turns would be the same kind
+    /// of empty number this whole mechanism exists to replace.
+    pub fn held(&self) -> Option<bool> {
+        if self.broke_again_at_turn.is_some() {
+            return Some(false);
+        }
+        (self.held_turns >= MIN_TURNS_TO_JUDGE_REANCHOR).then_some(true)
+    }
+}
+
+/// Assistant turns that must pass before a re-anchor is called successful.
+const MIN_TURNS_TO_JUDGE_REANCHOR: usize = 2;
 
 /// The proxy's shared core: every live session plus an optional durable store.
 pub struct AppCore {
@@ -511,12 +566,24 @@ impl AppCore {
 
     /// Build the re-anchor intervention (snapshot + preamble) for a session.
     /// With no id, uses the most recently updated session. `None` if unknown.
-    pub fn reanchor(&self, session_id: Option<&str>) -> Option<drifterr_intervention::Reanchor> {
+    /// Build the re-anchor outputs for a session **and start measuring whether it
+    /// works**.
+    ///
+    /// Takes `&mut self` because producing a re-anchor is not a read: it opens a
+    /// verification window. The cause being fixed is recorded here, and [`ingest`]
+    /// checks each later turn against it, so the panel can eventually say "held for
+    /// 12 turns" or "broke again on turn 3" instead of leaving the user to guess.
+    ///
+    /// [`ingest`]: Self::ingest
+    pub fn reanchor(
+        &mut self,
+        session_id: Option<&str>,
+    ) -> Option<drifterr_intervention::Reanchor> {
         let id = match session_id {
             Some(s) => s.to_string(),
             None => self.last_updated.clone()?,
         };
-        let session = self.sessions.get(&id)?;
+        let session = self.sessions.get_mut(&id)?;
         let trigger = session
             .status
             .triggering
@@ -525,13 +592,70 @@ impl AppCore {
                 signal: t.signal.clone(),
                 detail: t.detail.clone(),
             });
-        Some(drifterr_intervention::reanchor(
+
+        // Only open a window when there is a named cause to fix. Re-anchoring a green
+        // session is a no-op to measure — there is nothing that could "come back".
+        if let Some(t) = session.status.triggering.as_ref() {
+            session.reanchor = Some(ReanchorMark {
+                at_turn: session.turns_seen,
+                signal: t.signal.clone(),
+                constraint_id: t.constraint_id.clone(),
+                held_turns: 0,
+                broke_again_at_turn: None,
+            });
+        }
+
+        let out = drifterr_intervention::reanchor(
             &session.baseline,
             session.status.state,
             session.status.saturation_pct,
             session.status.exact,
             trigger.as_ref(),
-        ))
+        );
+        // Persist the event so the weekly report can count re-anchors across
+        // sessions. Best-effort: a store hiccup must never fail a re-anchor.
+        if let (Some(store), Some(mark)) = (&self.store, self.sessions[&id].reanchor.as_ref()) {
+            if let Ok(mut s) = store.lock() {
+                let _ = s.record_reanchor(
+                    &id,
+                    &mark.signal,
+                    mark.constraint_id.as_deref(),
+                    now_millis(),
+                );
+            }
+        }
+        Some(out)
+    }
+
+    /// Advance the verification window for a session's last re-anchor.
+    ///
+    /// Called once per ingested turn. "Did it hold" is judged against the *same*
+    /// cause: the same constraint id where there is one, otherwise the same signal
+    /// kind. A different constraint breaking later is new drift, not the old one
+    /// returning, and conflating the two would make the metric meaningless.
+    fn update_reanchor_outcome(session: &mut SessionState, events: &[SignalEvent]) {
+        let Some(mark) = session.reanchor.as_mut() else {
+            return;
+        };
+        if mark.broke_again_at_turn.is_some() {
+            return; // Already decided; don't overwrite the verdict.
+        }
+        let recurred = events.iter().any(|e| {
+            if e.state == State::Green {
+                return false;
+            }
+            match (&mark.constraint_id, &e.evidence.constraint_id) {
+                (Some(want), Some(got)) => want == got,
+                // No constraint id to compare (saturation, a soft signal): fall back
+                // to the signal kind.
+                _ => signal_name(e.signal) == mark.signal,
+            }
+        });
+        if recurred {
+            mark.broke_again_at_turn = Some(session.turns_seen);
+        } else {
+            mark.held_turns += 1;
+        }
     }
 
     /// Whether Auto-intent should run an inference for this session now. Cost
@@ -737,6 +861,7 @@ impl AppCore {
                     triggering: None,
                     signals: Vec::new(),
                     intent_shift: None,
+                    reanchor: None,
                     updated_at: 0,
                     history: Vec::new(),
                 },
@@ -748,6 +873,7 @@ impl AppCore {
                 last_synth_at: 0,
                 synth_calls: 0,
                 last_synth_hash: 0,
+                reanchor: None,
             }
         });
 
@@ -773,6 +899,10 @@ impl AppCore {
         let verdict = evaluate(&conv, &session.baseline);
         let committed = session.monitor.observe(&verdict);
 
+        // Advance the "did the last re-anchor hold?" window before the status is
+        // rebuilt, so the panel reports this turn's outcome, not the previous one's.
+        Self::update_reanchor_outcome(session, &verdict.events);
+
         // Append to the rolling drift-map history (cap to the last 60 turns).
         session.history.push(verdict.drift_score());
         if session.history.len() > 60 {
@@ -792,7 +922,12 @@ impl AppCore {
             intent_shift: session.pending_shift.clone(),
             updated_at: now_millis(),
             history: session.history.clone(),
+            reanchor: session.reanchor.clone(),
         };
+
+        // Only persist a re-anchor verdict once it is actually decided; "too early to
+        // say" stays NULL rather than being rounded up to a success.
+        let reanchor_verdict = session.reanchor.as_ref().and_then(|m| m.held());
 
         // Durable record (best-effort: persistence must never break ingestion).
         if let Some(store) = &self.store {
@@ -801,6 +936,9 @@ impl AppCore {
                 let _ = s.save_baseline(&session_id, &session.baseline);
                 let _ = s.record_events(&session_id, &verdict.events);
                 let _ = s.set_status(&session_id, committed);
+                if let Some(held) = reanchor_verdict {
+                    let _ = s.set_reanchor_outcome(&session_id, held);
+                }
                 // Track recurring constraints across sessions.
                 use drifterr_embeddings::{BagEmbedder, Embedder};
                 let embedder = BagEmbedder::default();
@@ -1065,7 +1203,7 @@ fn view_of(e: &SignalEvent) -> SignalView {
     }
 }
 
-fn signal_name(k: SignalKind) -> &'static str {
+pub(crate) fn signal_name(k: SignalKind) -> &'static str {
     match k {
         SignalKind::Constraint => "constraint",
         SignalKind::GoalAlignment => "goal_alignment",
@@ -1134,6 +1272,94 @@ mod tests {
         let status = core.current().unwrap();
         assert!(!status.exact, "file channel saturation is estimated");
         assert_eq!(status.triggering.unwrap().signal, "constraint");
+    }
+
+    /// The loop must be able to report *failure*, not just success — "held for 12
+    /// turns" is only worth anything because "broke again on turn 3" is a possible
+    /// answer. Both directions are asserted here.
+    #[test]
+    fn reanchor_outcome_is_measured_both_ways() {
+        let violating = |sid: &str| {
+            let jsonl = format!(
+                concat!(
+                    r#"{{"type":"user","sessionId":"{}","message":{{"role":"user","content":"Refactor in TS, no JS"}}}}"#,
+                    "\n",
+                    r#"{{"type":"assistant","message":{{"role":"assistant","model":"m","content":[{{"type":"text","text":"creating auth.js"}}]}}}}"#
+                ),
+                sid
+            );
+            drifterr_adapters::claude_code::parse_session(&jsonl, "x").unwrap()
+        };
+        let clean = |sid: &str| {
+            let jsonl = format!(
+                concat!(
+                    r#"{{"type":"user","sessionId":"{}","message":{{"role":"user","content":"Refactor in TS, no JS"}}}}"#,
+                    "\n",
+                    r#"{{"type":"assistant","message":{{"role":"assistant","model":"m","content":[{{"type":"text","text":"updated auth.ts as asked"}}]}}}}"#
+                ),
+                sid
+            );
+            drifterr_adapters::claude_code::parse_session(&jsonl, "x").unwrap()
+        };
+
+        // --- it held -------------------------------------------------------
+        let mut core = AppCore::new(None);
+        assert_eq!(core.record_conversation(&violating("ra-1")), State::Red);
+        assert!(
+            core.reanchor(Some("ra-1")).is_some(),
+            "a red session can be re-anchored"
+        );
+        // Two clean turns: the constraint stays quiet.
+        for _ in 0..2 {
+            core.record_conversation(&clean("ra-1"));
+        }
+        let mark = core.current().unwrap().reanchor.expect("mark recorded");
+        assert_eq!(mark.signal, "constraint");
+        assert_eq!(mark.constraint_id.as_deref(), Some("c1"));
+        assert_eq!(mark.held_turns, 2);
+        assert_eq!(mark.broke_again_at_turn, None);
+        assert_eq!(mark.held(), Some(true), "two quiet turns ⇒ it held");
+
+        // --- it did not hold -----------------------------------------------
+        let mut core = AppCore::new(None);
+        core.record_conversation(&violating("ra-2"));
+        core.reanchor(Some("ra-2"));
+        // The very same constraint breaks again.
+        core.record_conversation(&violating("ra-2"));
+        let mark = core.current().unwrap().reanchor.expect("mark recorded");
+        assert!(
+            mark.broke_again_at_turn.is_some(),
+            "the same cause returning must be recorded"
+        );
+        assert_eq!(mark.held(), Some(false));
+
+        // --- too early to say ----------------------------------------------
+        let mut core = AppCore::new(None);
+        core.record_conversation(&violating("ra-3"));
+        core.reanchor(Some("ra-3"));
+        core.record_conversation(&clean("ra-3")); // only one quiet turn
+        let mark = core.current().unwrap().reanchor.unwrap();
+        assert_eq!(
+            mark.held(),
+            None,
+            "one quiet turn is not evidence; undecided must stay undecided"
+        );
+    }
+
+    #[test]
+    fn reanchoring_a_green_session_opens_no_window() {
+        // Nothing was wrong, so there is nothing that could "come back" — recording a
+        // window here would let a no-op re-anchor count as a success.
+        let jsonl = concat!(
+            r#"{"type":"user","sessionId":"ra-green","message":{"role":"user","content":"Write docs"}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"role":"assistant","model":"m","content":[{"type":"text","text":"here are the docs"}]}}"#
+        );
+        let conv = drifterr_adapters::claude_code::parse_session(jsonl, "x").unwrap();
+        let mut core = AppCore::new(None);
+        assert_eq!(core.record_conversation(&conv), State::Green);
+        core.reanchor(Some(&conv.session_id));
+        assert!(core.current().unwrap().reanchor.is_none());
     }
 
     #[test]

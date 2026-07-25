@@ -202,6 +202,33 @@ async function main() {
   check(!(await page.locator("#map-lock").isVisible()), "Pro unlocks the drift map");
   check(!(await page.locator("#upgrade-nudge").isVisible()), "Pro hides the upgrade nudge");
 
+  console.log("RE-ANCHOR outcome (did it hold?):");
+  const withMark = (mark) => ({
+    current: { ...baseCur, reanchor: mark },
+    sessions: [],
+    entitlement: { plan: "pro", driftMap: true },
+    sessionsLocked: 0,
+  });
+  // Held: two quiet turns since re-anchoring.
+  scenario = withMark({ atTurn: 4, signal: "constraint", constraintId: "c1", heldTurns: 3 });
+  await page.waitForFunction(() => !document.getElementById("reanchor-outcome").hidden, null, { timeout: 5000 });
+  check((await page.locator("#ro-badge").textContent()) === "Re-anchor held", "reports a held re-anchor");
+  check((await page.locator("#ro-text").textContent()).includes("3 turns"), "names how many turns it held");
+  check((await page.locator("#reanchor-outcome").getAttribute("class")).includes("held"), "styled as held");
+  // Broke: the same cause came back.
+  scenario = withMark({ atTurn: 4, signal: "constraint", constraintId: "c1", heldTurns: 0, brokeAgainAtTurn: 6 });
+  await page.waitForFunction(() => document.getElementById("ro-badge").textContent === "Didn't hold", null, { timeout: 5000 });
+  check((await page.locator("#ro-text").textContent()).includes("turn 7"), "names the turn it broke again (1-based)");
+  check((await page.locator("#reanchor-outcome").getAttribute("class")).includes("broke"), "styled as broken");
+  // Undecided must NOT read as success — one quiet turn is not evidence.
+  scenario = withMark({ atTurn: 4, signal: "constraint", constraintId: "c1", heldTurns: 1 });
+  await page.waitForFunction(() => document.getElementById("ro-badge").textContent === "Checking", null, { timeout: 5000 });
+  check((await page.locator("#reanchor-outcome").getAttribute("class")).includes("pending"), "undecided is neutral, not a win");
+  // No re-anchor yet ⇒ nothing shown.
+  scenario = withMark(undefined);
+  await page.waitForFunction(() => document.getElementById("reanchor-outcome").hidden, null, { timeout: 5000 });
+  check(await page.locator("#reanchor-outcome").isHidden(), "hidden when no re-anchor happened");
+
   console.log("TRIAL (local first-run Pro):");
   scenario = { current: baseCur, sessions: [], entitlement: { plan: "trial", driftMap: true, trialDaysLeft: 12 }, sessionsLocked: 0 };
   await page.waitForFunction(() => document.getElementById("plan-pill").textContent.includes("trial"), null, { timeout: 5000 });

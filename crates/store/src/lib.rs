@@ -90,6 +90,61 @@ impl Store {
         Ok(default.to_string())
     }
 
+    // --- re-anchor outcomes -------------------------------------------------
+
+    /// Record that a re-anchor happened, with the cause it was meant to fix.
+    /// Returns the row id so the outcome can be filled in once it is known.
+    pub fn record_reanchor(
+        &mut self,
+        session_id: &str,
+        signal: &str,
+        constraint_id: Option<&str>,
+        ts: i64,
+    ) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO reanchors (session_id, signal, constraint_id, ts, held)
+             VALUES (?1, ?2, ?3, ?4, NULL)",
+            params![session_id, signal, constraint_id, ts],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Set the outcome of the most recent re-anchor for a session.
+    ///
+    /// Only ever writes when the verdict is actually known — "too early to say" stays
+    /// NULL rather than being rounded to success, because a re-anchor success rate
+    /// that counts undecided cases as wins is the same kind of invented number this
+    /// mechanism was built to replace.
+    pub fn set_reanchor_outcome(&mut self, session_id: &str, held: bool) -> Result<()> {
+        self.conn.execute(
+            "UPDATE reanchors SET held = ?2
+             WHERE id = (SELECT id FROM reanchors WHERE session_id = ?1
+                         ORDER BY ts DESC, id DESC LIMIT 1)",
+            params![session_id, if held { 1 } else { 0 }],
+        )?;
+        Ok(())
+    }
+
+    /// Re-anchor tallies since `since_ms`: (total, held, broke). `total` counts every
+    /// re-anchor; `held + broke` counts only the decided ones, so the undecided
+    /// remainder is visible rather than hidden.
+    pub fn reanchor_stats(&self, since_ms: i64) -> Result<(usize, usize, usize)> {
+        let mut stmt = self.conn.prepare(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(CASE WHEN held = 1 THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN held = 0 THEN 1 ELSE 0 END), 0)
+             FROM reanchors WHERE ts >= ?1",
+        )?;
+        let row = stmt.query_row(params![since_ms], |r| {
+            Ok((
+                r.get::<_, i64>(0)? as usize,
+                r.get::<_, i64>(1)? as usize,
+                r.get::<_, i64>(2)? as usize,
+            ))
+        })?;
+        Ok(row)
+    }
+
     /// Persist a conversation (session + turns + context). Idempotent on
     /// session id: re-saving replaces the prior rows for that session.
     pub fn save_conversation(&mut self, conv: &Conversation) -> Result<()> {

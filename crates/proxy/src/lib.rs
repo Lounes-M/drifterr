@@ -863,7 +863,7 @@ async fn reanchor_handler(State(app): State<AppState>, Query(q): Query<ReanchorQ
         .core
         .lock()
         .ok()
-        .and_then(|core| core.reanchor(q.session.as_deref()));
+        .and_then(|mut core| core.reanchor(q.session.as_deref()));
     match out {
         Some(r) => Json(r).into_response(),
         None => (StatusCode::NOT_FOUND, "no active session to re-anchor").into_response(),
