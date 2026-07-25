@@ -14,6 +14,17 @@ use drifterr_engine::signals::{Evidence, SignalEvent, State};
 use rusqlite::{params, Connection};
 
 mod convert;
+pub mod report;
+
+/// Milliseconds since the epoch. Used as the default timestamp when a caller does
+/// not supply one; the `*_at` variants exist so tests never depend on the clock.
+pub(crate) fn now_millis() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
 use convert::*;
 
 #[derive(Debug, thiserror::Error)]
@@ -141,6 +152,53 @@ impl Store {
                 r.get::<_, i64>(1)? as usize,
                 r.get::<_, i64>(2)? as usize,
             ))
+        })?;
+        Ok(row)
+    }
+
+    // --- weekly report aggregates -------------------------------------------
+
+    /// Counts of non-green flags since `since_ms`, grouped by signal then by
+    /// constraint id, most frequent first.
+    ///
+    /// Grouped by *cause* rather than totalled, because "23 flags" tells the user
+    /// nothing they can act on while "`no new deps` broke 9 times" tells them either
+    /// to restate the rule or to admit they've changed their mind about it.
+    pub fn flag_counts_since(&self, since_ms: i64) -> Result<Vec<(String, Option<String>, usize)>> {
+        // `signal_events` has no timestamp index, and `ts` may be NULL on older rows;
+        // treating NULL as "outside the window" keeps a partial history from inflating
+        // a weekly count.
+        let mut stmt = self.conn.prepare(
+            // `constraintId` — the serde name in `Evidence`, not the Rust field name.
+            "SELECT signal, json_extract(evidence, '$.constraintId') AS cid, COUNT(*) AS n
+             FROM signal_events
+             WHERE state != 'green' AND ts IS NOT NULL AND ts >= ?1
+             GROUP BY signal, cid
+             ORDER BY n DESC, signal ASC",
+        )?;
+        let rows = stmt
+            .query_map(params![since_ms], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, i64>(2)? as usize,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Sessions touched since `since_ms`, and how many of them ever went red.
+    pub fn session_activity_since(&self, since_ms: i64) -> Result<(usize, usize)> {
+        let mut stmt = self.conn.prepare(
+            "SELECT COUNT(DISTINCT s.id),
+                    COUNT(DISTINCT CASE WHEN s.status = 'red' THEN s.id END)
+             FROM sessions s
+             JOIN turns t ON t.session_id = s.id
+             WHERE t.ts >= ?1",
+        )?;
+        let row = stmt.query_row(params![since_ms], |r| {
+            Ok((r.get::<_, i64>(0)? as usize, r.get::<_, i64>(1)? as usize))
         })?;
         Ok(row)
     }
@@ -350,17 +408,33 @@ impl Store {
 
     /// Append signal events for a session (the audit trail behind every alert).
     pub fn record_events(&mut self, session_id: &str, events: &[SignalEvent]) -> Result<()> {
+        self.record_events_at(session_id, events, now_millis())
+    }
+
+    /// As [`record_events`](Self::record_events), with an explicit timestamp.
+    ///
+    /// Events used to be stored with `ts = NULL`, which made any time-windowed
+    /// question about them unanswerable — including "what drifted this week", the
+    /// whole basis of the weekly report. Taking the timestamp as a parameter keeps
+    /// tests deterministic; the no-argument form uses the system clock.
+    pub fn record_events_at(
+        &mut self,
+        session_id: &str,
+        events: &[SignalEvent],
+        ts: i64,
+    ) -> Result<()> {
         let tx = self.conn.transaction()?;
         for e in events {
             tx.execute(
                 "INSERT INTO signal_events (session_id, signal, state, evidence, turn_idx, ts)
-                 VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     session_id,
                     signal_kind_str(e.signal),
                     state_str(e.state),
                     serde_json::to_string(&e.evidence)?,
-                    e.evidence.turn_index.map(|i| i as i64)
+                    e.evidence.turn_index.map(|i| i as i64),
+                    ts
                 ],
             )?;
         }

@@ -202,6 +202,36 @@ async function main() {
   check(!(await page.locator("#map-lock").isVisible()), "Pro unlocks the drift map");
   check(!(await page.locator("#upgrade-nudge").isVisible()), "Pro hides the upgrade nudge");
 
+  console.log("WEEKLY report:");
+  await page.route("**/report*", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        markdown: "# Drifterr — last 7 days\n\n- **3** sessions tracked\n- **9** flags raised\n",
+        flags: 9,
+        sessions: 3,
+        reanchors: 2,
+        quietWeek: false,
+      }),
+    })
+  );
+  await page.locator("#weekly-btn").click();
+  await page.waitForFunction(() => document.getElementById("weekly-text").textContent.includes("9"), null, { timeout: 5000 });
+  check(await page.locator("#weekly").isVisible(), "weekly report opens");
+  check((await page.locator("#weekly-text").textContent()).includes("flags raised"), "renders the generated markdown");
+  await page.locator("#weekly-btn").click();
+  check(await page.locator("#weekly").isHidden(), "second click closes it");
+  // No local database must read as "no history", never as "nothing drifted".
+  await page.unroute("**/report*");
+  await page.route("**/report*", (route) => route.fulfill({ status: 503, body: "no local database" }));
+  await page.locator("#weekly-btn").click();
+  await page.waitForFunction(() => document.getElementById("weekly-text").textContent.includes("No local database"), null, { timeout: 5000 });
+  check(
+    (await page.locator("#weekly-text").textContent()).includes("no history"),
+    "missing DB is explained, not shown as an empty report"
+  );
+  await page.locator("#weekly-btn").click();
+
   console.log("RE-ANCHOR outcome (did it hold?):");
   const withMark = (mark) => ({
     current: { ...baseCur, reanchor: mark },

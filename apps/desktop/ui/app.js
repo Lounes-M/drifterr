@@ -791,6 +791,62 @@ function setupExtras(doc) {
   setupUpdates(doc);
   const report = doc.getElementById("report-copy");
   if (report) report.addEventListener("click", () => copySessionReport(doc));
+  setupWeekly(doc);
+}
+
+/// The weekly report view: fetch on open, toggle closed on a second click.
+///
+/// Fetched rather than cached so it is always current, and rendered as plain text
+/// because the whole point is that the user can read, copy and keep it — it is their
+/// data, generated on their machine.
+function setupWeekly(doc, fetchImpl) {
+  const btn = doc.getElementById("weekly-btn");
+  const panel = doc.getElementById("weekly");
+  if (!btn || !panel) return;
+  btn.addEventListener("click", async () => {
+    if (!panel.hidden) {
+      panel.hidden = true;
+      return;
+    }
+    // Close the sibling views so two full-width panels can't stack.
+    for (const id of ["settings", "history"]) {
+      const el = doc.getElementById(id);
+      if (el) el.hidden = true;
+    }
+    setText(doc, "weekly-text", "Generating…");
+    panel.hidden = false;
+    const f = fetchImpl || fetch;
+    try {
+      const res = await f(apiBase() + "/report?days=7", { cache: "no-store" });
+      if (!res.ok) {
+        // 503 means there is no local database — say that plainly instead of
+        // showing an empty report, which would read as "nothing drifted".
+        setText(
+          doc,
+          "weekly-text",
+          res.status === 503
+            ? "No local database, so there's no history to report on yet. Sessions are only being held in memory."
+            : "Couldn't generate the report (HTTP " + res.status + ")."
+        );
+        return;
+      }
+      const data = await res.json();
+      setText(doc, "weekly-text", data.markdown || "");
+    } catch (_e) {
+      setText(doc, "weekly-text", "Drifterr proxy not reachable.");
+    }
+  });
+  const copy = doc.getElementById("weekly-copy");
+  if (copy) {
+    copy.addEventListener("click", async () => {
+      const text = doc.getElementById("weekly-text")?.textContent || "";
+      try {
+        await navigator.clipboard.writeText(text);
+        copy.textContent = "Copied ✓";
+        setTimeout(() => (copy.textContent = "Copy"), 1500);
+      } catch (_e) { /* clipboard blocked — the text is on screen either way */ }
+    });
+  }
 }
 
 // --- provider selector -----------------------------------------------------

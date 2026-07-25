@@ -988,6 +988,16 @@ impl AppCore {
     /// The recent flag events (amber/red) for a session — the activity journal.
     /// Resolves `session` (or the current one) and reads the local store. Empty
     /// without a durable store.
+    /// Build the weekly report from the local store.
+    ///
+    /// `None` when there is no durable store — an in-memory run has no history to
+    /// report on, and inventing one would be worse than saying so.
+    pub fn weekly_report(&self, window_ms: i64) -> Option<drifterr_store::report::Report> {
+        let store = self.store.as_ref()?;
+        let guard = store.lock().ok()?;
+        drifterr_store::report::weekly(&guard, now_millis(), window_ms).ok()
+    }
+
     pub fn journal(&self, session: Option<&str>, limit: usize) -> Vec<drifterr_store::FlagEvent> {
         let id = match session
             .map(str::to_string)

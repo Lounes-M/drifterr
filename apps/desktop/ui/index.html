@@ -197,6 +197,20 @@
         <p id="history-empty" class="muted" hidden>No sessions recorded yet. Start chatting through the proxy and they'll appear here.</p>
       </section>
 
+      <!--
+        The weekly report. The retention loop the product was missing: a monitor
+        that (correctly) stays quiet most of the time is indistinguishable from a
+        broken one unless it can show what it accumulated.
+      -->
+      <section id="weekly" class="settings history-view" hidden>
+        <h2 class="section-title">Last 7 days</h2>
+        <p class="muted">Generated on this machine from your local database. Nothing is sent anywhere.</p>
+        <pre id="weekly-text" class="reanchor-text"></pre>
+        <div class="acct-buttons">
+          <button id="weekly-copy" class="mini-btn" type="button">Copy</button>
+        </div>
+      </section>
+
       <!-- Trial about to lapse: name what switches off, before it does. -->
       <section id="trial-ending" class="upgrade-nudge" hidden>
         <span class="trigger-tag">Pro trial ending</span>
@@ -289,6 +303,7 @@
       <footer class="foot">
         <span id="meta" class="muted"></span>
         <button id="report-copy" class="mini-btn session-only" type="button" title="Copy a markdown summary of this session">Copy report</button>
+        <button id="weekly-btn" class="mini-btn" type="button" title="Your last 7 days, generated locally">Last 7 days</button>
       </footer>
       </div>
     </main>
