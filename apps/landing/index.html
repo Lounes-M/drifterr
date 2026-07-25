@@ -86,12 +86,17 @@
               <a class="btn btn-ghost btn-lg" href="#demo"><span class="sq" style="width:9px;height:9px;border-radius:50%;background:var(--grad)"></span> Watch the drift demo</a>
             </div>
             <p class="sub reveal" id="cta-sub" style="margin-top:14px;font-size:13px;color:var(--faint-2)">macOS · Windows · Linux — free</p>
+            <!--
+              Every number here must be a fact someone can check. No invented
+              time-saved figures: there is no telemetry that could produce one,
+              and this product's whole argument is that it doesn't overclaim.
+            -->
             <div class="hero-stats reveal">
-              <div><div class="v">52 min</div><div class="l">avg. saved per drift</div></div>
+              <div><div class="v">11</div><div class="l">rules checked deterministically</div></div>
               <div class="sep"></div>
-              <div><div class="v">100% local</div><div class="l">prompts never leave</div></div>
+              <div><div class="v">0</div><div class="l">chat content sent to us — <a href="/proof">proven</a></div></div>
               <div class="sep"></div>
-              <div><div class="v">6+</div><div class="l">assistants supported</div></div>
+              <div><div class="v">0</div><div class="l">config needed on Claude Code</div></div>
             </div>
           </div>
 
@@ -103,23 +108,32 @@
                 <div class="sess">session · build-reports.ai</div>
                 <div style="width:38px"></div>
               </div>
+              <!--
+                This demo shows a real detection. Both constraints below are
+                checked deterministically by the engine (`no new dependencies`
+                → an install command naming a package inside a fenced block;
+                `don't touch package.json` → a unified-diff header naming the
+                file), and the 73 is what the engine's display aggregate
+                actually returns for one constraint RED plus saturation AMBER.
+                Do not put an unverifiable constraint back in here.
+              -->
               <div class="anchor">
                 <span class="sq"></span>
                 <span class="tag">ANCHOR</span>
-                <span class="txt">CSV export · reports page · <b>server-side only</b></span>
+                <span class="txt">CSV export · reports page · <b>no new deps</b> · <b>don't touch package.json</b></span>
               </div>
               <div class="msgs">
-                <div class="msg me">Build a CSV export for the reports page. Keep it server-side.</div>
-                <div class="msg ai">Done. While we were in there I also refactored your auth flow and swapped the ORM…</div>
+                <div class="msg me">Add a CSV export to the reports page. No new dependencies, and leave package.json alone.</div>
+                <div class="msg ai">Done — I pulled in <code>csv-stringify</code> and wired it up:<br /><code class="blk">npm install csv-stringify</code><code class="blk">--- a/package.json</code></div>
                 <div class="typing"><span></span><span></span><span></span></div>
               </div>
               <div class="alert">
                 <div class="alert-top">
-                  <div class="l"><span class="bang">!</span><span class="title">Drift detected</span></div>
-                  <div class="score"><span id="driftScore">0</span>%<small>DRIFT SCORE</small></div>
+                  <div class="l"><span class="bang">!</span><span class="title">Constraint broken</span></div>
+                  <div class="score"><span id="driftScore">0</span><small>DRIFT SCORE</small></div>
                 </div>
                 <div class="bar"><i></i></div>
-                <p>Conversation moved from <b>CSV export</b> → <b>auth refactor + ORM swap</b>. Your constraint <span class="c">"server-side"</span> was never addressed.</p>
+                <p>Turn 6 broke <span class="c">"no new dependencies"</span> — <b>npm install csv-stringify</b> — and edited <b>package.json</b>, which you'd marked off-limits.</p>
                 <div class="alert-btns">
                   <button class="re">↩ Re-anchor</button>
                   <button class="dismiss">Dismiss</button>
@@ -129,10 +143,17 @@
           </div>
         </div>
 
+        <!--
+          Only list channels a user can actually turn on today. Claude Code is
+          zero-config; anything speaking the OpenAI or Anthropic API works via
+          the local proxy with your own key. The browser extension covers the
+          web UIs but is not store-published yet, so it is labelled beta below
+          rather than sitting in this row.
+        -->
         <div class="marquee reveal">
           <div class="marquee-track">
-            <span class="row"><b style="color:var(--faint-2)">WORKS WITH</b><b>ChatGPT</b><b>Claude</b><b>Gemini</b><b>Copilot</b><b>Cursor</b><b>Perplexity</b></span>
-            <span class="row"><b style="color:var(--faint-2)">WORKS WITH</b><b>ChatGPT</b><b>Claude</b><b>Gemini</b><b>Copilot</b><b>Cursor</b><b>Perplexity</b></span>
+            <span class="row"><b style="color:var(--faint-2)">WORKS TODAY WITH</b><b>Claude Code</b><b>Cursor</b><b>Codex CLI</b><b>Aider</b><b>Any OpenAI-compatible API</b><b>Anthropic API</b></span>
+            <span class="row"><b style="color:var(--faint-2)">WORKS TODAY WITH</b><b>Claude Code</b><b>Cursor</b><b>Codex CLI</b><b>Aider</b><b>Any OpenAI-compatible API</b><b>Anthropic API</b></span>
           </div>
         </div>
       </section>
@@ -180,31 +201,31 @@
             <div class="hp-body">
               <!-- step 0: pin intent -->
               <div class="hp-state" data-state="0">
-                <span class="hp-label">FIRST MESSAGE</span>
-                <div class="hp-msg me">Build a CSV export for the reports page. Keep it <b>server-side</b>.</div>
-                <span class="hp-label">DRIFTERR EXTRACTS THE ANCHOR</span>
-                <div class="hp-anchor"><span class="tag">ANCHOR</span> CSV export · reports page · <b>server-side only</b></div>
-                <div class="hp-ok"><span class="ck">✓</span> Goal &amp; constraints pinned</div>
+                <span class="hp-label">YOUR INTENT</span>
+                <div class="hp-msg me">Add a CSV export to the reports page. <b>No new dependencies</b>, and <b>leave package.json alone</b>.</div>
+                <span class="hp-label">DRIFTERR PINS THE ANCHOR</span>
+                <div class="hp-anchor"><span class="tag">ANCHOR</span> CSV export · reports page · <b>no new deps</b> · <b>package.json protected</b></div>
+                <div class="hp-ok"><span class="ck">✓</span> Goal &amp; 2 checkable constraints pinned</div>
               </div>
               <!-- step 1: watch silently -->
               <div class="hp-state" data-state="1" hidden>
-                <div class="hp-msg me">Add the export button to the toolbar.</div>
-                <div class="hp-msg">Done. I also moved exporting to the client and added a new charting library…</div>
-                <div class="hp-msg warn">2 constraints slipping</div>
-                <div class="hp-meter-row"><span>DRIFT</span><span>RISING</span></div>
+                <div class="hp-msg me">Now add the export button to the toolbar.</div>
+                <div class="hp-msg">Here's the toolbar change, plus a small helper for the CSV rows…</div>
+                <div class="hp-msg ok">Turn 4 · both constraints holding</div>
+                <div class="hp-meter-row"><span>CONTEXT</span><span>38% USED</span></div>
                 <div class="hp-meter"><i></i></div>
               </div>
               <!-- step 2: re-anchor -->
               <div class="hp-state" data-state="2" hidden>
                 <div class="hp-alert">
                   <div class="hp-alert-top">
-                    <span class="l"><span class="hp-bang">!</span><span class="ttl">Drift detected</span></span>
-                    <span class="pct">81% off-anchor</span>
+                    <span class="l"><span class="hp-bang">!</span><span class="ttl">Constraint broken</span></span>
+                    <span class="pct">turn 6</span>
                   </div>
-                  <p>Moved to <b>client-side export</b> + a <b>new dependency</b>. Constraint <span class="c">"server-side"</span> broken.</p>
+                  <p>Ran <b>npm install csv-stringify</b> and edited <b>package.json</b>. Constraints <span class="c">"no new deps"</span> and <span class="c">"package.json protected"</span> broken.</p>
                   <button class="hp-re" type="button">↩ Re-anchor to the brief</button>
                 </div>
-                <div class="hp-ok"><span class="ck">✓</span> Back on track — model re-aligned to CSV export, server-side</div>
+                <div class="hp-ok"><span class="ck">✓</span> Goal + both constraints restated in-thread — no dependency, no package.json</div>
               </div>
             </div>
           </div>
@@ -230,21 +251,23 @@
             </div>
             <div class="b-meta">
               <h3>Real-time drift score</h3>
-              <p>A live 0–100 gauge of how far the conversation has wandered from where you started, recalculated on every single turn.</p>
+              <p>A live 0–100 read on how far the turn has moved from where you started. It's a summary, not a verdict — every alert names the signal and shows the offending span.</p>
             </div>
           </div>
 
           <!-- Constraint tracking — wide -->
+          <!-- The chips must name rules the engine really checks. The current
+               families live in crates/engine/src/infer.rs. -->
           <div class="card wide reveal" data-spot>
             <span class="glow" aria-hidden="true"></span>
             <div class="b-meta">
               <h3>Constraint tracking</h3>
-              <p>Hard rules like "server-side" or "no new deps" stay pinned and get flagged the moment they're broken.</p>
+              <p>Checkable rules — "no new deps", "no <code>any</code>", "don't touch package.json" — stay pinned and get flagged with the exact offending line. 11 rule families, checked deterministically, so a flag is a fact.</p>
             </div>
             <div class="chips">
-              <span>server-side</span>
               <span class="brk">no new deps</span>
-              <span>typed responses</span>
+              <span>no console.log</span>
+              <span>no <code>any</code></span>
             </div>
           </div>
 
@@ -253,7 +276,7 @@
             <span class="glow" aria-hidden="true"></span>
             <div class="b-meta">
               <h3>One-click re-anchor</h3>
-              <p>Snap the model back to your brief instantly. Drifterr re-injects your goal and constraints for you.</p>
+              <p>Copy a paste-ready reset — your goal, live constraints and rejected decisions — or let the proxy inject it for you on Pro. Built from your baseline: no model call, no network.</p>
             </div>
             <div class="re-demo">
               <span class="re-track"><span class="re-dot"></span></span>
@@ -270,9 +293,9 @@
               <span class="o-sat s1"></span><span class="o-sat s2"></span>
             </div>
             <div class="b-meta">
-              <h3>Works everywhere</h3>
-              <p>A lightweight layer over the assistants you already use. No workflow change.</p>
-              <div class="chips small"><span>ChatGPT</span><span>Claude</span><span>Gemini</span><span>Cursor</span><span class="more">+2</span></div>
+              <h3>Built for coding agents</h3>
+              <p><b>Claude Code needs zero setup</b> — Drifterr reads your local sessions. Anything else speaking the OpenAI or Anthropic API goes through the local proxy with your own key.</p>
+              <div class="chips small"><span>Claude Code</span><span>Cursor</span><span>Codex CLI</span><span class="more">web UIs — beta</span></div>
             </div>
           </div>
 
@@ -298,19 +321,43 @@
         </div>
       </section>
 
-      <section class="tmonials">
+      <!--
+        There is deliberately no testimonial wall here.
+        This page previously carried four invented quotes with placeholder
+        avatars. On a product whose entire pitch is "we don't overclaim", made-up
+        social proof is the most expensive thing we could print. It stays out
+        until real users say something we can attribute and link.
+        Until then: state what the engine does, and let people verify it.
+      -->
+      <section class="tmonials" id="honest">
         <div class="head reveal">
-          <span class="kicker">Loved by builders</span>
-          <h2 class="section-title">People stopped losing the thread.</h2>
+          <span class="kicker">What it actually does</span>
+          <h2 class="section-title">No testimonials yet. Here's the spec instead.</h2>
         </div>
-        <div class="tm-wrap reveal">
-          <div class="tm-row">
-            <div class="tm"><p>"It caught my model wandering into an auth refactor I never asked for. One click and we were back on the actual task."</p><div class="who"><span class="av"></span><div><div class="nm">Maya R.</div><div class="rl">Staff Engineer</div></div></div></div>
-            <div class="tm"><p>"The drift score is weirdly addictive. I finally notice the slow scope-creep before it eats my afternoon."</p><div class="who"><span class="av"></span><div><div class="nm">Devon K.</div><div class="rl">Indie hacker</div></div></div></div>
-            <div class="tm"><p>"Local-first was the dealbreaker for us. Nothing leaves the machine and it still nails when a thread goes sideways."</p><div class="who"><span class="av"></span><div><div class="nm">Priya S.</div><div class="rl">Eng Lead</div></div></div></div>
-            <div class="tm"><p>"Re-anchor is the feature I didn't know I needed. It re-states my constraints so I don't have to retype them."</p><div class="who"><span class="av"></span><div><div class="nm">Tom A.</div><div class="rl">Product Designer</div></div></div></div>
-            <div class="tm"><p>"It caught my model wandering into an auth refactor I never asked for. One click and we were back on the actual task."</p><div class="who"><span class="av"></span><div><div class="nm">Maya R.</div><div class="rl">Staff Engineer</div></div></div></div>
-            <div class="tm"><p>"The drift score is weirdly addictive. I finally notice the slow scope-creep before it eats my afternoon."</p><div class="who"><span class="av"></span><div><div class="nm">Devon K.</div><div class="rl">Indie hacker</div></div></div></div>
+        <div class="honest-grid reveal">
+          <div class="hn">
+            <span class="hn-k">Hard signals</span>
+            <p>Only two things can raise a red alert: a <b>deterministic constraint violation</b> and <b>context saturation</b>. Both are facts, not guesses.</p>
+          </div>
+          <div class="hn">
+            <span class="hn-k">Soft signals</span>
+            <p>Goal drift, decision incoherence and degradation are fuzzy, so they cap at amber and only ever act as support. They never trigger a red on their own.</p>
+          </div>
+          <div class="hn">
+            <span class="hn-k">Every flag is named</span>
+            <p>Signals are never fused into one opaque number. Each carries its own evidence — the turn, the constraint id, the offending span — so you can see <i>why</i>.</p>
+          </div>
+          <div class="hn">
+            <span class="hn-k">Bias toward silence</span>
+            <p>A hard signal that cries wolf is worse than one that stays quiet, so ambiguous cases report "fine". Expect Drifterr to say nothing most of the time.</p>
+          </div>
+          <div class="hn">
+            <span class="hn-k">Detection accuracy</span>
+            <p>Validated on a small annotated fixture set today, with a held-out blind split being built. We publish the set size rather than a headline percentage — <a href="/proof">see the boundary</a>.</p>
+          </div>
+          <div class="hn">
+            <span class="hn-k">Not exact everywhere</span>
+            <p>Context saturation is only <i>exact</i> on the proxy channel, where Drifterr sees real token counts. On file-watch channels it is an estimate, and the UI says so.</p>
           </div>
         </div>
       </section>
@@ -324,45 +371,54 @@
           <button id="bill-monthly">Monthly</button>
           <button id="bill-annual" class="on">Annual <span class="save">-25%</span></button>
         </div>
+        <!--
+          This list is the contract. Every line must map to a real flag in
+          crates/proxy/src/entitlement.rs — if a capability isn't gated there, it
+          does not belong in a paid column, and if it is gated there, it has to
+          appear here. Nothing marked "soon" is sold: unbuilt features are listed
+          as roadmap, not as tier contents.
+        -->
         <div class="tiers">
           <div class="tier reveal">
             <div class="name">Free</div>
             <div class="price">$0</div>
-            <div class="desc">For trying drift detection on one chat.</div>
+            <div class="desc">The whole detection loop, forever. No account needed.</div>
             <ul>
-              <li><span>✓</span>Real-time drift score</li>
+              <li><span>✓</span>Unlimited sessions</li>
+              <li><span>✓</span>All 5 signals + 11 constraint checks</li>
               <li><span>✓</span>Manual re-anchor</li>
-              <li><span>✓</span>One active session</li>
+              <li><span>✓</span>Standing orders across sessions</li>
+              <li><span>✓</span>7 days of session history</li>
             </ul>
             <a class="pick ghost btn" id="download-2" href="/download" style="background:rgba(255,255,255,.06);box-shadow:none">Download</a>
           </div>
           <div class="tier feat reveal">
-            <span class="badge">MOST POPULAR</span>
+            <span class="badge">14-DAY TRIAL, NO CARD</span>
             <div class="name">Pro</div>
             <div class="price">$<span id="proPrice">9</span><small>/mo</small></div>
-            <div class="desc">For people who live in AI chats.</div>
+            <div class="desc">For long agent sessions you run every day.</div>
             <p style="font-size:12px;color:#9a8f96;margin:-14px 0 18px;font-family:var(--mono)" id="proNote">billed annually</p>
             <ul>
-              <li><span>✓</span>Unlimited sessions</li>
-              <li><span>✓</span>Constraint tracking + alerts</li>
+              <li><span>✓</span>Everything in Free</li>
+              <li><span>✓</span>Unlimited session history</li>
               <li><span>✓</span>Session drift map</li>
-              <li><span>✓</span>All assistants supported</li>
+              <li><span>✓</span>Automatic re-anchor injection</li>
             </ul>
             <a class="pick btn" id="get-pro" data-plan="pro" href="/signup?plan=pro">Get Pro</a>
+            <p class="tier-note">Every install starts with 14 days of Pro. No card, no account — it just runs.</p>
           </div>
           <div class="tier reveal">
             <div class="name">Team</div>
             <div class="price">$<span id="teamPrice">16</span><small>/seat/mo</small></div>
-            <div class="desc">Shared anchors for whole squads.</div>
+            <div class="desc">One shared rulebook for a whole squad.</div>
             <p style="font-size:12px;color:#7e7c92;margin:-14px 0 18px;font-family:var(--mono)" id="teamNote">billed annually</p>
             <ul>
               <li><span>✓</span>Everything in Pro</li>
+              <li><span>✓</span>Shared standing orders across the team</li>
               <li><span>✓</span>Priority support</li>
-              <li><span>✓</span>Shared team anchors <span class="soon">soon</span></li>
-              <li><span>✓</span>Drift analytics dashboard <span class="soon">soon</span></li>
-              <li><span>✓</span>SSO <span class="soon">soon</span></li>
             </ul>
             <a class="pick ghost btn" id="get-team" data-plan="team" href="/signup?plan=team" style="background:rgba(255,255,255,.06);box-shadow:none">Get Team</a>
+            <p class="tier-note">On the roadmap, not billed for yet: drift analytics and SSO.</p>
           </div>
         </div>
       </section>
@@ -373,22 +429,24 @@
           <h2 class="section-title">Questions, anchored.</h2>
         </div>
         <div class="qa-list reveal">
-          <div class="qa"><button>How does Drifterr know what I "actually asked"?<span class="plus">+</span></button><div class="ans"><p>It reads your first message to extract the goal and any hard constraints, then lets you edit or pin them explicitly. Nothing is locked. You always control the anchor.</p></div></div>
-          <div class="qa"><button>Which assistants does it work with?<span class="plus">+</span></button><div class="ans"><p>ChatGPT, Claude, Gemini, Copilot, Cursor and Perplexity today, with more coming. It runs as a lightweight layer over the chat you already use. No workflow change.</p></div></div>
-          <div class="qa"><button>Does it send my prompts anywhere?<span class="plus">+</span></button><div class="ans"><p>By default, no — drift scoring runs locally and nothing leaves your machine. If you turn on the optional judge (for the decision-coherence signal), one short check is sent to <em>your own</em> model provider. Drifterr has no server of its own.</p></div></div>
-          <div class="qa"><button>What exactly counts as "drift"?<span class="plus">+</span></button><div class="ans"><p>Any meaningful divergence between the current turn and your anchored intent: scope creep, dropped constraints, or the model quietly changing the subject.</p></div></div>
-          <div class="qa"><button>Can I turn off the nudges?<span class="plus">+</span></button><div class="ans"><p>Yes. Tune the sensitivity, mute it during deep work, or switch to a silent timeline you review whenever you like.</p></div></div>
+          <div class="qa"><button>Do I need an account?<span class="plus">+</span></button><div class="ans"><p>No. Download it and everything works — detection, constraints, re-anchor, history — with no sign-up and no network. An account only exists to attach a paid plan, and you can create one later from inside the app.</p></div></div>
+          <div class="qa"><button>How does Drifterr know what I "actually asked"?<span class="plus">+</span></button><div class="ans"><p>You state your goal and rules in the panel — that's the anchor, and you own it. In a project with a <code>CLAUDE.md</code>, <code>AGENTS.md</code> or <code>.cursor/rules</code>, Drifterr imports the rules it can check automatically so there's nothing to retype. You can edit or retire any of it mid-session.</p></div></div>
+          <div class="qa"><button>Which assistants does it work with?<span class="plus">+</span></button><div class="ans"><p><b>Claude Code works with zero setup</b> — Drifterr reads your local session files. Any tool speaking the OpenAI-compatible or Anthropic API (Cursor, Codex CLI, Aider, your own scripts) works through the local proxy using your own provider key. The browser extension for the web UIs — ChatGPT, Claude.ai, Gemini, Copilot, Perplexity — is built and working, but not yet published to the extension stores, so it's a manual install and we call it beta.</p></div></div>
+          <div class="qa"><button>Which constraints can it actually check?<span class="plus">+</span></button><div class="ans"><p>11 rule families today, all checked deterministically so a flag is never a guess: no JS files, no comments in code, no TODO/FIXME, no <code>console.log</code>, no TypeScript <code>any</code>, no new dependencies, no <code>eval</code>, no hardcoded secrets, protected files, plus word and code-block length caps. Anything fuzzier is deliberately left to the optional judge or to the soft advisory signals — we'd rather say nothing than flag something wrong.</p></div></div>
+          <div class="qa"><button>Does it send my prompts anywhere?<span class="plus">+</span></button><div class="ans"><p>Not to us, ever — that's <a href="/proof" style="color:#ff8a64">enforced by a test in CI</a>. Two optional features do call a model, and only <em>your own</em> provider with <em>your own</em> key: the decision-coherence judge and auto-intent extraction. Both are off by default and the app tells you when they're on. This marketing site uses cookieless, no-PII analytics; the app itself sends nothing.</p></div></div>
+          <div class="qa"><button>What exactly counts as "drift"?<span class="plus">+</span></button><div class="ans"><p>Measurable divergence from the anchor <i>you</i> set: a rule you stated getting broken, the context window filling to where quality drops, replies trending away from your goal, or a decision you rejected creeping back. Not "the model got worse" — that's perceptual and we can't verify it.</p></div></div>
+          <div class="qa"><button>Will it nag me?<span class="plus">+</span></button><div class="ans"><p>The design bias is toward silence: only hard signals can raise a red, soft signals cap at amber, and ambiguous cases report fine. There's a do-not-disturb toggle for deep work, and the panel keeps a silent timeline you can review whenever you like.</p></div></div>
         </div>
       </section>
 
       <section class="final" id="cta">
         <h2 class="reveal">Keep every chat<br /><span class="grad-text">pointed at the point.</span></h2>
-        <p class="reveal">Install Drifterr in 30 seconds. It watches quietly, and only speaks up when you're about to lose the thread.</p>
+        <p class="reveal">Install it, state your intent, keep working. No account, no key, no config on Claude Code — and it only speaks up when a rule you set actually breaks.</p>
         <div class="final-cta reveal">
           <a class="btn btn-lg" id="download-3" href="/download">Download <span class="arrow">→</span></a>
           <a class="btn btn-ghost btn-lg" href="#pricing">See pricing</a>
         </div>
-        <p class="sub reveal" id="cta-sub-2">Free · local-first · works with every major assistant</p>
+        <p class="sub reveal" id="cta-sub-2">Free · no account required · local-first</p>
       </section>
     </main>
 

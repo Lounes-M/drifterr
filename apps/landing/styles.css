@@ -162,6 +162,14 @@ h2.section-title { font-size: clamp(30px, 3.6vw, 46px); }
 .msg { max-width: 84%; padding: 11px 14px; font-size: 13.5px; line-height: 1.5; }
 .msg.me { align-self: flex-end; max-width: 78%; border-radius: 14px 14px 4px 14px; background: rgba(255, 255, 255, 0.07); color: #e9e7f1; }
 .msg.ai { align-self: flex-start; border-radius: 14px 14px 14px 4px; background: rgba(255, 120, 71, 0.06); border: 1px solid rgba(255, 255, 255, 0.05); color: #cfcddd; }
+/* The offending evidence, rendered as the fenced block the engine actually
+   scopes its code rules to. Both the install command and the diff header below
+   are exactly what `no new deps` / protected-file rules match on. */
+.msg.ai code.blk {
+  display: block; margin-top: 7px; padding: 7px 9px; border-radius: 7px;
+  background: rgba(0, 0, 0, 0.42); border: 1px solid rgba(255, 120, 71, 0.22);
+  font-family: var(--mono); font-size: 11.5px; color: #ffb695; overflow-x: auto;
+}
 .typing { align-self: flex-start; display: flex; gap: 5px; padding: 12px 14px; border-radius: 14px; background: rgba(255, 120, 71, 0.06); border: 1px solid rgba(255, 255, 255, 0.05); }
 .typing span { width: 6px; height: 6px; border-radius: 50%; background: #8a889c; animation: blink 1.2s infinite; }
 .typing span:nth-child(2) { animation-delay: 0.2s; } .typing span:nth-child(3) { animation-delay: 0.4s; }
@@ -237,6 +245,9 @@ h2.section-title { font-size: clamp(30px, 3.6vw, 46px); }
 .hp-msg { align-self: flex-start; max-width: 90%; padding: 12px 15px; border-radius: 12px; font-size: 13.5px; line-height: 1.5; background: rgba(255, 255, 255, 0.05); color: #e9e7f1; }
 .hp-msg.me { align-self: flex-end; border-radius: 12px 12px 4px 12px; }
 .hp-msg.warn { align-self: stretch; max-width: none; background: rgba(255, 120, 71, 0.1); border: 1px solid rgba(255, 120, 71, 0.25); color: #ffcaa8; font-family: var(--mono); font-size: 12px; }
+/* "still green" state for step 2 of the walkthrough — the honest common case:
+   most turns hold, and Drifterr stays quiet. */
+.hp-msg.ok { align-self: stretch; max-width: none; background: rgba(52, 232, 158, 0.08); border: 1px solid rgba(52, 232, 158, 0.24); color: #9ff0cf; font-family: var(--mono); font-size: 12px; }
 .hp-msg b { color: #ff9b78; font-weight: 600; }
 .hp-anchor { display: flex; align-items: center; gap: 10px; padding: 10px 13px; border-radius: 12px; background: rgba(255, 120, 71, 0.08); border: 1px solid rgba(255, 120, 71, 0.22); font-size: 12.5px; color: #d8d6e4; }
 .hp-anchor .tag { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.05em; color: #ffb08c; }
@@ -345,13 +356,16 @@ h2.section-title { font-size: clamp(30px, 3.6vw, 46px); }
 /* ===== testimonials ===== */
 .tmonials .head { margin-bottom: 40px; }
 .tmonials .head .kicker { display: block; margin-bottom: 16px; }
-.tm-row { display: flex; gap: 20px; width: max-content; animation: marquee 40s linear infinite; }
-.tm-wrap { overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent); mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent); }
-.tm { flex: 0 0 358px; width: 358px; padding: 26px; border-radius: 20px; background: var(--card); border: 1px solid var(--edge); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
-.tm p { font-size: 15px; line-height: 1.6; color: #d8d6e4; margin-bottom: 18px; }
-.tm .who { display: flex; align-items: center; gap: 11px; }
-.tm .av { width: 38px; height: 38px; border-radius: 50%; background: var(--grad); flex-shrink: 0; }
-.tm .nm { font-weight: 700; font-size: 14px; } .tm .rl { font-size: 12.5px; color: var(--faint); }
+/* Replaces the old testimonial marquee: a plain, checkable spec grid. */
+.honest-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.hn { padding: 24px; border-radius: 20px; background: var(--card); border: 1px solid var(--edge); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+.hn-k { display: block; font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.09em; color: #ff8a64; margin-bottom: 10px; }
+.hn p { font-size: 14px; line-height: 1.62; color: #cfcddd; margin: 0; }
+.hn p b { color: #efedf6; font-weight: 600; }
+.hn p a { color: #ff8a64; text-decoration: none; }
+.hn p a:hover { text-decoration: underline; }
+@media (max-width: 900px) { .honest-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 620px) { .honest-grid { grid-template-columns: 1fr; } }
 
 /* ===== pricing ===== */
 .pricing .head { text-align: center; margin-bottom: 16px; }
@@ -480,9 +494,9 @@ footer { border-top: 1px solid var(--edge-soft); }
 .legal-callout strong { color: var(--ink); }
 .legal-foot { margin-top: 36px; padding-top: 20px; border-top: 1px solid var(--edge); font-size: 14px; }
 
-.tier .soon { font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--o-light); background: rgba(255,120,71,0.14); border: 1px solid rgba(255,120,71,0.3);
-  padding: 1px 6px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
+/* Footnote under a tier — used to state the trial, and to keep unbuilt features
+   visible as roadmap without listing them as things you're paying for. */
+.tier-note { margin: 14px 0 0; font-size: 11.5px; line-height: 1.5; color: #7e7c92; }
 
 /* ===== launch splash ===================================================== */
 /* A brief branded intro: the anchor locks in, its ring drifts away, the
