@@ -113,6 +113,49 @@ The harness prints every gated metric next to its threshold and a verdict, in
 | `baseline.min_uplift_pts` | 10 | statistical | min state-accuracy points over naive baseline |
 | `goal.min_recall` | 0.70 | claim only | recall to earn the "semantic goal" label |
 
+## Calibrating the goal signal (`--sweep`)
+
+The goal-alignment signal has four tunables. They used to be three hand-picked
+constants, one of which — an **absolute** cosine floor (`recent < 0.5`) — was
+structurally wrong: absolute cosine scale is a property of the *embedder*, not of
+drift, so no single floor can be correct for both the lexical bag embedder and the
+ONNX sentence model. Worse, it was ANDed onto the decline test, so a reply could
+fall a long way off the goal and still be ignored for having started high. Recall
+was near zero as a result.
+
+The test is now purely about *change* — an absolute drop **and** a drop
+proportional to the alignment the session had established. The proportional half is
+the scale-free part, and it is what makes one set of thresholds meaningful under
+either embedder.
+
+To calibrate rather than argue:
+
+```bash
+cargo run -p drifterr-engine --example eval -- eval/ --sweep
+```
+
+That walks a grid of `min_drop` × `min_rel_drop` × `recent_window` and reports
+precision / recall / F1 at each point, marking the current defaults. Case
+accounting is explicit:
+
+| polarity | which cases | expectation |
+|---|---|---|
+| positive | `triggeringSignal: "goal_alignment"` | the signal should fire |
+| negative | `state: "green"` | the signal must **not** fire |
+| ignored | any other non-green cause | goal may legitimately also be amber |
+
+Override without a rebuild — the same variables the sweep explores:
+
+```bash
+DRIFTERR_GOAL_MIN_DROP  DRIFTERR_GOAL_MIN_REL_DROP
+DRIFTERR_GOAL_RECENT_WINDOW  DRIFTERR_GOAL_MIN_TURNS
+```
+
+**A grid winner on a handful of cases is a hypothesis, not a default.** With one
+positive case every grid point scores 1.00, which tells you nothing. The sweep
+prints this warning itself; ship a new default only once `eval/blind/` is large
+enough to confirm it out of sample.
+
 ## Adding real sessions
 
 The synthetic `e1..e8` cases prove the mechanism. The *product* is proven only on
