@@ -752,7 +752,10 @@ async fn plan_gates_drift_map_and_sessions() {
         }
     }
 
-    // Free (default): drift map locked (history withheld) and sessions capped at 1.
+    // Free (default): the drift map is locked (history withheld), but the core
+    // loop is not — every live session stays tracked and visible. Gating *depth*
+    // rather than *access* is the point; a new user must never meet a session
+    // wall before they've seen a detection.
     let v: serde_json::Value = client
         .get(&status)
         .send()
@@ -763,18 +766,22 @@ async fn plan_gates_drift_map_and_sessions() {
         .unwrap();
     assert_eq!(v["entitlement"]["plan"], "free");
     assert_eq!(v["entitlement"]["driftMap"], false);
+    assert_eq!(
+        v["entitlement"]["historyDays"], 7,
+        "Free's real limit is retention, not concurrency"
+    );
     assert!(
         v["current"]["history"].as_array().unwrap().is_empty(),
         "Free must not expose drift-map history"
     );
     assert_eq!(
         v["sessions"].as_array().unwrap().len(),
-        1,
-        "Free caps tracked sessions at 1"
+        2,
+        "Free tracks every live session"
     );
     assert_eq!(
-        v["sessionsLocked"], 1,
-        "the other session is reported as locked"
+        v["sessionsLocked"], 0,
+        "nothing is locked away on Free any more"
     );
 
     // Upgrade to Pro: drift map + all sessions unlock.
@@ -798,12 +805,66 @@ async fn plan_gates_drift_map_and_sessions() {
         !v["current"]["history"].as_array().unwrap().is_empty(),
         "Pro exposes drift-map history"
     );
-    assert_eq!(
-        v["sessions"].as_array().unwrap().len(),
-        2,
-        "Pro lifts the session cap"
-    );
+    assert_eq!(v["sessions"].as_array().unwrap().len(), 2);
     assert_eq!(v["sessionsLocked"], 0);
+    assert!(
+        v["entitlement"]["historyDays"].is_null(),
+        "Pro lifts the retention limit"
+    );
+}
+
+/// The local first-run trial grants Pro capabilities with no account, and lapses
+/// back to Free on its own once the window closes.
+#[tokio::test]
+async fn local_trial_grants_pro_then_lapses() {
+    let cfg = ProxyConfig {
+        openai_upstream: "http://unused".into(),
+        anthropic_upstream: "http://unused".into(),
+        openai_strip_v1: false,
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    const DAY: i64 = 86_400_000;
+
+    // Fresh install, nobody signed in, trial started today.
+    let state = AppState::with_judge(cfg.clone(), None, drifterr_judge::Judge::Disabled)
+        .with_trial_started(Some(now));
+    let control = spawn(control_router(state)).await;
+    let client = client();
+    let v: serde_json::Value = client
+        .get(format!("http://{control}/entitlement"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(v["plan"], "trial", "a new install is on trial, signed out");
+    assert_eq!(v["driftMap"], true);
+    assert_eq!(v["autoReanchor"], true);
+    assert_eq!(v["trialDaysLeft"], 14);
+
+    // Same install, 20 days later: back to Free, no server involved.
+    let lapsed = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled)
+        .with_trial_started(Some(now - 20 * DAY));
+    let control = spawn(control_router(lapsed)).await;
+    let v: serde_json::Value = client
+        .get(format!("http://{control}/entitlement"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(v["plan"], "free");
+    assert_eq!(v["driftMap"], false);
+    assert_eq!(v["autoReanchor"], false);
+    assert!(
+        v["trialDaysLeft"].is_null() || v["trialDaysLeft"] == 0,
+        "an expired trial must not advertise days left"
+    );
 }
 
 #[tokio::test]

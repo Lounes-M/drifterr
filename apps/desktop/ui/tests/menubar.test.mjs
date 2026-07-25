@@ -178,9 +178,43 @@ async function main() {
   scenario = { current: baseCur, sessions: [], entitlement: { plan: "free", driftMap: false }, sessionsLocked: 1 };
   await page.waitForFunction(() => document.getElementById("drift-map-section").classList.contains("locked"), null, { timeout: 5000 });
   check(await page.locator("#map-lock").isVisible(), "Free locks the drift map with a Pro badge");
+  check(await page.locator("#upgrade-nudge").isVisible(), "Free shows the upgrade nudge");
+  check((await page.locator("#plan-pill").textContent()) === "Free", "plan pill reads Free");
+  // Regression: the nudge is driven by the proxy entitlement, which knows nothing
+  // about whether accounts are configured — so its button must be wired either
+  // way, or Free users get a visible button that does nothing. (Accounts are
+  // neutralized in this context, which is exactly the case that used to break.)
+  check(
+    await page.evaluate(() => {
+      const b = document.getElementById("upgrade-btn");
+      // A wired listener calls window.open; stub it and see if it fires.
+      let opened = false;
+      const real = window.open;
+      window.open = () => { opened = true; };
+      b.click();
+      window.open = real;
+      return opened;
+    }),
+    "upgrade button works with accounts unconfigured"
+  );
   scenario = { current: baseCur, sessions: [], entitlement: { plan: "pro", driftMap: true }, sessionsLocked: 0 };
   await page.waitForFunction(() => !document.getElementById("drift-map-section").classList.contains("locked"), null, { timeout: 5000 });
   check(!(await page.locator("#map-lock").isVisible()), "Pro unlocks the drift map");
+  check(!(await page.locator("#upgrade-nudge").isVisible()), "Pro hides the upgrade nudge");
+
+  console.log("TRIAL (local first-run Pro):");
+  scenario = { current: baseCur, sessions: [], entitlement: { plan: "trial", driftMap: true, trialDaysLeft: 12 }, sessionsLocked: 0 };
+  await page.waitForFunction(() => document.getElementById("plan-pill").textContent.includes("trial"), null, { timeout: 5000 });
+  check((await page.locator("#plan-pill").textContent()) === "Pro trial · 12d", "trial pill shows the countdown");
+  check(!(await page.locator("#map-lock").isVisible()), "trial unlocks the drift map");
+  check(!(await page.locator("#upgrade-nudge").isVisible()), "no upgrade nudge during the trial");
+  check(!(await page.locator("#trial-ending").isVisible()), "no ending warning with 12 days left");
+  // Inside the last three days the panel names what is about to switch off.
+  scenario = { current: baseCur, sessions: [], entitlement: { plan: "trial", driftMap: true, trialDaysLeft: 2 }, sessionsLocked: 0 };
+  await page.waitForFunction(() => !document.getElementById("trial-ending").hidden, null, { timeout: 5000 });
+  check(await page.locator("#trial-ending").isVisible(), "warns when the trial is nearly over");
+  check((await page.locator("#trial-ending-text").textContent()).includes("2 days"), "names the days remaining");
+  check((await page.locator("#trial-ending-text").textContent()).includes("detection keeps running"), "reassures that detection survives");
 
   console.log("SETTINGS view:");
   await page.route("**/config*", (route) =>
@@ -515,6 +549,51 @@ async function main() {
     check((await hp.locator(".history-goal.untitled").count()) === 1, "goalless session shows as Untitled");
     check((await hp.locator(".history-row .dot.red").count()) === 1, "state dot reflects the session state");
     await hctx.close();
+  }
+
+  // --- accounts configured, but signed out ---------------------------------
+  //
+  // The regression this guards: an auth gate that hides the panel body. Drift
+  // detection is local, so a signed-out user must get the *whole* app. Only the
+  // Account block should reflect the anonymous state.
+  console.log("\nSigned-out panel (accounts configured):");
+  {
+    const actx = await browser.newContext();
+    const ap = await actx.newPage();
+    await ap.addInitScript(() => {
+      // A plausible-looking config so `configured` is true and the accounts code
+      // path actually runs...
+      window.DRIFTERR_SUPABASE_URL = "https://example.supabase.co";
+      window.DRIFTERR_SUPABASE_ANON_KEY = "anon-test-key";
+      try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) {}
+    });
+    // ...but stub the CDN import so the run stays hermetic: no session, no network.
+    await ap.route("**/esm.sh/**", (route) =>
+      route.fulfill({
+        contentType: "text/javascript",
+        body: "export const createClient = () => ({ auth: { getUser: async () => ({ data: { user: null } }), onAuthStateChange: () => {} } });",
+      })
+    );
+    await ap.route("**/status*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(RED) }));
+    await ap.goto(url);
+
+    await ap.waitForFunction(() => document.getElementById("state-label").textContent === "Drifting");
+    check(await ap.locator("#app-body").isVisible(), "panel body is visible while signed out");
+    check(!(await ap.locator("#gate").isVisible()), "sign-in sheet stays closed");
+    check(await ap.locator("#trigger").isVisible(), "drift trigger still renders signed out");
+    check(await ap.locator("#reanchor-btn").isVisible(), "re-anchor is available signed out");
+
+    // The sheet is reachable on demand from Settings → Account, and dismissible.
+    await ap.locator("#gear").click();
+    await ap.waitForSelector("#acct-anon", { state: "visible" });
+    check(await ap.locator("#acct-anon").isVisible(), "Account block shows the signed-out state");
+    check(!(await ap.locator("#acct-user").isVisible()), "signed-in details stay hidden");
+    await ap.locator("#acct-signin").click();
+    check(await ap.locator("#gate").isVisible(), "sign-in sheet opens on request");
+    await ap.locator("#gate-dismiss").click();
+    check(!(await ap.locator("#gate").isVisible()), "sign-in sheet is dismissible");
+    check(await ap.locator("#app-body").isVisible(), "panel body survives dismissing the sheet");
+    await actx.close();
   }
 
   await browser.close();

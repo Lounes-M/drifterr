@@ -52,6 +52,44 @@ impl Store {
         Ok(Self { conn })
     }
 
+    // --- install metadata --------------------------------------------------
+
+    /// Read an install-scoped metadata value. `None` when unset.
+    pub fn meta(&self, key: &str) -> Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT value FROM app_meta WHERE key = ?1")?;
+        let mut rows = stmt.query(params![key])?;
+        match rows.next()? {
+            Some(r) => Ok(Some(r.get(0)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Write an install-scoped metadata value, replacing any prior one.
+    pub fn set_meta(&mut self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO app_meta (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    /// Read a metadata value, writing `default` first if the key is unset.
+    /// Returns the value now in force — so the *first* caller establishes it.
+    ///
+    /// This is how the local Pro trial gets its start timestamp: the first launch
+    /// stamps it, every later launch reads the same one back, and nothing about it
+    /// needs a network or an account.
+    pub fn meta_or_init(&mut self, key: &str, default: &str) -> Result<String> {
+        if let Some(v) = self.meta(key)? {
+            return Ok(v);
+        }
+        self.set_meta(key, default)?;
+        Ok(default.to_string())
+    }
+
     /// Persist a conversation (session + turns + context). Idempotent on
     /// session id: re-saving replaces the prior rows for that session.
     pub fn save_conversation(&mut self, conv: &Conversation) -> Result<()> {
@@ -596,6 +634,32 @@ mod tests {
         assert_eq!(promoted.len(), 1);
         assert_eq!(promoted[0].text, text);
         assert!(!promoted[0].is_candidate());
+    }
+
+    #[test]
+    fn meta_round_trips_and_init_is_first_write_wins() {
+        let mut s = Store::open_in_memory().unwrap();
+        assert_eq!(s.meta("trial_started_at").unwrap(), None);
+
+        // First caller establishes the value.
+        assert_eq!(
+            s.meta_or_init("trial_started_at", "1700000000000").unwrap(),
+            "1700000000000"
+        );
+        // Later callers read the same one back — a relaunch must not restart the
+        // trial clock.
+        assert_eq!(
+            s.meta_or_init("trial_started_at", "9999999999999").unwrap(),
+            "1700000000000"
+        );
+        assert_eq!(
+            s.meta("trial_started_at").unwrap().as_deref(),
+            Some("1700000000000")
+        );
+
+        // An explicit write still overwrites (e.g. tests, support tooling).
+        s.set_meta("trial_started_at", "42").unwrap();
+        assert_eq!(s.meta("trial_started_at").unwrap().as_deref(), Some("42"));
     }
 
     #[test]

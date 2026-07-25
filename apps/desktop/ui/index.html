@@ -53,29 +53,6 @@
         <div id="upd-bar" class="upd-bar" hidden><div id="upd-bar-fill" class="upd-bar-fill"></div></div>
       </section>
 
-      <section id="gate" class="gate" hidden>
-        <h1 id="gate-title">Sign in to Drifterr</h1>
-        <p class="muted" id="gate-sub">Connect your account to start tracking drift.</p>
-        <div id="gate-msg" class="gate-msg" hidden></div>
-        <label class="gate-field" id="gate-name-field" hidden>
-          <span>Name</span>
-          <input id="gate-name" type="text" autocomplete="name" />
-        </label>
-        <label class="gate-field">
-          <span>Email</span>
-          <input id="gate-email" type="email" autocomplete="email" />
-        </label>
-        <label class="gate-field">
-          <span>Password</span>
-          <input id="gate-password" type="password" autocomplete="current-password" />
-        </label>
-        <button id="gate-submit" class="reanchor-btn gate-submit" type="button">Sign in</button>
-        <p class="gate-alt">
-          <span id="gate-alt-text">New here?</span>
-          <a id="gate-toggle" href="#">Create an account</a>
-        </p>
-      </section>
-
       <div id="app-body">
       <header class="head">
         <span id="dot" class="dot unknown" aria-hidden="true"></span>
@@ -166,11 +143,22 @@
 
         <div id="account-block" hidden>
           <h2 class="section-title" style="margin-top:12px">Account</h2>
-          <div class="cfg-row"><span class="muted">Signed in</span><span id="acct-email">—</span></div>
-          <div class="cfg-row"><span class="muted">Plan</span><span id="acct-plan">Free</span></div>
-          <div class="acct-buttons">
-            <button id="acct-plan-btn" class="mini-btn" type="button">Choose plan</button>
-            <button id="acct-signout" class="mini-btn" type="button">Sign out</button>
+          <!-- Signed out: the normal, fully-functional state. -->
+          <div id="acct-anon">
+            <p class="muted" style="margin:0 0 8px">Not signed in. Detection, constraints and re-anchor all run locally — an account is only needed for a paid plan.</p>
+            <div class="acct-buttons">
+              <button id="acct-signin" class="mini-btn" type="button">Sign in</button>
+              <button id="acct-plans" class="mini-btn" type="button">See plans</button>
+            </div>
+          </div>
+          <!-- Signed in. -->
+          <div id="acct-user" hidden>
+            <div class="cfg-row"><span class="muted">Signed in</span><span id="acct-email">—</span></div>
+            <div class="cfg-row"><span class="muted">Plan</span><span id="acct-plan">Free</span></div>
+            <div class="acct-buttons">
+              <button id="acct-plan-btn" class="mini-btn" type="button">Choose plan</button>
+              <button id="acct-signout" class="mini-btn" type="button">Sign out</button>
+            </div>
           </div>
         </div>
       </section>
@@ -209,9 +197,16 @@
         <p id="history-empty" class="muted" hidden>No sessions recorded yet. Start chatting through the proxy and they'll appear here.</p>
       </section>
 
+      <!-- Trial about to lapse: name what switches off, before it does. -->
+      <section id="trial-ending" class="upgrade-nudge" hidden>
+        <span class="trigger-tag">Pro trial ending</span>
+        <p class="muted" id="trial-ending-text"></p>
+        <button id="trial-upgrade-btn" class="reanchor-btn" type="button">Keep Pro</button>
+      </section>
+
       <section id="upgrade-nudge" class="upgrade-nudge" hidden>
         <span class="trigger-tag">Free plan</span>
-        <p class="muted">Unlock unlimited sessions, the session drift map and auto re-anchor.</p>
+        <p class="muted">Pro adds unlimited history, the session drift map and automatic re-anchor injection. Detection, constraints and manual re-anchor stay free.</p>
         <button id="upgrade-btn" class="reanchor-btn" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></svg> Choose a plan</button>
       </section>
 
@@ -288,6 +283,42 @@
       </footer>
       </div>
     </main>
+
+    <!--
+      Sign-in sheet. Optional by design: detection is entirely local, so the
+      panel works fully without an account. This sheet only opens when the user
+      asks for it (Settings → Account → Sign in), and exists purely to attach a
+      paid plan to the install.
+    -->
+    <div id="gate" class="gate-sheet" hidden>
+      <div class="gate-card">
+        <div class="gate-top">
+          <span class="mark" aria-hidden="true"><span class="fill"></span><span class="ring"></span></span>
+          <button id="gate-close" class="onb-skip" type="button">Close</button>
+        </div>
+        <h1 id="gate-title">Sign in to Drifterr</h1>
+        <p class="muted" id="gate-sub">Only needed to buy or restore a paid plan. Drift detection runs locally either way.</p>
+        <div id="gate-msg" class="gate-msg" hidden></div>
+        <label class="gate-field" id="gate-name-field" hidden>
+          <span>Name</span>
+          <input id="gate-name" type="text" autocomplete="name" />
+        </label>
+        <label class="gate-field">
+          <span>Email</span>
+          <input id="gate-email" type="email" autocomplete="email" />
+        </label>
+        <label class="gate-field">
+          <span>Password</span>
+          <input id="gate-password" type="password" autocomplete="current-password" />
+        </label>
+        <button id="gate-submit" class="reanchor-btn gate-submit" type="button">Sign in</button>
+        <p class="gate-alt">
+          <span id="gate-alt-text">New here?</span>
+          <a id="gate-toggle" href="#">Create an account</a>
+        </p>
+        <p class="gate-foot">No account? <a id="gate-dismiss" href="#">Keep using Drifterr locally</a></p>
+      </div>
+    </div>
 
     <div id="onboarding" class="onboarding" hidden>
       <div class="onb-card">

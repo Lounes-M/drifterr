@@ -67,5 +67,12 @@ CREATE TABLE IF NOT EXISTS standing_orders (
   promoted    INTEGER NOT NULL
 );
 
+-- Install-scoped key/value metadata. Deliberately tiny and opaque: this holds
+-- app facts (e.g. when the local Pro trial started), never chat content.
+CREATE TABLE IF NOT EXISTS app_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id, idx);
 CREATE INDEX IF NOT EXISTS idx_events_session ON signal_events(session_id);

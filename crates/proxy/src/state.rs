@@ -203,6 +203,11 @@ pub struct AppCore {
     /// next new session, so it seeds exactly one session, never leaks a goal
     /// across tasks.
     pending_intent: Option<(String, Vec<String>)>,
+    /// Constraints imported from a project's rules file (`CLAUDE.md`,
+    /// `.cursor/rules`), staged per session id by the channel that knows which
+    /// project a session belongs to. Consumed when that session is first created,
+    /// so a rules file seeds exactly the sessions from its own project.
+    pending_imports: HashMap<String, Vec<drifterr_engine::baseline::Constraint>>,
 }
 
 impl AppCore {
@@ -212,7 +217,30 @@ impl AppCore {
             last_updated: None,
             store: store.map(Mutex::new),
             pending_intent: None,
+            pending_imports: HashMap::new(),
         }
+    }
+
+    /// Stage rules-file constraints for a session that may not exist yet.
+    ///
+    /// Called by a channel that can map a session to a project directory (the
+    /// Claude Code watcher reads `cwd` from the transcript). Staging rather than
+    /// applying keeps the ordering safe: the import lands as part of the session's
+    /// initial baseline, so it is present for the very first evaluation instead of
+    /// arriving a turn late.
+    ///
+    /// A no-op once the session exists — re-importing on every file change would
+    /// resurrect constraints the user had deliberately retired.
+    pub fn stage_imported_constraints(
+        &mut self,
+        session_id: &str,
+        constraints: Vec<drifterr_engine::baseline::Constraint>,
+    ) {
+        if constraints.is_empty() || self.sessions.contains_key(session_id) {
+            return;
+        }
+        self.pending_imports
+            .insert(session_id.to_string(), constraints);
     }
 
     /// Apply a user-declared intent (explicit goal + constraint phrases) to a
@@ -354,6 +382,19 @@ impl AppCore {
     /// Snapshots of all known sessions.
     pub fn all(&self) -> Vec<SessionStatus> {
         self.sessions.values().map(|s| s.status.clone()).collect()
+    }
+
+    /// Read the local trial's start stamp, establishing it as `now` on the very
+    /// first call. Returns `None` when there is no durable store to remember it in
+    /// (in-memory runs and tests), which simply means "no trial".
+    pub fn trial_started_or_init(&self, now: i64) -> Option<i64> {
+        let store = self.store.as_ref()?;
+        let mut guard = store.lock().ok()?;
+        guard
+            .meta_or_init("trial_started_at", &now.to_string())
+            .ok()?
+            .parse()
+            .ok()
     }
 
     /// The decisions recorded for a session (clone), for the judge phase.
@@ -647,11 +688,23 @@ impl AppCore {
         // On a brand-new session, seed it with the user's promoted standing
         // orders (the moat): rules they've accepted reappear automatically.
         let is_new = !self.sessions.contains_key(&session_id);
-        let injected = if is_new {
+        let mut injected = if is_new {
             self.promoted_constraints()
         } else {
             Vec::new()
         };
+        // Rules-file constraints for this session's project, staged by the channel.
+        // Deduped against the promoted standing orders by text, since a rule the
+        // user repeats often enough to be promoted is usually also written down.
+        if is_new {
+            if let Some(imported) = self.pending_imports.remove(&session_id) {
+                for c in imported {
+                    if !injected.iter().any(|e| e.text == c.text) {
+                        injected.push(c);
+                    }
+                }
+            }
+        }
         // A user-declared intent stated before this session existed seeds it once.
         let seed_intent = if is_new {
             self.pending_intent.take()
@@ -1048,7 +1101,7 @@ pub fn session_id_for(req: &ParsedRequest) -> String {
     format!("sess-{hash:016x}")
 }
 
-fn now_millis() -> i64 {
+pub(crate) fn now_millis() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1081,6 +1134,48 @@ mod tests {
         let status = core.current().unwrap();
         assert!(!status.exact, "file channel saturation is estimated");
         assert_eq!(status.triggering.unwrap().signal, "constraint");
+    }
+
+    #[test]
+    fn imported_rules_constraints_are_enforced_from_the_first_turn() {
+        // The point of the rules-file import: the user typed nothing, but a rule
+        // they had already written in CLAUDE.md is live on turn one.
+        let imported = drifterr_engine::rules_file::constraints_from_text(
+            "- Never use `console.log`\n",
+            "claude-md",
+        );
+        assert_eq!(imported.len(), 1, "fixture should yield one rule");
+
+        let jsonl = concat!(
+            r#"{"type":"user","sessionId":"imp-1","message":{"role":"user","content":"add the toolbar button"}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"role":"assistant","model":"claude-opus-4-x","content":[{"type":"text","text":"Done:\n```ts\nconsole.log('clicked')\n```"}]}}"#,
+        );
+        let conv = drifterr_adapters::claude_code::parse_session(jsonl, "x").unwrap();
+
+        let mut core = AppCore::new(None);
+        core.stage_imported_constraints(&conv.session_id, imported.clone());
+        assert_eq!(core.record_conversation(&conv), State::Red);
+        let trigger = core.current().unwrap().triggering.unwrap();
+        assert_eq!(trigger.signal, "constraint");
+        assert_eq!(
+            trigger.constraint_id.as_deref(),
+            Some("claude-md-1"),
+            "the flag names the imported rule, so the cause is traceable to the file"
+        );
+
+        // Staging after the session exists must NOT re-add anything: that would
+        // resurrect constraints the user had retired.
+        let mut core2 = AppCore::new(None);
+        core2.record_conversation(&conv);
+        let before = core2.intent_of(None).unwrap().constraints.len();
+        core2.stage_imported_constraints(&conv.session_id, imported);
+        core2.record_conversation(&conv);
+        assert_eq!(
+            core2.intent_of(None).unwrap().constraints.len(),
+            before,
+            "a late import is ignored for an existing session"
+        );
     }
 
     #[test]
