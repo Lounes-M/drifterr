@@ -88,6 +88,31 @@ pub enum Rule {
     /// length needs a real parser and belongs to the judge path). No fences ⇒
     /// nothing to measure ⇒ satisfied.
     MaxLines { max: usize },
+    /// Violated if a **diff header** in the reply touches a path matching this
+    /// regex. The directory-scoped sibling of the protected-file rule: "don't
+    /// touch the migrations" covers a whole tree rather than one named file.
+    ///
+    /// Scoped to diff headers (`--- a/x`, `+++ b/x`, `diff --git`) on purpose —
+    /// naming a path in prose is discussion, not modification, and treating the
+    /// two alike is how a hard signal starts crying wolf.
+    ForbidPathTouch { pattern: String },
+    /// Violated if a fenced code block contains a marker matching this regex
+    /// **while the constraint pins work to the opposite side of a boundary**.
+    ///
+    /// This is how "server-side only" becomes checkable: the rule carries the
+    /// markers that can only appear in client-side code (`useState`, `onClick`,
+    /// `document.`, `window.`), so their presence in a code block is evidence the
+    /// reply crossed the layer the user pinned. `label` names the boundary for the
+    /// UI ("server-side only"), because the evidence must read as a cause and not
+    /// as an opaque regex hit.
+    ///
+    /// Deliberately marker-based rather than semantic: we can prove `useState(`
+    /// appeared in a code block, and we cannot prove "this design is server-side".
+    /// Only the provable half is a hard signal.
+    ForbidLayerMarkers { label: String, pattern: String },
+    /// Violated if the reply's diff headers introduce **new** files (`--- /dev/null`
+    /// or a `new file mode` line) — "work within the existing files".
+    ForbidNewFiles,
 }
 
 /// A decision made during the session. Tracked over time; `rejected` marks

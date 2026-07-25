@@ -1,0 +1,48 @@
+{
+  "name": "Server-side-only constraint violated (assistant returns a React hook) — should go red",
+  "baseline": {
+    "goal": "Add a CSV export endpoint for the reports page",
+    "constraints": [
+      {
+        "id": "c1",
+        "text": "Keep it server-side only",
+        "type": "tech",
+        "checkable": "deterministic"
+      }
+    ],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "eval-e9",
+    "model": "gpt-4o",
+    "turns": [
+      {
+        "index": 0,
+        "role": "user",
+        "content": "Add a CSV export for the reports page. Keep it server-side only.",
+        "tokens": 16,
+        "timestamp": 1000
+      },
+      {
+        "index": 1,
+        "role": "assistant",
+        "content": "Here's the export wired into the toolbar:\n\n```tsx\nexport function ExportButton() {\n  const [busy, setBusy] = useState(false);\n  return <button onClick={() => setBusy(true)}>Export</button>;\n}\n```",
+        "tokens": 44,
+        "timestamp": 2000
+      }
+    ],
+    "context": {
+      "windowSize": 128000,
+      "usedTokens": 5200,
+      "exact": true,
+      "toolCallCount": 0
+    },
+    "source": "proxy"
+  },
+  "expect": {
+    "state": "red",
+    "triggeringSignal": "constraint",
+    "triggeringConstraint": "c1",
+    "turn": 1
+  }
+}
