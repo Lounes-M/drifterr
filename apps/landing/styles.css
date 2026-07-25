@@ -196,14 +196,25 @@ h2.section-title { font-size: clamp(30px, 3.6vw, 46px); }
 .alert-btns .dismiss { padding: 10px 16px; border-radius: 11px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color: #cbc9d8; font-weight: 600; font-size: 13px; cursor: pointer; font-family: var(--sans); }
 
 /* marquee */
-.marquee { margin-top: 72px; overflow: hidden;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
-.marquee-track { display: flex; gap: 56px; width: max-content; animation: marquee 26s linear infinite;
-  align-items: center; color: var(--faint-2); font-family: var(--display); font-weight: 600; font-size: 18px; }
-.marquee-track .row { display: flex; align-items: center; gap: 56px; }
-.marquee-track .row b { color: #9a98ad; font-weight: 600; }
-@keyframes marquee { to { transform: translateX(-50%); } }
+/* Channels, stated plainly. Replaces a scrolling logo marquee, which read as
+   "we integrate with everything" — the broad-and-weak claim this page moved away
+   from. What's true is narrower and more useful: one channel needs nothing, one
+   needs an environment variable, one is still beta. */
+.channels { margin-top: 72px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.chan { padding: 20px; border-radius: 16px; background: var(--card); border: 1px solid var(--edge); }
+.chan-tag {
+  display: inline-block; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 999px;
+  background: rgba(52, 232, 158, 0.14); color: #9ff0cf; margin-bottom: 10px;
+}
+.chan-tag.chan-beta { background: rgba(255, 255, 255, 0.08); color: var(--faint); }
+.chan b { display: block; font-size: 14.5px; letter-spacing: -0.01em; margin-bottom: 6px; }
+.chan p { font-size: 12.5px; line-height: 1.55; color: var(--faint); margin: 0; }
+.chan code {
+  font-family: var(--mono); font-size: 11.5px; padding: 1px 4px; border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3); color: #ffb695;
+}
+@media (max-width: 900px) { .channels { grid-template-columns: 1fr; } }
 
 /* ===== how ===== */
 .how .head { text-align: center; margin-bottom: 60px; }

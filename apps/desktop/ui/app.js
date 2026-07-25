@@ -86,6 +86,43 @@ export function apiBase() {
   return "http://127.0.0.1:8788";
 }
 
+/// Report whether the last re-anchor actually held.
+///
+/// Three honest states, and the third one matters: "still checking" is shown rather
+/// than rounded up to success. A re-anchor success rate that counts undecided cases
+/// as wins is the same species of invented number as the "52 min saved" stat this
+/// mechanism exists to replace.
+export function renderReanchorOutcome(doc, mark) {
+  const el = doc.getElementById("reanchor-outcome");
+  if (!el) return;
+  if (!mark) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  const broke = Number.isFinite(mark.brokeAgainAtTurn);
+  const held = mark.heldTurns || 0;
+  const cause = mark.constraintId ? `“${mark.constraintId}”` : mark.signal;
+
+  let cls, badge, text;
+  if (broke) {
+    cls = "broke";
+    badge = "Didn't hold";
+    text = `${cause} came back on turn ${mark.brokeAgainAtTurn + 1}. Consider restating it more explicitly, or retiring it if you've changed your mind.`;
+  } else if (held >= 2) {
+    cls = "held";
+    badge = "Re-anchor held";
+    text = `${cause} has stayed clear for ${held} turn${held > 1 ? "s" : ""} since you re-anchored.`;
+  } else {
+    cls = "pending";
+    badge = "Checking";
+    text = `Watching whether ${cause} stays clear — ${held} turn${held === 1 ? "" : "s"} so far.`;
+  }
+  el.className = "reanchor-outcome session-only " + cls;
+  setText(doc, "ro-badge", badge);
+  setText(doc, "ro-text", text);
+}
+
 /// Show the effective plan from a `/status` entitlement.
 ///
 /// The proxy resolves the plan, including the local first-run trial, so this is
@@ -190,6 +227,8 @@ export function render(doc, data) {
     if (re) re.hidden = true;
   }
 
+  renderReanchorOutcome(doc, cur.reanchor);
+
   // Drift score (0–100 display aggregate).
   const drift = clampPct(cur.driftScore);
   const dfill = doc.getElementById("drift-fill");
@@ -258,6 +297,11 @@ export function renderError(doc, message) {
   }
 }
 
+/// Signals allowed to drive RED. Mirrors `HARD_SIGNALS` in the engine and the eval
+/// harness — a deterministic constraint violation and context saturation are facts;
+/// everything else is advisory.
+const HARD_SIGNALS = new Set(["constraint", "saturation"]);
+
 function signalRow(doc, s) {
   const li = doc.createElement("li");
   li.className = "signal-row";
@@ -265,14 +309,46 @@ function signalRow(doc, s) {
   dot.className = "mini " + (stateInfo(s.state).cls);
   const body = doc.createElement("div");
   body.className = "signal-body";
+
+  const head = doc.createElement("div");
+  head.className = "signal-head";
   const name = doc.createElement("span");
   name.className = "signal-name";
   name.textContent = signalLabel(s.signal);
+  head.appendChild(name);
+  // Say which kind it is, so an amber reads as "advisory" rather than "weak alarm".
+  const kind = doc.createElement("span");
+  const isHard = HARD_SIGNALS.has(s.signal);
+  kind.className = "signal-kind " + (isHard ? "hard" : "soft");
+  kind.textContent = isHard ? "hard" : "soft";
+  head.appendChild(kind);
+
   const detail = doc.createElement("span");
   detail.className = "signal-detail";
   detail.textContent = s.detail || "";
-  body.appendChild(name);
+  body.appendChild(head);
   body.appendChild(detail);
+
+  // Evidence, per signal rather than only for the one named as the cause. This is
+  // what makes a flag checkable instead of something to be taken on trust.
+  if (s.constraintId || s.span) {
+    const ev = doc.createElement("div");
+    ev.className = "signal-evidence";
+    if (s.constraintId) {
+      const c = doc.createElement("span");
+      c.className = "ev-chip";
+      c.textContent = s.constraintId;
+      ev.appendChild(c);
+    }
+    if (s.span) {
+      const sp = doc.createElement("code");
+      sp.className = "ev-span";
+      sp.textContent = s.span;
+      ev.appendChild(sp);
+    }
+    body.appendChild(ev);
+  }
+
   li.appendChild(dot);
   li.appendChild(body);
   return li;
@@ -752,6 +828,134 @@ function setupExtras(doc) {
   setupUpdates(doc);
   const report = doc.getElementById("report-copy");
   if (report) report.addEventListener("click", () => copySessionReport(doc));
+  setupWeekly(doc);
+  setupSemanticModel(doc);
+}
+
+/// The optional semantic-model offer.
+///
+/// Only shown in the desktop shell (it needs a Tauri command to download), and only
+/// when the build actually supports ONNX — offering a download that cannot be used
+/// would be worse than saying nothing. Absent all that, the section stays hidden and
+/// detection runs on the lexical embedder, which is a working default.
+export async function setupSemanticModel(doc, invokeImpl) {
+  const block = doc.getElementById("semantic-block");
+  if (!block) return;
+  const invoke =
+    invokeImpl ||
+    (typeof window !== "undefined" && window.__TAURI__?.core?.invoke) ||
+    null;
+  if (!invoke) return; // Browser dashboard: nothing to offer.
+
+  const render = (st) => {
+    if (!st || !st.supported) {
+      block.hidden = true;
+      return;
+    }
+    block.hidden = false;
+    const get = doc.getElementById("semantic-get");
+    const label = {
+      bundled: "Bundled with this build",
+      downloaded: "Installed",
+      custom: "Custom path (DRIFTERR_EMBED_MODEL)",
+      absent: "Not installed — using the lexical embedder",
+    }[st.source] || "Unknown";
+    setText(doc, "semantic-state", label);
+    if (get) get.hidden = st.ready;
+    // An unpinned build refuses to download rather than fetch an unverifiable binary
+    // that an inference runtime would then execute. Say so instead of failing later.
+    if (st.unpinned && !st.ready) {
+      if (get) get.hidden = true;
+      const msg = doc.getElementById("semantic-msg");
+      if (msg) {
+        msg.hidden = false;
+        msg.textContent =
+          "This build has no pinned model checksum, so the download is disabled. Point DRIFTERR_EMBED_MODEL at a model you obtained yourself.";
+      }
+    }
+  };
+
+  try {
+    render(await invoke("semantic_model_status"));
+  } catch (_e) {
+    block.hidden = true;
+    return;
+  }
+
+  const get = doc.getElementById("semantic-get");
+  if (get) {
+    get.addEventListener("click", async () => {
+      const msg = doc.getElementById("semantic-msg");
+      get.disabled = true;
+      get.textContent = "Downloading…";
+      try {
+        await invoke("download_semantic_model");
+        if (msg) { msg.hidden = false; msg.textContent = "Installed and verified."; }
+        render(await invoke("semantic_model_status"));
+      } catch (e) {
+        // Includes a checksum mismatch, which must be visible rather than silent.
+        if (msg) { msg.hidden = false; msg.textContent = String(e); }
+      } finally {
+        get.disabled = false;
+        get.textContent = "Download (127 MB)";
+      }
+    });
+  }
+}
+
+/// The weekly report view: fetch on open, toggle closed on a second click.
+///
+/// Fetched rather than cached so it is always current, and rendered as plain text
+/// because the whole point is that the user can read, copy and keep it — it is their
+/// data, generated on their machine.
+function setupWeekly(doc, fetchImpl) {
+  const btn = doc.getElementById("weekly-btn");
+  const panel = doc.getElementById("weekly");
+  if (!btn || !panel) return;
+  btn.addEventListener("click", async () => {
+    if (!panel.hidden) {
+      panel.hidden = true;
+      return;
+    }
+    // Close the sibling views so two full-width panels can't stack.
+    for (const id of ["settings", "history"]) {
+      const el = doc.getElementById(id);
+      if (el) el.hidden = true;
+    }
+    setText(doc, "weekly-text", "Generating…");
+    panel.hidden = false;
+    const f = fetchImpl || fetch;
+    try {
+      const res = await f(apiBase() + "/report?days=7", { cache: "no-store" });
+      if (!res.ok) {
+        // 503 means there is no local database — say that plainly instead of
+        // showing an empty report, which would read as "nothing drifted".
+        setText(
+          doc,
+          "weekly-text",
+          res.status === 503
+            ? "No local database, so there's no history to report on yet. Sessions are only being held in memory."
+            : "Couldn't generate the report (HTTP " + res.status + ")."
+        );
+        return;
+      }
+      const data = await res.json();
+      setText(doc, "weekly-text", data.markdown || "");
+    } catch (_e) {
+      setText(doc, "weekly-text", "Drifterr proxy not reachable.");
+    }
+  });
+  const copy = doc.getElementById("weekly-copy");
+  if (copy) {
+    copy.addEventListener("click", async () => {
+      const text = doc.getElementById("weekly-text")?.textContent || "";
+      try {
+        await navigator.clipboard.writeText(text);
+        copy.textContent = "Copied ✓";
+        setTimeout(() => (copy.textContent = "Copy"), 1500);
+      } catch (_e) { /* clipboard blocked — the text is on screen either way */ }
+    });
+  }
 }
 
 // --- provider selector -----------------------------------------------------

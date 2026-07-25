@@ -63,4 +63,50 @@ async function refresh() {
   }
 }
 
+/// Explain the scraper's health on this page.
+///
+/// The failure this surfaces is the dangerous one: a site changes its DOM, every
+/// selector stops matching, and Drifterr reports "no drift" indefinitely. That looks
+/// identical to working correctly, so the user never learns they aren't protected —
+/// they just conclude the tool doesn't do much. A blind scraper has to say so.
+///
+/// Exported for tests; also called on popup open.
+function renderHealth(el, health) {
+  if (!el) return;
+  if (!health || !health.reason || health.reason === "ok") {
+    el.hidden = true;
+    return;
+  }
+  const MESSAGES = {
+    unsupported_host: "Drifterr doesn't watch this site.",
+    not_a_chat_page: "No chat on this page yet.",
+    no_conversation_yet: "Chat is open — send a message and Drifterr will start watching.",
+    selectors_stale:
+      "Drifterr can't read this page. " +
+      (health.host || "This site") +
+      " has likely changed its layout, so drift is NOT being tracked here. Please report it.",
+  };
+  const msg = MESSAGES[health.reason];
+  if (!msg) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  el.className = "health" + (health.reason === "selectors_stale" ? " broken" : "");
+  el.textContent = msg;
+}
+
+async function refreshHealth() {
+  const el = document.getElementById("health");
+  try {
+    const got = await chrome.storage.local.get("drifterrHealth");
+    renderHealth(el, got && got.drifterrHealth);
+  } catch (_e) {
+    if (el) el.hidden = true;
+  }
+}
+
+if (typeof module !== "undefined") module.exports = { renderHealth };
+
 refresh();
+refreshHealth();

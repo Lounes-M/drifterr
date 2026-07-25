@@ -174,6 +174,91 @@
     };
   }
 
+  /// Why did extraction produce nothing?
+  ///
+  /// This exists because `extract()` returning `null` is dangerously ambiguous. It
+  /// means *either* "there's no conversation on this page" — perfectly normal — *or*
+  /// "the site redesigned and every one of our selectors is now wrong". Those look
+  /// identical to the user: Drifterr simply reports no drift, forever, and the natural
+  /// conclusion is that detection is broken or useless rather than blind.
+  ///
+  /// Since these scrapers depend on DOM internals of sites we don't control, that
+  /// second case is not hypothetical — it is the expected steady state after any
+  /// redesign. A broken scraper must therefore say so.
+  ///
+  /// The distinguishing signal is the composer: if the page has a chat input *and*
+  /// substantial visible text, it is a conversation we're failing to read. If there's
+  /// no composer, we're simply not on a chat page.
+  ///
+  /// Returns `{ ok, reason, host, turns, variant }` where `reason` is one of:
+  ///   `ok` | `unsupported_host` | `not_a_chat_page` | `no_conversation_yet`
+  ///   | `selectors_stale`
+  function diagnose(opts) {
+    opts = opts || {};
+    const doc = opts.doc || (typeof document !== "undefined" ? document : null);
+    const hostname =
+      opts.hostname || (typeof location !== "undefined" ? location.hostname : "");
+    if (!doc) return { ok: false, reason: "not_a_chat_page", host: hostname, turns: 0 };
+
+    const cfg = pickConfig(hostname);
+    if (!cfg) return { ok: false, reason: "unsupported_host", host: hostname, turns: 0 };
+
+    for (let i = 0; i < cfg.variants.length; i++) {
+      const turns = turnsForVariant(doc, cfg.variants[i]);
+      if (turns.length) {
+        return { ok: true, reason: "ok", host: hostname, turns: turns.length, variant: i };
+      }
+    }
+
+    // Nothing matched. Work out whether that's expected or a breakage.
+    let composer = null;
+    try {
+      composer = cfg.composer ? doc.querySelector(cfg.composer) : null;
+    } catch (_e) {
+      composer = null;
+    }
+    const bodyText = ((doc.body && doc.body.innerText) || "").trim();
+    if (!composer) {
+      // No chat input: a settings page, a 404, a logged-out screen.
+      return { ok: false, reason: "not_a_chat_page", host: hostname, turns: 0 };
+    }
+    // A composer with very little text is a fresh, empty chat — nothing wrong.
+    if (bodyText.length < STALE_TEXT_THRESHOLD) {
+      return { ok: false, reason: "no_conversation_yet", host: hostname, turns: 0 };
+    }
+    // A composer plus a page full of text that none of our selectors can see means the
+    // selectors are wrong, not the page.
+    return { ok: false, reason: "selectors_stale", host: hostname, turns: 0 };
+  }
+
+  /// Visible characters above which a chat page is assumed to hold a conversation.
+  /// Generous, so a mostly-empty page with placeholder copy is never called broken —
+  /// a false "we're broken" is nearly as damaging as silent blindness.
+  const STALE_TEXT_THRESHOLD = 400;
+
+  /// A human-readable explanation for a diagnosis, for the popup.
+  function explain(d) {
+    switch (d && d.reason) {
+      case "ok":
+        return "Reading this conversation (" + d.turns + " turns).";
+      case "unsupported_host":
+        return "Drifterr doesn't watch this site.";
+      case "not_a_chat_page":
+        return "No chat on this page yet.";
+      case "no_conversation_yet":
+        return "Chat is open — send a message and Drifterr will start watching.";
+      case "selectors_stale":
+        return (
+          "Drifterr can't read this page. " +
+          (d.host || "The site") +
+          " likely changed its layout, so drift is NOT being tracked here. " +
+          "Please report it — the fix is a selector update."
+        );
+      default:
+        return "Unknown state.";
+    }
+  }
+
   /// Inject re-anchor text into the page's chat composer — the browser-channel
   /// equivalent of "one-click re-anchor". Best-effort: finds the host's composer,
   /// prepends `text` to whatever's there, and dispatches an `input` event so the
@@ -206,7 +291,7 @@
     return true;
   }
 
-  const api = { extract, inject };
+  const api = { extract, inject, diagnose, explain };
   if (typeof window !== "undefined") window.DrifterrParse = api;
   if (typeof globalThis !== "undefined") globalThis.DrifterrParse = api;
 })();

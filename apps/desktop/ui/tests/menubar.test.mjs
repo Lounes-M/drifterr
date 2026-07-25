@@ -202,6 +202,140 @@ async function main() {
   check(!(await page.locator("#map-lock").isVisible()), "Pro unlocks the drift map");
   check(!(await page.locator("#upgrade-nudge").isVisible()), "Pro hides the upgrade nudge");
 
+  console.log("SEMANTIC model offer (on demand, not bundled):");
+  {
+    const sctx = await browser.newContext();
+    const sp = await sctx.newPage();
+    await sp.addInitScript(() => {
+      window.DRIFTERR_SUPABASE_URL = "";
+      window.DRIFTERR_SUPABASE_ANON_KEY = "";
+      try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) {}
+    });
+    await sp.route("**/status*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(GREEN) }));
+    await sp.goto(url);
+    // Open Settings, otherwise every assertion below passes trivially: the block lives
+    // inside the settings panel, so it is invisible either way while that is closed.
+    await sp.locator("#gear").click();
+    await sp.waitForSelector("#settings", { state: "visible" });
+    const mod = await sp.evaluateHandle(() => import("/app.js"));
+
+    // Not offered at all in a browser (no Tauri command to download with).
+    check(await sp.locator("#semantic-block").isHidden(), "not offered outside the desktop shell");
+
+    // Build without ONNX support ⇒ stay hidden rather than offer something unusable.
+    await sp.evaluate(async (m) => {
+      await m.setupSemanticModel(document, async () => ({ supported: false, ready: false, source: "absent", downloadMb: 127, unpinned: false }));
+    }, mod);
+    check(await sp.locator("#semantic-block").isHidden(), "hidden when the build has no ONNX support");
+
+    // Supported but absent ⇒ offer the download, and state the cost.
+    await sp.evaluate(async (m) => {
+      await m.setupSemanticModel(document, async () => ({ supported: true, ready: false, source: "absent", downloadMb: 127, unpinned: false }));
+    }, mod);
+    check(await sp.locator("#semantic-block").isVisible(), "offered when supported but absent");
+    check((await sp.locator("#semantic-get").textContent()).includes("127 MB"), "states the download size up front");
+    check((await sp.locator("#semantic-state").textContent()).includes("lexical"), "says lexical is what's running meanwhile");
+
+    // Already installed ⇒ no download button.
+    await sp.evaluate(async (m) => {
+      await m.setupSemanticModel(document, async () => ({ supported: true, ready: true, source: "downloaded", downloadMb: 127, unpinned: false }));
+    }, mod);
+    check(await sp.locator("#semantic-get").isHidden(), "no download offer once installed");
+
+    // Unpinned checksum ⇒ refuse rather than fetch an unverifiable binary.
+    await sp.evaluate(async (m) => {
+      await m.setupSemanticModel(document, async () => ({ supported: true, ready: false, source: "absent", downloadMb: 127, unpinned: true }));
+    }, mod);
+    check(await sp.locator("#semantic-get").isHidden(), "download disabled without a pinned checksum");
+    check((await sp.locator("#semantic-msg").textContent()).includes("checksum"), "explains why it's disabled");
+    await sctx.close();
+  }
+
+  console.log("SIGNAL hierarchy (named causes lead, score is demoted):");
+  scenario = RED;
+  await page.waitForFunction(() => document.querySelectorAll("#signals .signal-row").length === 2, null, { timeout: 5000 });
+  // Signals must come BEFORE the drift score in document order — the named causes are
+  // the differentiator; the 0-100 aggregate is a summary the architecture forbids
+  // treating as a verdict.
+  check(
+    await page.evaluate(() => {
+      const sig = document.querySelector(".signals");
+      const score = document.querySelector(".score-summary");
+      return !!sig && !!score &&
+        (sig.compareDocumentPosition(score) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    }),
+    "signals are rendered above the drift score"
+  );
+  check((await page.locator(".signal-kind.hard").count()) >= 1, "hard signals are labelled hard");
+  check((await page.locator("#signals .ev-chip").count()) >= 1, "per-signal evidence shows the constraint id");
+  check((await page.locator("#signals .ev-span").first().textContent()) === ".js", "per-signal evidence shows the offending span");
+  check((await page.locator(".score-note").textContent()).includes("summary only"), "the score is labelled a summary");
+  // The saturation signal in the RED fixture is green — it must still be labelled hard,
+  // since hardness is about what a signal *may* do, not its current state.
+  check(
+    await page.evaluate(() =>
+      [...document.querySelectorAll("#signals .signal-row")].every((r) => r.querySelector(".signal-kind"))
+    ),
+    "every signal carries a hard/soft label"
+  );
+
+  console.log("WEEKLY report:");
+  await page.route("**/report*", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        markdown: "# Drifterr — last 7 days\n\n- **3** sessions tracked\n- **9** flags raised\n",
+        flags: 9,
+        sessions: 3,
+        reanchors: 2,
+        quietWeek: false,
+      }),
+    })
+  );
+  await page.locator("#weekly-btn").click();
+  await page.waitForFunction(() => document.getElementById("weekly-text").textContent.includes("9"), null, { timeout: 5000 });
+  check(await page.locator("#weekly").isVisible(), "weekly report opens");
+  check((await page.locator("#weekly-text").textContent()).includes("flags raised"), "renders the generated markdown");
+  await page.locator("#weekly-btn").click();
+  check(await page.locator("#weekly").isHidden(), "second click closes it");
+  // No local database must read as "no history", never as "nothing drifted".
+  await page.unroute("**/report*");
+  await page.route("**/report*", (route) => route.fulfill({ status: 503, body: "no local database" }));
+  await page.locator("#weekly-btn").click();
+  await page.waitForFunction(() => document.getElementById("weekly-text").textContent.includes("No local database"), null, { timeout: 5000 });
+  check(
+    (await page.locator("#weekly-text").textContent()).includes("no history"),
+    "missing DB is explained, not shown as an empty report"
+  );
+  await page.locator("#weekly-btn").click();
+
+  console.log("RE-ANCHOR outcome (did it hold?):");
+  const withMark = (mark) => ({
+    current: { ...baseCur, reanchor: mark },
+    sessions: [],
+    entitlement: { plan: "pro", driftMap: true },
+    sessionsLocked: 0,
+  });
+  // Held: two quiet turns since re-anchoring.
+  scenario = withMark({ atTurn: 4, signal: "constraint", constraintId: "c1", heldTurns: 3 });
+  await page.waitForFunction(() => !document.getElementById("reanchor-outcome").hidden, null, { timeout: 5000 });
+  check((await page.locator("#ro-badge").textContent()) === "Re-anchor held", "reports a held re-anchor");
+  check((await page.locator("#ro-text").textContent()).includes("3 turns"), "names how many turns it held");
+  check((await page.locator("#reanchor-outcome").getAttribute("class")).includes("held"), "styled as held");
+  // Broke: the same cause came back.
+  scenario = withMark({ atTurn: 4, signal: "constraint", constraintId: "c1", heldTurns: 0, brokeAgainAtTurn: 6 });
+  await page.waitForFunction(() => document.getElementById("ro-badge").textContent === "Didn't hold", null, { timeout: 5000 });
+  check((await page.locator("#ro-text").textContent()).includes("turn 7"), "names the turn it broke again (1-based)");
+  check((await page.locator("#reanchor-outcome").getAttribute("class")).includes("broke"), "styled as broken");
+  // Undecided must NOT read as success — one quiet turn is not evidence.
+  scenario = withMark({ atTurn: 4, signal: "constraint", constraintId: "c1", heldTurns: 1 });
+  await page.waitForFunction(() => document.getElementById("ro-badge").textContent === "Checking", null, { timeout: 5000 });
+  check((await page.locator("#reanchor-outcome").getAttribute("class")).includes("pending"), "undecided is neutral, not a win");
+  // No re-anchor yet ⇒ nothing shown.
+  scenario = withMark(undefined);
+  await page.waitForFunction(() => document.getElementById("reanchor-outcome").hidden, null, { timeout: 5000 });
+  check(await page.locator("#reanchor-outcome").isHidden(), "hidden when no re-anchor happened");
+
   console.log("TRIAL (local first-run Pro):");
   scenario = { current: baseCur, sessions: [], entitlement: { plan: "trial", driftMap: true, trialDaysLeft: 12 }, sessionsLocked: 0 };
   await page.waitForFunction(() => document.getElementById("plan-pill").textContent.includes("trial"), null, { timeout: 5000 });

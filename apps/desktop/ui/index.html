@@ -120,6 +120,21 @@
         </label>
         <p id="auto-intent-hint" class="muted lock-hint" hidden>Add your OpenRouter key above to enable Auto-intent.</p>
 
+        <!--
+          The semantic model is fetched on demand rather than bundled: ~127MB of every
+          install and update, for the signal that fires least. Lexical detection is a
+          working default, not a crippled one.
+        -->
+        <div id="semantic-block" hidden>
+          <h2 class="section-title" style="margin-top:12px">Semantic goal detection</h2>
+          <p class="muted" id="semantic-hint">Optional. Uses a local sentence model to spot goal drift when the wording changes but the meaning doesn't. Everything stays on your machine.</p>
+          <div class="cfg-row"><span class="muted">Model</span><span id="semantic-state">—</span></div>
+          <div class="acct-buttons">
+            <button id="semantic-get" class="mini-btn" type="button" hidden>Download (127 MB)</button>
+          </div>
+          <p id="semantic-msg" class="muted" hidden></p>
+        </div>
+
         <h2 class="section-title" style="margin-top:12px">Notifications</h2>
         <p class="muted">Do Not Disturb silences the OS notifications (drift alerts &amp; update alerts). The tray and panel keep updating.</p>
         <label class="toggle-row">
@@ -197,6 +212,20 @@
         <p id="history-empty" class="muted" hidden>No sessions recorded yet. Start chatting through the proxy and they'll appear here.</p>
       </section>
 
+      <!--
+        The weekly report. The retention loop the product was missing: a monitor
+        that (correctly) stays quiet most of the time is indistinguishable from a
+        broken one unless it can show what it accumulated.
+      -->
+      <section id="weekly" class="settings history-view" hidden>
+        <h2 class="section-title">Last 7 days</h2>
+        <p class="muted">Generated on this machine from your local database. Nothing is sent anywhere.</p>
+        <pre id="weekly-text" class="reanchor-text"></pre>
+        <div class="acct-buttons">
+          <button id="weekly-copy" class="mini-btn" type="button">Copy</button>
+        </div>
+      </section>
+
       <!-- Trial about to lapse: name what switches off, before it does. -->
       <section id="trial-ending" class="upgrade-nudge" hidden>
         <span class="trigger-tag">Pro trial ending</span>
@@ -235,12 +264,44 @@
         <pre id="reanchor-text" class="reanchor-text"></pre>
       </section>
 
+      <!--
+        Did the last re-anchor work? Closes the loop on the product's headline
+        action: previously the user clicked, pasted, and had to take it on faith.
+      -->
+      <section id="reanchor-outcome" class="reanchor-outcome session-only" hidden>
+        <span id="ro-badge" class="ro-badge">—</span>
+        <span id="ro-text" class="ro-text"></span>
+      </section>
+
+      <!--
+        Signals lead, the score follows.
+
+        The named signals with their evidence ARE the product's differentiator, and
+        CLAUDE.md forbids fusing them into one opaque number. The panel previously
+        opened with a 0–100 gauge — which is exactly such a number, built from a
+        hardcoded constant table — and buried the named causes at the bottom. That
+        taught users to read the one figure that cannot be justified and to ignore the
+        several that can.
+
+        The hard/soft split is surfaced too, because it is the honest frame: only the
+        hard signals are allowed to raise a red, and a user who knows that reads an
+        amber correctly instead of as a weak alarm.
+      -->
+      <section class="signals session-only">
+        <h2 class="section-title">Signals</h2>
+        <p class="signal-legend">
+          <b>Hard</b> signals are facts and can raise a red. <b>Soft</b> ones are
+          advisory and cap at amber.
+        </p>
+        <ul id="signals" class="signal-list"></ul>
+      </section>
+
       <section class="sat session-only">
         <div class="sat-head">
-          <span>Drift score</span>
-          <span id="drift-meta" class="sat-meta">—</span>
+          <span>Context</span>
+          <span id="sat-meta" class="sat-meta">—</span>
         </div>
-        <div class="bar"><div id="drift-fill" class="bar-fill" style="width:0%"></div></div>
+        <div class="bar"><div id="sat-fill" class="bar-fill" style="width:0%"></div></div>
       </section>
 
       <section class="sat session-only" id="drift-map-section">
@@ -252,17 +313,13 @@
         <p class="lock-hint">Upgrade to Pro to see how drift built up across the session.</p>
       </section>
 
-      <section class="sat session-only">
+      <!-- Demoted on purpose: a rough summary, never the reason. -->
+      <section class="sat session-only score-summary">
         <div class="sat-head">
-          <span>Context</span>
-          <span id="sat-meta" class="sat-meta">—</span>
+          <span>Drift score <span class="score-note">summary only — the signals above are the reason</span></span>
+          <span id="drift-meta" class="sat-meta">—</span>
         </div>
-        <div class="bar"><div id="sat-fill" class="bar-fill" style="width:0%"></div></div>
-      </section>
-
-      <section class="signals session-only">
-        <h2 class="section-title">Signals</h2>
-        <ul id="signals" class="signal-list"></ul>
+        <div class="bar bar-thin"><div id="drift-fill" class="bar-fill" style="width:0%"></div></div>
       </section>
 
       <section id="activity" class="activity session-only" hidden>
@@ -280,6 +337,7 @@
       <footer class="foot">
         <span id="meta" class="muted"></span>
         <button id="report-copy" class="mini-btn session-only" type="button" title="Copy a markdown summary of this session">Copy report</button>
+        <button id="weekly-btn" class="mini-btn" type="button" title="Your last 7 days, generated locally">Last 7 days</button>
       </footer>
       </div>
     </main>

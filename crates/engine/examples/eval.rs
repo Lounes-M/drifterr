@@ -17,9 +17,10 @@
 //!     doesn't beat "just watch the context fill up", that's an alarm.
 //!
 //! Run:
-//!   cargo run -p drifterr-engine --example eval                 # scans fixtures/
-//!   cargo run -p drifterr-engine --example eval -- eval/        # a bigger set
-//!   cargo run -p drifterr-engine --example eval -- eval/ --gate # CI gate mode
+//!   cargo run -p drifterr-engine --example eval                  # scans fixtures/
+//!   cargo run -p drifterr-engine --example eval -- eval/         # a bigger set
+//!   cargo run -p drifterr-engine --example eval -- eval/ --gate  # CI gate mode
+//!   cargo run -p drifterr-engine --example eval -- eval/ --sweep # calibrate goal thresholds
 //!
 //! `--gate` makes the harness a real release gate: it exits non-zero if any
 //! hard-signal false positive (or false-RED) is present. Wire it into CI to
@@ -39,7 +40,7 @@ use drifterr_engine::conversation::Conversation;
 use drifterr_engine::signals::{SignalKind, State};
 use serde::Deserialize;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 #[derive(Deserialize)]
@@ -192,16 +193,208 @@ fn state_str(s: State) -> &'static str {
     }
 }
 
+/// Calibrate the goal-alignment thresholds against a corpus instead of arguing
+/// about them.
+///
+/// Walks a grid of [`GoalThresholds`] and reports precision / recall / F1 for the
+/// goal signal at each point, marking the current defaults. This exists because the
+/// old thresholds were three hand-picked constants that nobody could justify, and
+/// one of them (an absolute similarity floor) was structurally wrong — the kind of
+/// mistake you only see when you can measure alternatives side by side.
+///
+/// Case accounting, stated explicitly because it's the part that makes the numbers
+/// mean something:
+///
+/// * **positive** — the case annotates `goal_alignment` as the cause. The signal
+///   should fire.
+/// * **negative** — the case annotates `green`. The signal must NOT fire; these are
+///   the false-positive guards.
+/// * **ignored** — the case expects some *other* non-green cause (a constraint
+///   violation, say). Goal alignment may legitimately also be amber there, so
+///   counting it either way would be arbitrary.
+///
+/// A grid point that fires on nothing scores recall 0, and one that fires on
+/// everything scores precision 0, so neither degenerate extreme wins.
+fn sweep_goal_thresholds(entries: &[PathBuf]) -> ExitCode {
+    use drifterr_engine::signals::goal::{evaluate_with, GoalThresholds};
+
+    struct Case {
+        fx: Fixture,
+        /// `Some(true)` positive, `Some(false)` negative, `None` ignored.
+        polarity: Option<bool>,
+    }
+
+    let mut cases = Vec::new();
+    for path in entries {
+        let Some(fx) = fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Fixture>(&s).ok())
+        else {
+            continue;
+        };
+        let sig = fx.expect.triggering_signal.as_deref().unwrap_or("none");
+        let polarity = if sig == "goal_alignment" {
+            Some(true)
+        } else if fx.expect.state == "green" {
+            Some(false)
+        } else {
+            None
+        };
+        cases.push(Case { fx, polarity });
+    }
+
+    let positives = cases.iter().filter(|c| c.polarity == Some(true)).count();
+    let negatives = cases.iter().filter(|c| c.polarity == Some(false)).count();
+    let ignored = cases.iter().filter(|c| c.polarity.is_none()).count();
+
+    println!("Goal-threshold sweep");
+    println!("{}", "=".repeat(78));
+    println!(
+        "cases: {positives} positive · {negatives} negative (must stay quiet) · {ignored} ignored"
+    );
+    if positives == 0 {
+        println!(
+            "\nNo cases annotate goal_alignment as the cause, so precision/recall here are\n\
+             not measurable. Add goal-drift cases before trusting a sweep."
+        );
+    }
+    let embedder = drifterr_embeddings::default_embedder();
+    let default = GoalThresholds::default();
+    println!(
+        "\nembedder: {}   (absolute cosine scale differs per embedder — this is why the\n\
+         proportional threshold, not an absolute floor, is the real test)",
+        if cfg!(feature = "onnx") {
+            "semantic (onnx feature on)"
+        } else {
+            "lexical bag-of-words"
+        }
+    );
+
+    println!(
+        "\n{:>6} {:>9} {:>7} {:>4} {:>4} {:>4} {:>6} {:>6} {:>6}",
+        "drop", "rel_drop", "window", "TP", "FP", "FN", "prec", "recall", "F1"
+    );
+    println!("{}", "-".repeat(78));
+
+    let drops = [0.0_f32, 0.03, 0.05, 0.08, 0.12];
+    let rel_drops = [0.10_f32, 0.15, 0.25, 0.35, 0.50];
+    let windows = [1_usize, 2, 3];
+
+    let mut best: Option<(f32, GoalThresholds)> = None;
+    for &window in &windows {
+        for &drop in &drops {
+            for &rel in &rel_drops {
+                let cfg = GoalThresholds {
+                    min_turns: default.min_turns,
+                    recent_window: window,
+                    min_drop: drop,
+                    min_rel_drop: rel,
+                };
+                let (mut tp, mut fp, mut fnn) = (0usize, 0usize, 0usize);
+                for case in &cases {
+                    let Some(want) = case.polarity else { continue };
+                    let fired =
+                        evaluate_with(&case.fx.baseline, &case.fx.conversation, &*embedder, &cfg)
+                            .is_some();
+                    match (want, fired) {
+                        (true, true) => tp += 1,
+                        (true, false) => fnn += 1,
+                        (false, true) => fp += 1,
+                        (false, false) => {}
+                    }
+                }
+                let prec = if tp + fp == 0 {
+                    f32::NAN
+                } else {
+                    tp as f32 / (tp + fp) as f32
+                };
+                let rec = if tp + fnn == 0 {
+                    f32::NAN
+                } else {
+                    tp as f32 / (tp + fnn) as f32
+                };
+                let f1 = if prec.is_nan() || rec.is_nan() || prec + rec == 0.0 {
+                    f32::NAN
+                } else {
+                    2.0 * prec * rec / (prec + rec)
+                };
+                let marker = if cfg == default { "  ← current" } else { "" };
+                let fmt = |v: f32| {
+                    if v.is_nan() {
+                        "  —".to_string()
+                    } else {
+                        format!("{v:.2}")
+                    }
+                };
+                println!(
+                    "{drop:>6.2} {rel:>9.2} {window:>7} {tp:>4} {fp:>4} {fnn:>4} {:>6} {:>6} {:>6}{marker}",
+                    fmt(prec),
+                    fmt(rec),
+                    fmt(f1)
+                );
+                if !f1.is_nan() && best.as_ref().is_none_or(|(b, _)| f1 > *b) {
+                    best = Some((f1, cfg));
+                }
+            }
+        }
+    }
+
+    println!("{}", "-".repeat(78));
+    match best {
+        Some((f1, cfg)) if cfg != default => println!(
+            "Best F1 {f1:.2} at drop={:.2} rel_drop={:.2} window={} \
+             (current default is drop={:.2} rel_drop={:.2} window={})",
+            cfg.min_drop,
+            cfg.min_rel_drop,
+            cfg.recent_window,
+            default.min_drop,
+            default.min_rel_drop,
+            default.recent_window
+        ),
+        Some((f1, _)) => {
+            println!("Current defaults are already the best point on this grid (F1 {f1:.2}).")
+        }
+        None => println!("No grid point was measurable on this set."),
+    }
+    println!(
+        "\nOverride at runtime without a rebuild:\n  \
+         DRIFTERR_GOAL_MIN_DROP  DRIFTERR_GOAL_MIN_REL_DROP  \
+         DRIFTERR_GOAL_RECENT_WINDOW  DRIFTERR_GOAL_MIN_TURNS"
+    );
+    println!(
+        "\nA grid this small on a handful of cases CANNOT justify shipping new defaults —\n\
+         it will overfit. Treat the winner as a hypothesis until the corpus is large\n\
+         enough for eval/blind/ to confirm it. See eval/SCHEMA.md."
+    );
+    ExitCode::SUCCESS
+}
+
 fn main() -> ExitCode {
     // Args: an optional directory (first non-flag) and an optional `--gate`.
     let mut dir: Option<PathBuf> = None;
     let mut gate = false;
-    for arg in std::env::args().skip(1) {
+    let mut sweep = false;
+    let mut require_blind: Option<usize> = None;
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let mut i = 0;
+    while i < argv.len() {
+        let arg = &argv[i];
         if arg == "--gate" {
             gate = true;
+        } else if arg == "--sweep" {
+            sweep = true;
+        } else if arg == "--require-blind" {
+            // Opt-in: fail unless the holdout has at least N cases. CI should turn
+            // this on the moment a real corpus exists, so an accuracy claim can never
+            // rest on the set it was tuned against.
+            require_blind = argv.get(i + 1).and_then(|v| v.parse().ok());
+            i += 1;
+        } else if let Some(v) = arg.strip_prefix("--require-blind=") {
+            require_blind = v.parse().ok();
         } else if !arg.starts_with("--") {
             dir = Some(PathBuf::from(arg));
         }
+        i += 1;
     }
     let dir = dir.unwrap_or_else(|| {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -216,6 +409,10 @@ fn main() -> ExitCode {
         .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("json"))
         .collect();
     entries.sort();
+
+    if sweep {
+        return sweep_goal_thresholds(&entries);
+    }
 
     let mut rows: Vec<Row> = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
@@ -233,6 +430,28 @@ fn main() -> ExitCode {
                 continue;
             }
         };
+
+        // A stub straight out of the annotate tool is not a case yet. Refusing it
+        // here is what stops the pipeline from producing numbers nobody labelled —
+        // an engine graded against its own output would score 100% and mean nothing.
+        if fx.expect.state.eq_ignore_ascii_case("todo") {
+            eprintln!(
+                "ERROR: {} is an un-annotated stub (expect.state = TODO). \
+                 Annotate it or move it out of the set.",
+                path.display()
+            );
+            errors += 1;
+            continue;
+        }
+        if !STATES.contains(&fx.expect.state.as_str()) {
+            eprintln!(
+                "ERROR: {} has expect.state = {:?}, expected one of {STATES:?}",
+                path.display(),
+                fx.expect.state
+            );
+            errors += 1;
+            continue;
+        }
 
         let exp_sig = fx
             .expect
@@ -289,6 +508,7 @@ fn main() -> ExitCode {
     print_baseline_uplift(&rows);
     let thr = Thresholds::load();
     let release_ok = print_release_gate(&rows, &thr);
+    let blind_count = print_corpus_maturity(&dir, rows.len(), &thr);
 
     if !skipped.is_empty() {
         println!("\nSkipped (judge signals — evaluated separately):");
@@ -298,6 +518,15 @@ fn main() -> ExitCode {
     }
     println!();
 
+    // An unreadable or un-annotated case is a broken set, not a passing one. Without
+    // this, a directory full of TODO stubs would report a cheerful 0/0 and pass.
+    if gate && errors > 0 {
+        eprintln!(
+            "GATE FAILED: {errors} case(s) could not be evaluated (unparseable or \
+             un-annotated). Fix or remove them."
+        );
+        return ExitCode::FAILURE;
+    }
     // Gate mode: fail the process if any RELEASE-blocking threshold was missed.
     if gate && !release_ok {
         eprintln!(
@@ -305,7 +534,67 @@ fn main() -> ExitCode {
         );
         return ExitCode::FAILURE;
     }
+    if let Some(min) = require_blind {
+        if blind_count < min {
+            eprintln!(
+                "GATE FAILED: --require-blind {min} but the holdout set has {blind_count} case(s). \
+                 An accuracy claim needs out-of-sample confirmation."
+            );
+            return ExitCode::FAILURE;
+        }
+    }
     ExitCode::SUCCESS
+}
+
+/// State plainly how mature the corpus is, and therefore what may be claimed from it.
+///
+/// This exists because a percentage printed next to a handful of self-authored cases
+/// reads exactly like a percentage backed by hundreds of real ones. The README once
+/// advertised "100% accuracy" on the strength of eight fixtures written by the same
+/// person who wrote the engine, with an empty holdout — this block is here so that
+/// mistake is hard to repeat by accident.
+///
+/// Returns the number of cases in the blind holdout.
+fn print_corpus_maturity(dir: &Path, evaluated: usize, thr: &Thresholds) -> usize {
+    // The holdout lives beside the dev set (eval/blind/), or *is* the directory
+    // being evaluated when the gate is pointed straight at it.
+    let is_blind_dir = dir.file_name().and_then(|n| n.to_str()) == Some("blind");
+    let blind_dir = if is_blind_dir {
+        dir.to_path_buf()
+    } else {
+        dir.join("blind")
+    };
+    let blind_count = fs::read_dir(&blind_dir)
+        .map(|rd| {
+            rd.filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("json"))
+                .count()
+        })
+        .unwrap_or(0);
+
+    println!("\n{}", "-".repeat(66));
+    println!("CORPUS MATURITY  — what these numbers may be used to claim");
+    println!("{}", "-".repeat(66));
+    println!("  cases evaluated (this set)   {evaluated}");
+    println!("  blind holdout cases          {blind_count}");
+    println!("  statistical gates enable at  {}", thr.min_cases);
+
+    if evaluated < thr.min_cases || blind_count == 0 {
+        println!(
+            "\n  \x1b[1mNOT PUBLISHABLE.\x1b[0m Use these numbers for regression detection only.\n\
+             \x20 A percentage from a small, self-authored set with no holdout is not evidence\n\
+             \x20 of accuracy — do not put one in the README, on the site, or in a changelog.\n\
+             \x20 To change that: `cargo run -p drifterr-store --example annotate` over real\n\
+             \x20 sessions, annotate them, and split ~70/30 into eval/ and eval/blind/."
+        );
+    } else {
+        println!(
+            "\n  Set is large enough and a holdout exists. Confirm on the holdout before\n\
+             \x20 quoting any figure:  --require-blind {}",
+            thr.min_cases / 3
+        );
+    }
+    blind_count
 }
 
 fn print_cases(rows: &[Row]) {

@@ -7,14 +7,14 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon/favicon-16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon/apple-touch-icon.png" />
-    <title>Drifterr — catch AI drift before the wall</title>
+    <title>Drifterr — drift detection for coding agents</title>
     <meta
       name="description"
-      content="Drifterr watches your AI chat for drift from your original goal and constraints, and warns you before you lose an hour. One click re-anchors the thread. Local-first."
+      content="Drifterr watches your coding agent for drift from the goal and rules you set, and names the exact line that broke them. Zero setup on Claude Code. Local-first, no account."
     />
     <meta property="og:title" content="Drifterr" />
     <meta property="og:image" content="https://drifterr.app/assets/favicon/favicon-512.png" />
-    <meta property="og:description" content="Your model didn't change. Your conversation did. Drifterr warns you before the wall." />
+    <meta property="og:description" content="Your model didn't change. Your conversation did. Drift detection for coding agents — local-first, no account." />
     <meta name="theme-color" content="#07060d" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -76,16 +76,24 @@
         <div class="hero-grid">
           <div>
             <h1 class="reveal">Your model didn't change.<br /><span class="grad-text">Your conversation did.</span></h1>
+            <!--
+              Positioning: coding agents, not "every chatbot".
+              The universal-layer framing was broader and weaker than the product.
+              Drift is *measurable* where rules are checkable and sessions are long —
+              which means agentic coding sessions — and that is also the one channel
+              with genuine zero-config. Claiming the whole chatbot market bought a
+              vaguer promise and a worse first run.
+            -->
             <p class="lede reveal">
-              Drifterr watches your AI chat for drift from your original goal and
-              constraints, and warns you before you lose an hour. One click
-              re-anchors the thread.
+              Drifterr watches your coding agent for drift from the goal and rules you
+              set — a dependency you banned, a file you protected, a layer you pinned —
+              and names the exact line that broke them. One click restates your intent.
             </p>
             <div class="hero-cta reveal">
               <a class="btn btn-lg" id="download" href="/download">Download <span class="arrow">→</span></a>
               <a class="btn btn-ghost btn-lg" href="#demo"><span class="sq" style="width:9px;height:9px;border-radius:50%;background:var(--grad)"></span> Watch the drift demo</a>
             </div>
-            <p class="sub reveal" id="cta-sub" style="margin-top:14px;font-size:13px;color:var(--faint-2)">macOS · Windows · Linux — free</p>
+            <p class="sub reveal" id="cta-sub" style="margin-top:14px;font-size:13px;color:var(--faint-2)">Zero setup on Claude Code · no account · macOS, Windows, Linux</p>
             <!--
               Every number here must be a fact someone can check. No invented
               time-saved figures: there is no telemetry that could produce one,
@@ -144,16 +152,27 @@
         </div>
 
         <!--
-          Only list channels a user can actually turn on today. Claude Code is
-          zero-config; anything speaking the OpenAI or Anthropic API works via
-          the local proxy with your own key. The browser extension covers the
-          web UIs but is not store-published yet, so it is labelled beta below
-          rather than sitting in this row.
+          Demoted from a scrolling logo wall to a plain statement of the two channels.
+          A marquee reads as "we integrate with everything", which is the broad-and-weak
+          claim this page is moving away from; the honest version is that one channel
+          needs nothing and the other needs one environment variable. Web UIs stay out
+          of it until the extension is store-published.
         -->
-        <div class="marquee reveal">
-          <div class="marquee-track">
-            <span class="row"><b style="color:var(--faint-2)">WORKS TODAY WITH</b><b>Claude Code</b><b>Cursor</b><b>Codex CLI</b><b>Aider</b><b>Any OpenAI-compatible API</b><b>Anthropic API</b></span>
-            <span class="row"><b style="color:var(--faint-2)">WORKS TODAY WITH</b><b>Claude Code</b><b>Cursor</b><b>Codex CLI</b><b>Aider</b><b>Any OpenAI-compatible API</b><b>Anthropic API</b></span>
+        <div class="channels reveal">
+          <div class="chan">
+            <span class="chan-tag">Zero setup</span>
+            <b>Claude Code</b>
+            <p>Drifterr reads your local session files and your <code>CLAUDE.md</code>. No keys, no config, nothing to point anywhere.</p>
+          </div>
+          <div class="chan">
+            <span class="chan-tag">One env var</span>
+            <b>Cursor · Codex CLI · Aider · your own scripts</b>
+            <p>Anything speaking the OpenAI-compatible or Anthropic API, through the local proxy with your own provider key.</p>
+          </div>
+          <div class="chan">
+            <span class="chan-tag chan-beta">Beta</span>
+            <b>Web chat UIs</b>
+            <p>ChatGPT, Claude.ai, Gemini, Copilot, Perplexity via a browser extension — working, but not store-published yet, so it's a manual install.</p>
           </div>
         </div>
       </section>
@@ -161,7 +180,7 @@
       <section class="how" id="how">
         <div class="head reveal">
           <span class="kicker">How it works</span>
-          <h2 class="section-title">Three turns. Zero lost hours.</h2>
+          <h2 class="section-title">Rules in. Violations named. Intent restated.</h2>
         </div>
         <div class="how-grid reveal">
           <!-- step selector -->
@@ -235,7 +254,7 @@
       <section class="features" id="features">
         <div class="head reveal">
           <span class="kicker">Features</span>
-          <h2 class="section-title">Built like a tool, not a toy.</h2>
+          <h2 class="section-title">Built for long agent sessions.</h2>
         </div>
         <div class="bento">
           <!-- Real-time drift score — big tile -->
@@ -293,9 +312,9 @@
               <span class="o-sat s1"></span><span class="o-sat s2"></span>
             </div>
             <div class="b-meta">
-              <h3>Built for coding agents</h3>
-              <p><b>Claude Code needs zero setup</b> — Drifterr reads your local sessions. Anything else speaking the OpenAI or Anthropic API goes through the local proxy with your own key.</p>
-              <div class="chips small"><span>Claude Code</span><span>Cursor</span><span>Codex CLI</span><span class="more">web UIs — beta</span></div>
+              <h3>Catch it before the reply</h3>
+              <p>Install the Claude Code hook and Drifterr restates your rules <b>before</b> a drifting turn is answered — not after the reply that broke them. Prevention, not just detection.</p>
+              <div class="chips small"><span>UserPromptSubmit hook</span><span>one command</span></div>
             </div>
           </div>
 
@@ -441,7 +460,7 @@
 
       <section class="final" id="cta">
         <h2 class="reveal">Keep every chat<br /><span class="grad-text">pointed at the point.</span></h2>
-        <p class="reveal">Install it, state your intent, keep working. No account, no key, no config on Claude Code — and it only speaks up when a rule you set actually breaks.</p>
+        <p class="reveal">Install it, state your rules, keep coding. No account, no key, no config on Claude Code — and it only speaks up when a rule you set actually breaks.</p>
         <div class="final-cta reveal">
           <a class="btn btn-lg" id="download-3" href="/download">Download <span class="arrow">→</span></a>
           <a class="btn btn-ghost btn-lg" href="#pricing">See pricing</a>

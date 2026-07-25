@@ -67,6 +67,21 @@ CREATE TABLE IF NOT EXISTS standing_orders (
   promoted    INTEGER NOT NULL
 );
 
+-- Re-anchor events. Recorded so the weekly report can answer "did re-anchoring
+-- actually help?" with a count instead of a feeling — the outcome itself is judged
+-- live in the proxy (see ReanchorMark) and written back here once decided.
+CREATE TABLE IF NOT EXISTS reanchors (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  signal     TEXT NOT NULL,      -- the cause it was meant to fix
+  constraint_id TEXT,            -- when the cause was a specific constraint
+  ts         INTEGER NOT NULL,
+  -- NULL = still unknown / too early to say, 1 = the cause stayed quiet,
+  -- 0 = the same cause came back. Deliberately tri-state: "we don't know yet" is
+  -- a real answer and must not be reported as success.
+  held       INTEGER
+);
+
 -- Install-scoped key/value metadata. Deliberately tiny and opaque: this holds
 -- app facts (e.g. when the local Pro trial started), never chat content.
 CREATE TABLE IF NOT EXISTS app_meta (

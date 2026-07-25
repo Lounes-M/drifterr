@@ -189,6 +189,123 @@ fn protected_file_re() -> &'static Regex {
     })
 }
 
+// --- layer / scope families ------------------------------------------------
+//
+// Everything above this line is code *hygiene* — real constraints, but a narrow
+// slice of what people actually state. The rules users care most about are about
+// *where* work happens: "keep it server-side", "don't touch the migrations",
+// "work in the existing files". Those were unrepresentable, which is why the
+// marketing site ended up illustrating a "server-side only" detection the engine
+// could not perform.
+//
+// They are made checkable the same way as everything else here: by proving a
+// marker appeared inside a code block, or a path appeared in a diff header. We
+// never claim to judge whether a *design* is server-side — only that code which
+// can only run on the client showed up in a reply that was pinned to the server.
+
+/// "server-side only", "keep it on the server", "backend only", "côté serveur".
+fn server_only_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?:\bserver[\s-]?side\b|\bback[\s-]?end\b|\bon\s+the\s+server\b|\bc[ôo]t[ée]\s+serveur\b)",
+        )
+        .unwrap()
+    })
+}
+
+/// "client-side only", "in the browser", "front-end only", "côté client".
+fn client_only_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?:\bclient[\s-]?side\b|\bfront[\s-]?end\b|\bin\s+the\s+browser\b|\bc[ôo]t[ée]\s+client\b)",
+        )
+        .unwrap()
+    })
+}
+
+/// A cue that the phrase *pins* work to one side rather than merely mentioning it.
+/// "keep it server-side" is a constraint; "the server-side cache is warm" is not.
+/// Without this gate the layer rules would fire on ordinary architecture talk.
+fn pinning_cue_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?:only|strictly|purely|keep|stay|stick|must|should|all|entirely|no\s+\w+\s+side|uniquement|seulement|garde|reste|toujours)\b",
+        )
+        .unwrap()
+    })
+}
+
+/// Markers that can only appear in **client** code — React hooks and event
+/// handlers, DOM and browser globals, `localStorage`. Presence inside a fenced
+/// block is proof the reply crossed a server-only boundary.
+///
+/// Kept to unambiguous browser-only APIs. `fetch(` is excluded on purpose: it
+/// exists server-side in modern runtimes, so it would false-positive.
+const CLIENT_MARKERS: &str = r#"(?:\buse(?:State|Effect|Ref|Memo|Callback|Context)\s*\(|\bdocument\.(?:getElementById|querySelector|createElement|addEventListener)\b|\bwindow\.(?:location|localStorage|sessionStorage|alert|addEventListener)\b|\blocalStorage\.\w+|\bsessionStorage\.\w+|\bonClick\s*=|\bonChange\s*=|"use client"|'use client')"#;
+
+/// Markers that can only appear in **server** code — filesystem and process
+/// access, DB drivers, server-framework route handlers, secret env reads.
+///
+/// Again unambiguous only: `process.env` is server-side in any bundler-free
+/// context, and `fs.`/`createServer` cannot run in a browser.
+const SERVER_MARKERS: &str = r#"(?:\bfs\.(?:readFile|writeFile|readFileSync|writeFileSync|createReadStream)\b|\brequire\s*\(\s*['"](?:fs|net|child_process|crypto)['"]|\bfrom\s+['"](?:node:)?(?:fs|net|child_process)['"]|\bprocess\.env\.\w+|\bcreateServer\s*\(|\bapp\.(?:get|post|put|delete)\s*\(|\"use server\"|'use server')"#;
+
+/// "don't touch the migrations", "stay out of tests/", "hands off src/legacy" —
+/// a *directory* the assistant must not modify. Captures the directory token.
+fn protected_dir_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?:(?:don'?t|do\s+not|never)\s+(?:touch|modify|change|edit|go\s+into)\s+(?:the\s+|anything\s+in\s+|inside\s+)*([A-Za-z0-9_][\w./-]*)\s*(?:dir(?:ectory)?|folder|tree)?|(?:stay\s+out\s+of|hands\s+off)\s+(?:the\s+)?([A-Za-z0-9_][\w./-]*)|\bne\s+touche[rz]?\s+pas\s+(?:à\s+|au\s+|aux\s+)?(?:dossier\s+)?([A-Za-z0-9_][\w./-]*))",
+        )
+        .unwrap()
+    })
+}
+
+/// Directory names common enough to be worth a scoped rule. An arbitrary word
+/// captured by [`protected_dir_re`] is only trusted when it looks like a path
+/// (contains `/` or `.`) or appears here — otherwise "don't touch anything" would
+/// build a rule matching the literal path `anything`.
+const KNOWN_DIRS: &[&str] = &[
+    "migrations",
+    "migration",
+    "tests",
+    "test",
+    "__tests__",
+    "spec",
+    "vendor",
+    "node_modules",
+    "dist",
+    "build",
+    "target",
+    "generated",
+    "legacy",
+    "schema",
+    "schemas",
+    "proto",
+    "fixtures",
+    "snapshots",
+    "docs",
+    "infra",
+    "terraform",
+    ".github",
+];
+
+/// "no new files", "work in the existing files", "don't create new files",
+/// "pas de nouveaux fichiers".
+fn no_new_files_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?:\bno\s+new\s+files?\b|\b(?:don'?t|do\s+not|never)\s+(?:create|add)\s+(?:any\s+)?new\s+files?\b|\bwork\s+(?:only\s+)?(?:with)?in\s+the\s+existing\s+files?\b|\bexisting\s+files\s+only\b|\bpas\s+de\s+nouveaux?\s+fichiers?\b)",
+        )
+        .unwrap()
+    })
+}
+
 /// The tightest inferable *line* cap in `text` (mirrors [`infer_max_words`] for
 /// "under 50 lines" / "50 lines max" / "moins de 50 lignes"), if any.
 fn infer_max_lines(text: &str) -> Option<usize> {
@@ -321,6 +438,64 @@ pub fn infer_rules(text: &str) -> Vec<Rule> {
         if !rules.contains(&rule) {
             rules.push(rule);
         }
+    }
+
+    // --- layer / scope families --------------------------------------------
+
+    // "Keep it server-side" / "client-side only" — forbid the *other* side's
+    // unambiguous markers inside code blocks. Requires a pinning cue so ordinary
+    // architecture talk ("the server-side cache is warm") can't build a rule, and
+    // skips text that pins both sides at once (a description, not a constraint).
+    if pinning_cue_re().is_match(text) {
+        let server = server_only_re().is_match(text);
+        let client = client_only_re().is_match(text);
+        if server && !client {
+            rules.push(Rule::ForbidLayerMarkers {
+                label: "server-side only".to_string(),
+                pattern: CLIENT_MARKERS.to_string(),
+            });
+        } else if client && !server {
+            rules.push(Rule::ForbidLayerMarkers {
+                label: "client-side only".to_string(),
+                pattern: SERVER_MARKERS.to_string(),
+            });
+        }
+    }
+
+    // "Don't touch the migrations" — forbid diff headers under that directory.
+    for caps in protected_dir_re().captures_iter(text) {
+        let Some(tok) = caps.get(1).or_else(|| caps.get(2)).or_else(|| caps.get(3)) else {
+            continue;
+        };
+        let dir = clean_file_token(tok.as_str()).trim_end_matches('/');
+        // A token whose last segment has an extension is a *file*, and
+        // `protected_file_re` above already owns those. Skipping them here keeps one
+        // violation from producing two events for the same edit.
+        let last_segment = dir.rsplit('/').next().unwrap_or(dir);
+        if last_segment.contains('.') {
+            continue;
+        }
+        // Trust a captured word only if it is path-shaped or is a directory name
+        // worth scoping. Otherwise "don't touch anything else" yields a rule
+        // matching the literal path `anything`.
+        let path_like = dir.contains('/');
+        if dir.len() < 3 || !(path_like || KNOWN_DIRS.contains(&dir.to_ascii_lowercase().as_str()))
+        {
+            continue;
+        }
+        let esc = regex::escape(dir);
+        // Match the directory anywhere in the touched path, as a full segment.
+        let rule = Rule::ForbidPathTouch {
+            pattern: format!(r"(?i)(?:^|/){esc}(?:/|$)"),
+        };
+        if !rules.contains(&rule) {
+            rules.push(rule);
+        }
+    }
+
+    // "No new files" — forbid diffs that create files.
+    if no_new_files_re().is_match(text) {
+        rules.push(Rule::ForbidNewFiles);
     }
 
     rules
@@ -473,6 +648,16 @@ pub fn describe(rule: &Rule) -> (&'static str, crate::baseline::ConstraintType) 
         Rule::RequirePattern { .. } => ("Required pattern must be present", ConstraintType::Tech),
         Rule::MaxWords { .. } => ("Stay within the word limit", ConstraintType::Format),
         Rule::MaxLines { .. } => ("Stay within the code line limit", ConstraintType::Format),
+        Rule::ForbidPathTouch { .. } => (
+            "A protected directory must not be modified",
+            ConstraintType::Tech,
+        ),
+        // The label carries the specific boundary ("server-side only"); this is the
+        // family name the panel groups under.
+        Rule::ForbidLayerMarkers { .. } => {
+            ("Work must stay on the pinned layer", ConstraintType::Tech)
+        }
+        Rule::ForbidNewFiles => ("No new files", ConstraintType::Tech),
     }
 }
 
@@ -716,6 +901,189 @@ mod tests {
         assert!(infer_rules("never mind the formatting").is_empty());
         // "never use" still needs a real object to attach to.
         assert!(infer_rules("never use it that way").is_empty());
+    }
+
+    // --- layer / scope families -------------------------------------------
+
+    #[test]
+    fn server_only_forbids_client_markers() {
+        // The constraint the marketing site used to illustrate — now real.
+        for s in [
+            "Keep it server-side",
+            "server-side only please",
+            "This must stay on the server",
+            "backend only",
+            "garde ça côté serveur uniquement",
+        ] {
+            let rules = infer_rules(s);
+            let layer = rules.iter().find_map(|r| match r {
+                Rule::ForbidLayerMarkers { label, pattern } => Some((label, pattern)),
+                _ => None,
+            });
+            let (label, pattern) = layer.unwrap_or_else(|| panic!("no layer rule from {s:?}"));
+            assert_eq!(label, "server-side only");
+            assert!(
+                pattern.contains("localStorage"),
+                "should forbid client markers, got {pattern}"
+            );
+        }
+    }
+
+    #[test]
+    fn client_only_forbids_server_markers() {
+        let rules = infer_rules("client-side only — no server calls");
+        let layer = rules.iter().find_map(|r| match r {
+            Rule::ForbidLayerMarkers { label, pattern } => Some((label, pattern)),
+            _ => None,
+        });
+        let (label, pattern) = layer.expect("no layer rule");
+        assert_eq!(label, "client-side only");
+        assert!(
+            pattern.contains("child_process"),
+            "should forbid server markers, got {pattern}"
+        );
+    }
+
+    #[test]
+    fn layer_rules_need_a_pinning_cue_and_one_side() {
+        let has_layer = |s: &str| {
+            infer_rules(s)
+                .iter()
+                .any(|r| matches!(r, Rule::ForbidLayerMarkers { .. }))
+        };
+        // Mentioning a layer is not pinning to it — this is the false-positive
+        // risk that makes the whole family worth guarding.
+        assert!(!has_layer("the server-side cache is warm"));
+        assert!(!has_layer("our backend is written in Go"));
+        assert!(!has_layer(
+            "compare the client-side and server-side timings"
+        ));
+        // Naming BOTH sides describes an architecture; it does not pin one.
+        assert!(!has_layer(
+            "keep the server-side logic and client-side UI separate"
+        ));
+        // Pinning cue plus exactly one side ⇒ a rule.
+        assert!(has_layer("keep all of this server-side"));
+    }
+
+    #[test]
+    fn server_only_violation_is_detected_in_code_only() {
+        use crate::baseline::{Checkable, Constraint, ConstraintType};
+        let rule = infer_rule("keep it server-side only").unwrap();
+        let c = Constraint {
+            id: "c1".into(),
+            text: "keep it server-side only".into(),
+            kind: ConstraintType::Tech,
+            checkable: Checkable::Deterministic,
+            active: true,
+            rule: Some(rule),
+        };
+        let check = |content: &str| crate::signals::constraints::check_for_test(&c, content);
+
+        // Client-only code inside a fence ⇒ violation, and the span names the
+        // boundary so the panel can state a cause.
+        let violated = check("```tsx\nconst [x, setX] = useState(0);\n```").unwrap();
+        assert!(violated.unwrap().contains("server-side only"));
+
+        // Server code is fine.
+        assert!(check("```ts\nconst p = process.env.PORT;\n```").is_none());
+        // Prose that merely says "useState" is not code — no fence, no violation.
+        assert!(check("You could use useState here, but we'll keep it on the server.").is_none());
+    }
+
+    #[test]
+    fn protected_directory_infers_from_known_dirs_and_paths() {
+        let dir_pattern = |s: &str| {
+            infer_rules(s).into_iter().find_map(|r| match r {
+                Rule::ForbidPathTouch { pattern } => Some(pattern),
+                _ => None,
+            })
+        };
+        assert!(dir_pattern("don't touch the migrations").is_some());
+        assert!(dir_pattern("stay out of tests").is_some());
+        assert!(dir_pattern("don't modify src/legacy/").is_some());
+        assert!(dir_pattern("ne touche pas au dossier migrations").is_some());
+
+        // An arbitrary word is NOT a directory: "don't touch anything" must not
+        // produce a rule matching the literal path `anything`.
+        assert!(dir_pattern("don't touch anything else").is_none());
+        assert!(dir_pattern("don't change it").is_none());
+        // A *file* is owned by the protected-file rule; the directory rule must not
+        // also fire, or one edit would report two violations.
+        assert!(dir_pattern("don't touch package.json").is_none());
+        assert!(
+            infer_rules("don't touch package.json")
+                .iter()
+                .any(|r| matches!(r, Rule::ForbidPattern { .. })),
+            "the file rule still covers it"
+        );
+    }
+
+    #[test]
+    fn protected_directory_fires_on_diff_headers_only() {
+        use crate::baseline::{Checkable, Constraint, ConstraintType};
+        let rule = infer_rule("don't touch the migrations").unwrap();
+        let c = Constraint {
+            id: "c1".into(),
+            text: "don't touch the migrations".into(),
+            kind: ConstraintType::Tech,
+            checkable: Checkable::Deterministic,
+            active: true,
+            rule: Some(rule),
+        };
+        let check = |content: &str| crate::signals::constraints::check_for_test(&c, content);
+
+        // A diff under the directory ⇒ violation, span naming the path.
+        let v = check(
+            "```diff\n--- a/db/migrations/002_add_x.sql\n+++ b/db/migrations/002_add_x.sql\n```",
+        )
+        .unwrap();
+        assert_eq!(v.as_deref(), Some("db/migrations/002_add_x.sql"));
+        // A different tree is untouched.
+        assert!(check("```diff\n+++ b/src/app.ts\n```").is_none());
+        // Prose mentioning it is discussion, not modification.
+        assert!(check("I read db/migrations/002_add_x.sql but changed nothing").is_none());
+    }
+
+    #[test]
+    fn no_new_files_fires_on_git_creation_markers_only() {
+        use crate::baseline::{Checkable, Constraint, ConstraintType};
+        let c = Constraint {
+            id: "c1".into(),
+            text: "no new files".into(),
+            kind: ConstraintType::Tech,
+            checkable: Checkable::Deterministic,
+            active: true,
+            rule: Some(Rule::ForbidNewFiles),
+        };
+        let check = |content: &str| crate::signals::constraints::check_for_test(&c, content);
+
+        // `--- /dev/null` and `new file mode` are the two unambiguous markers.
+        let v = check("```diff\n--- /dev/null\n+++ b/src/helper.ts\n```").unwrap();
+        assert_eq!(v.as_deref(), Some("src/helper.ts"));
+        let v2 = check("```diff\ndiff --git a/x.ts b/x.ts\nnew file mode 100644\n+++ b/x.ts\n```")
+            .unwrap();
+        assert_eq!(v2.as_deref(), Some("x.ts"));
+        // Editing an existing file is fine.
+        assert!(check("```diff\n--- a/src/app.ts\n+++ b/src/app.ts\n```").is_none());
+        // Saying the words is not creating a file.
+        assert!(check("we could add a new file for that later").is_none());
+    }
+
+    #[test]
+    fn no_new_files_infers() {
+        for s in [
+            "no new files",
+            "don't create new files",
+            "work within the existing files",
+            "pas de nouveaux fichiers",
+        ] {
+            assert!(
+                infer_rules(s).contains(&Rule::ForbidNewFiles),
+                "should infer no-new-files from {s:?}"
+            );
+        }
+        assert!(!infer_rules("add the new file to the index").contains(&Rule::ForbidNewFiles));
     }
 
     /// Rules files write symbols as inline code spans, so the object of a

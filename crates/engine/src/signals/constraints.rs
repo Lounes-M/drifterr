@@ -58,6 +58,13 @@ fn check(c: &Constraint, content: &str) -> Option<Option<String>> {
     apply_rule(&rule, content)
 }
 
+/// Test-only view of [`check`], so sibling modules can assert end-to-end that an
+/// inferred rule actually fires (or doesn't) on given content.
+#[cfg(test)]
+pub(crate) fn check_for_test(c: &Constraint, content: &str) -> Option<Option<String>> {
+    check(c, content)
+}
+
 /// Apply a concrete rule. Outer `Option`: was it violated? Inner `Option`: the
 /// span, when the rule could isolate one.
 fn apply_rule(rule: &Rule, content: &str) -> Option<Option<String>> {
@@ -104,6 +111,27 @@ fn apply_rule(rule: &Rule, content: &str) -> Option<Option<String>> {
             }
             None
         }
+        Rule::ForbidPathTouch { pattern } => {
+            let re = compile(pattern)?;
+            for path in touched_paths(content) {
+                if re.is_match(path) {
+                    return Some(Some(path.to_string()));
+                }
+            }
+            None
+        }
+        Rule::ForbidLayerMarkers { label, pattern } => {
+            let re = compile(pattern)?;
+            for block in code_blocks(content) {
+                if let Some(m) = re.find(block) {
+                    // Name the boundary, not the regex: the panel shows this
+                    // verbatim, and "useState(" alone doesn't explain the problem.
+                    return Some(Some(format!("{} ({label})", m.as_str())));
+                }
+            }
+            None
+        }
+        Rule::ForbidNewFiles => new_file_path(content).map(Some),
     }
 }
 
@@ -112,6 +140,69 @@ fn apply_rule(rule: &Rule, content: &str) -> Option<Option<String>> {
 /// manufacture a violation.
 fn compile(pattern: &str) -> Option<Regex> {
     Regex::new(pattern).ok()
+}
+
+/// Paths a reply's diff headers say were modified.
+///
+/// Only unified-diff and `diff --git` headers count. A path mentioned in prose is
+/// discussion ("I looked at migrations/ but left it alone"), not modification, and
+/// conflating the two is precisely how a hard signal loses its credibility. `/dev/null`
+/// is skipped — it's the *absence* of a file, not a touched path.
+fn touched_paths(content: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        let rest = if let Some(r) = line.strip_prefix("--- ") {
+            r
+        } else if let Some(r) = line.strip_prefix("+++ ") {
+            r
+        } else if let Some(r) = line.strip_prefix("diff --git ") {
+            // "diff --git a/x b/x" — either side names the same file.
+            r.split_whitespace().next().unwrap_or("")
+        } else {
+            continue;
+        };
+        // Strip the a/ b/ prefix and any trailing tab-separated timestamp.
+        let path = rest
+            .split('\t')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .trim_start_matches("a/")
+            .trim_start_matches("b/");
+        if path.is_empty() || path == "/dev/null" {
+            continue;
+        }
+        out.push(path);
+    }
+    out
+}
+
+/// The first newly-created file a reply's diff introduces, if any.
+///
+/// Two unambiguous git markers: `--- /dev/null` (the "before" side is nothing) and
+/// an explicit `new file mode` line. Both are structural, so this needs no
+/// heuristic about whether a path "looks new".
+fn new_file_path(content: &str) -> Option<String> {
+    let lines: Vec<&str> = content.lines().map(str::trim).collect();
+    for (i, line) in lines.iter().enumerate() {
+        if line.starts_with("new file mode") {
+            // The following +++ header names it; fall back to the marker itself.
+            let named = lines[i..]
+                .iter()
+                .find_map(|l| l.strip_prefix("+++ "))
+                .map(|r| r.trim().trim_start_matches("b/").to_string());
+            return Some(named.unwrap_or_else(|| "new file".to_string()));
+        }
+        if *line == "--- /dev/null" {
+            let named = lines[i + 1..]
+                .iter()
+                .find_map(|l| l.strip_prefix("+++ "))
+                .map(|r| r.trim().trim_start_matches("b/").to_string());
+            return Some(named.unwrap_or_else(|| "new file".to_string()));
+        }
+    }
+    None
 }
 
 /// Extract the contents of fenced code blocks (```...```), so code-scoped rules

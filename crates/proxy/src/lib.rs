@@ -23,6 +23,7 @@
 
 pub mod dashboard;
 pub mod entitlement;
+pub mod hook;
 pub mod provider;
 pub mod state;
 pub mod upstreams;
@@ -521,6 +522,7 @@ pub fn control_router(state: AppState) -> Router {
         .route("/prefs", get(get_prefs_handler).post(set_prefs_handler))
         .route("/history", get(history_handler))
         .route("/journal", get(journal_handler))
+        .route("/report", get(report_handler))
         .route("/standing-orders", get(standing_orders_handler))
         .route("/standing-orders/promote", post(promote_handler))
         .route("/feedback", post(feedback_handler))
@@ -792,6 +794,56 @@ struct JournalItem {
 
 /// Recent flag events (amber/red) for a session — the readable "what fired and
 /// when" journal. Reads the local store only.
+/// Query for `GET /report`: an optional window in days.
+#[derive(Deserialize)]
+struct ReportQuery {
+    #[serde(default)]
+    days: Option<i64>,
+}
+
+/// The weekly drift report, rendered locally as markdown.
+///
+/// The retention loop the product lacked: without an accumulated view, a tool that
+/// correctly stays silent most of the time is indistinguishable from a broken one.
+/// Entirely local — this reads the SQLite store and touches no network.
+#[derive(Serialize)]
+struct ReportResponse {
+    markdown: String,
+    flags: usize,
+    sessions: usize,
+    reanchors: usize,
+    /// Nothing worth reporting; the caller should stay quiet rather than notify.
+    #[serde(rename = "quietWeek")]
+    quiet_week: bool,
+}
+
+async fn report_handler(State(app): State<AppState>, Query(q): Query<ReportQuery>) -> Response {
+    // Clamp the window: a negative or absurd span would produce a meaningless report.
+    let days = q.days.unwrap_or(7).clamp(1, 365);
+    let out = app
+        .core
+        .lock()
+        .ok()
+        .and_then(|c| c.weekly_report(days * 86_400_000));
+    match out {
+        Some(r) => Json(ReportResponse {
+            markdown: r.markdown,
+            flags: r.flags,
+            sessions: r.sessions,
+            reanchors: r.reanchors,
+            quiet_week: r.quiet_week,
+        })
+        .into_response(),
+        // No durable store ⇒ no history. Say so rather than render an empty report
+        // that reads as "nothing drifted".
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "no local database — session history is not being persisted",
+        )
+            .into_response(),
+    }
+}
+
 async fn journal_handler(State(app): State<AppState>, Query(q): Query<ReanchorQuery>) -> Response {
     let flags = app
         .core
@@ -863,7 +915,7 @@ async fn reanchor_handler(State(app): State<AppState>, Query(q): Query<ReanchorQ
         .core
         .lock()
         .ok()
-        .and_then(|core| core.reanchor(q.session.as_deref()));
+        .and_then(|mut core| core.reanchor(q.session.as_deref()));
     match out {
         Some(r) => Json(r).into_response(),
         None => (StatusCode::NOT_FOUND, "no active session to re-anchor").into_response(),

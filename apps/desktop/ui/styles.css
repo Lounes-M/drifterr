@@ -499,9 +499,43 @@ code { font-family: var(--mono); }
 .signal-row { display: flex; gap: 10px; align-items: flex-start; }
 /* min-width:0 is required so a long detail wraps within the row instead of
    forcing the whole row (and panel) wider than the window. */
-.signal-body { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.signal-body { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; gap: 2px; }
+.signal-head { display: flex; align-items: center; gap: 7px; }
 .signal-name { font-size: 12.5px; font-weight: 600; color: var(--ink); }
 .signal-detail { font-size: 11.5px; color: var(--ink-soft); overflow-wrap: anywhere; }
+
+/* hard vs soft — the distinction that makes an amber readable as advisory rather
+   than as a weak alarm. Only hard signals may drive a red. */
+.signal-kind {
+  font-family: var(--mono); font-size: 8.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.07em;
+  padding: 1px 5px; border-radius: 999px;
+}
+.signal-kind.hard { background: rgba(255, 120, 71, 0.16); color: #ffb695; }
+.signal-kind.soft { background: rgba(255, 255, 255, 0.08); color: var(--ink-faint); }
+
+/* Per-signal evidence — what makes a flag checkable rather than trusted. */
+.signal-evidence { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
+.ev-chip {
+  font-family: var(--mono); font-size: 9.5px; padding: 1px 6px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07); color: var(--ink-soft);
+}
+.ev-span {
+  font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 5px;
+  background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 120, 71, 0.24);
+  color: #ffb695; overflow-wrap: anywhere;
+}
+
+.signal-legend { font-size: 11px; line-height: 1.5; color: var(--ink-faint); margin: -4px 0 8px; }
+.signal-legend b { color: var(--ink-soft); font-weight: 600; }
+
+/* The drift score is a summary, not a verdict — sized to say so. */
+.score-summary { opacity: 0.82; }
+.score-note {
+  font-family: var(--mono); font-size: 9px; font-weight: 400;
+  text-transform: none; letter-spacing: 0; color: var(--ink-faint);
+}
+.bar-thin { height: 4px; }
 .mini { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; margin-top: 4px; }
 .mini.green { background: var(--green); }
 .mini.amber { background: var(--amber); }
@@ -636,6 +670,26 @@ code { font-family: var(--mono); }
 .gate-msg.error { background: rgba(255, 77, 109, 0.12); border: 1px solid rgba(255, 77, 109, 0.35); color: #ffb3c1; }
 .gate-msg.ok { background: rgba(52, 232, 158, 0.1); border: 1px solid rgba(52, 232, 158, 0.32); color: #9ff0cf; }
 .gate-msg[hidden] { display: none; }
+
+/* Re-anchor outcome — the answer to "did that actually work?". Three states, and
+   the neutral one is deliberately not styled as a success. */
+.reanchor-outcome {
+  display: flex; gap: 9px; align-items: flex-start;
+  padding: 10px 12px; border-radius: 11px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--edge);
+}
+.reanchor-outcome[hidden] { display: none; }
+.ro-badge {
+  flex: 0 0 auto; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 3px 7px; border-radius: 999px; white-space: nowrap;
+}
+.ro-text { font-size: 12px; line-height: 1.5; color: var(--ink-soft); }
+.reanchor-outcome.held { background: rgba(52, 232, 158, 0.08); border-color: rgba(52, 232, 158, 0.28); }
+.reanchor-outcome.held .ro-badge { background: rgba(52, 232, 158, 0.18); color: #9ff0cf; }
+.reanchor-outcome.broke { background: rgba(255, 77, 109, 0.08); border-color: rgba(255, 77, 109, 0.3); }
+.reanchor-outcome.broke .ro-badge { background: rgba(255, 77, 109, 0.18); color: #ffb3c1; }
+.reanchor-outcome.pending .ro-badge { background: rgba(255, 255, 255, 0.1); color: var(--ink-faint); }
 
 .acct-buttons { display: flex; gap: 8px; margin-top: 10px; }
 .acct-buttons .mini-btn { flex: 1; }

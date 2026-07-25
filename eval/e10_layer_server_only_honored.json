@@ -1,0 +1,45 @@
+{
+  "name": "Server-side-only honored (server code, and 'useState' only discussed in prose) — must stay green",
+  "baseline": {
+    "goal": "Add a CSV export endpoint for the reports page",
+    "constraints": [
+      {
+        "id": "c1",
+        "text": "Keep it server-side only",
+        "type": "tech",
+        "checkable": "deterministic"
+      }
+    ],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "eval-e10",
+    "model": "gpt-4o",
+    "turns": [
+      {
+        "index": 0,
+        "role": "user",
+        "content": "Add a CSV export for the reports page. Keep it server-side only.",
+        "tokens": 16,
+        "timestamp": 1000
+      },
+      {
+        "index": 1,
+        "role": "assistant",
+        "content": "Done, entirely on the server. You could also drive this from a useState hook on the client later, but I've left the browser out of it for now:\n\n```ts\nimport { createWriteStream } from 'node:fs';\n\nexport async function exportCsv(rows: Row[]) {\n  const out = createWriteStream(process.env.EXPORT_PATH!);\n  for (const r of rows) out.write(toCsvLine(r));\n}\n```",
+        "tokens": 78,
+        "timestamp": 2000
+      }
+    ],
+    "context": {
+      "windowSize": 128000,
+      "usedTokens": 5400,
+      "exact": true,
+      "toolCallCount": 0
+    },
+    "source": "proxy"
+  },
+  "expect": {
+    "state": "green"
+  }
+}

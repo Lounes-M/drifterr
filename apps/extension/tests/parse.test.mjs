@@ -174,6 +174,61 @@ async function main() {
   });
   check(injNone === false, "inject returns false when no composer is found");
 
+  // --- selector health -----------------------------------------------------
+  //
+  // The failure that matters: a site redesign makes every selector miss, and
+  // `extract()` returns null — identical to "no conversation here". Drifterr then
+  // reports no drift forever and the user concludes it doesn't work, rather than
+  // learning it has gone blind. `diagnose()` has to tell those apart.
+  console.log("\nSELECTOR health:");
+
+  const diag = (html, hostname) =>
+    page.evaluate(
+      ([h, host]) => {
+        document.body.innerHTML = h;
+        return window.DrifterrParse.diagnose({ hostname: host, doc: document });
+      },
+      [html, hostname]
+    );
+
+  // A page we can read is healthy.
+  const okDiag = await diag(CHATGPT_HTML, "chatgpt.com");
+  check(okDiag.ok === true && okDiag.reason === "ok", "a readable page diagnoses ok");
+  check(okDiag.turns >= 2, "reports how many turns it can see");
+
+  // A host we don't watch.
+  const unsupported = await diag("<div>hello</div>", "example.com");
+  check(unsupported.reason === "unsupported_host", "unwatched host is named as such");
+
+  // Supported host, but no chat UI at all (settings page, logged out).
+  const noChat = await diag("<div>Account settings</div>", "chatgpt.com");
+  check(noChat.reason === "not_a_chat_page", "no composer ⇒ not a chat page");
+
+  // Composer present, page essentially empty ⇒ a fresh chat, nothing wrong.
+  const fresh = await diag('<textarea id="prompt-textarea"></textarea>', "chatgpt.com");
+  check(fresh.reason === "no_conversation_yet", "empty chat is not reported as broken");
+
+  // THE case: a composer and a page full of conversation, but the message markup has
+  // changed so no selector matches. This must be reported as a breakage.
+  const stale = await diag(
+    '<textarea id="prompt-textarea"></textarea><main>' +
+      '<div class="brand-new-markup">' +
+      "Some long conversation content that our selectors cannot see. ".repeat(20) +
+      "</div></main>",
+    "chatgpt.com"
+  );
+  check(stale.reason === "selectors_stale", "a redesigned page is reported as stale selectors");
+  check(stale.ok === false, "stale selectors are not ok");
+  const msg = await page.evaluate(
+    (d) => window.DrifterrParse.explain(d),
+    stale
+  );
+  check(/NOT being tracked/i.test(msg), "the explanation says drift is not being tracked");
+  check(/chatgpt\.com/.test(msg), "the explanation names the site");
+
+  // A stale diagnosis must never claim turns it can't see.
+  check(stale.turns === 0, "stale diagnosis reports zero turns");
+
   await browser.close();
   if (failures) {
     console.error(`\n${failures} check(s) failed`);

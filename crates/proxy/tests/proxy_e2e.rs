@@ -1054,3 +1054,106 @@ async fn judge_can_be_configured_at_runtime() {
         .unwrap();
     assert_eq!(off["enabled"], false);
 }
+
+/// The Claude Code hook against a live control API.
+///
+/// Covers the property that matters most: the hook sits in the path of a keypress, so
+/// it must inject only when it genuinely should and stay silent in every other case,
+/// including when Drifterr isn't running at all.
+#[tokio::test]
+async fn claude_code_hook_injects_only_on_a_drifting_pro_session() {
+    use drifterr_proxy::hook::{decide, render, Decision, HookInput};
+
+    let cfg = ProxyConfig {
+        openai_upstream: "http://unused".into(),
+        anthropic_upstream: "http://unused".into(),
+        openai_strip_v1: false,
+    };
+    // Pro, so automatic injection is entitled.
+    let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled)
+        .with_plan(drifterr_proxy::entitlement::Plan::Pro);
+    let control = spawn(control_router(state)).await;
+    let client = client();
+    let api = format!("http://{control}");
+
+    // Drive a constraint violation through the ingest channel so the session is RED.
+    let turns = serde_json::json!([
+        {"role": "user", "content": "Refactor the auth module in TypeScript, no JS"},
+        {"role": "assistant", "content": "Sure, creating auth.js now"}
+    ]);
+    client
+        .post(format!("{api}/ingest"))
+        .json(&serde_json::json!({"sessionId": "hook-1", "model": "gpt-4o", "turns": turns}))
+        .send()
+        .await
+        .unwrap();
+
+    let status: serde_json::Value = client
+        .get(format!("{api}/status"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        status["current"]["state"], "red",
+        "fixture should be drifting"
+    );
+
+    // Read the id back rather than hard-coding it: the ingest channel namespaces the
+    // ids it is given, and the hook should follow whatever /status reports.
+    let sid = status["current"]["sessionId"].as_str().unwrap().to_string();
+    let reanchor: serde_json::Value = client
+        .get(format!("{api}/reanchor?session={sid}"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let preamble = reanchor["preamble"].as_str().unwrap();
+    assert!(!preamble.is_empty());
+
+    // Red + entitled + a preamble ⇒ inject, and the output is the JSON Claude Code
+    // expects with the preamble inside it.
+    let d = decide(&status, Some(preamble));
+    assert!(matches!(d, Decision::Inject(_)), "should inject: {d:?}");
+    let out = render(&d);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["hookEventName"], "UserPromptSubmit");
+    assert!(v["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap()
+        .contains("[Drifterr]"));
+
+    // Fetching the re-anchor opened the verification window, so an automatic
+    // re-anchor gets measured exactly like a manual one.
+    let after: serde_json::Value = client
+        .get(format!("{api}/status"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        after["current"]["reanchor"]["signal"], "constraint",
+        "the hook's re-anchor must be tracked: {after}"
+    );
+
+    // With Drifterr not running at all, the hook produces nothing and cannot fail.
+    let out = drifterr_proxy::hook::run(
+        "http://127.0.0.1:1",
+        &HookInput {
+            session_id: sid.clone(),
+            cwd: String::new(),
+        },
+        false,
+    )
+    .await;
+    assert!(
+        out.is_empty(),
+        "an unreachable Drifterr must inject nothing"
+    );
+}
