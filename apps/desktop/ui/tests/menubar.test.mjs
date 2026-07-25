@@ -202,6 +202,55 @@ async function main() {
   check(!(await page.locator("#map-lock").isVisible()), "Pro unlocks the drift map");
   check(!(await page.locator("#upgrade-nudge").isVisible()), "Pro hides the upgrade nudge");
 
+  console.log("SEMANTIC model offer (on demand, not bundled):");
+  {
+    const sctx = await browser.newContext();
+    const sp = await sctx.newPage();
+    await sp.addInitScript(() => {
+      window.DRIFTERR_SUPABASE_URL = "";
+      window.DRIFTERR_SUPABASE_ANON_KEY = "";
+      try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) {}
+    });
+    await sp.route("**/status*", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(GREEN) }));
+    await sp.goto(url);
+    // Open Settings, otherwise every assertion below passes trivially: the block lives
+    // inside the settings panel, so it is invisible either way while that is closed.
+    await sp.locator("#gear").click();
+    await sp.waitForSelector("#settings", { state: "visible" });
+    const mod = await sp.evaluateHandle(() => import("/app.js"));
+
+    // Not offered at all in a browser (no Tauri command to download with).
+    check(await sp.locator("#semantic-block").isHidden(), "not offered outside the desktop shell");
+
+    // Build without ONNX support ⇒ stay hidden rather than offer something unusable.
+    await sp.evaluate(async (m) => {
+      await m.setupSemanticModel(document, async () => ({ supported: false, ready: false, source: "absent", downloadMb: 127, unpinned: false }));
+    }, mod);
+    check(await sp.locator("#semantic-block").isHidden(), "hidden when the build has no ONNX support");
+
+    // Supported but absent ⇒ offer the download, and state the cost.
+    await sp.evaluate(async (m) => {
+      await m.setupSemanticModel(document, async () => ({ supported: true, ready: false, source: "absent", downloadMb: 127, unpinned: false }));
+    }, mod);
+    check(await sp.locator("#semantic-block").isVisible(), "offered when supported but absent");
+    check((await sp.locator("#semantic-get").textContent()).includes("127 MB"), "states the download size up front");
+    check((await sp.locator("#semantic-state").textContent()).includes("lexical"), "says lexical is what's running meanwhile");
+
+    // Already installed ⇒ no download button.
+    await sp.evaluate(async (m) => {
+      await m.setupSemanticModel(document, async () => ({ supported: true, ready: true, source: "downloaded", downloadMb: 127, unpinned: false }));
+    }, mod);
+    check(await sp.locator("#semantic-get").isHidden(), "no download offer once installed");
+
+    // Unpinned checksum ⇒ refuse rather than fetch an unverifiable binary.
+    await sp.evaluate(async (m) => {
+      await m.setupSemanticModel(document, async () => ({ supported: true, ready: false, source: "absent", downloadMb: 127, unpinned: true }));
+    }, mod);
+    check(await sp.locator("#semantic-get").isHidden(), "download disabled without a pinned checksum");
+    check((await sp.locator("#semantic-msg").textContent()).includes("checksum"), "explains why it's disabled");
+    await sctx.close();
+  }
+
   console.log("SIGNAL hierarchy (named causes lead, score is demoted):");
   scenario = RED;
   await page.waitForFunction(() => document.querySelectorAll("#signals .signal-row").length === 2, null, { timeout: 5000 });

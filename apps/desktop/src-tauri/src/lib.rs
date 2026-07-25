@@ -21,6 +21,8 @@
 //! the headless CI used for the rest of the repo (it needs platform GUI libs).
 //! Build it on a dev machine: `cargo tauri dev` (or `cargo tauri build`).
 
+mod model;
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -105,18 +107,12 @@ fn control_addr() -> std::net::SocketAddr {
 /// when available. Best-effort: if the ports are taken (an external proxy is
 /// already running), the menubar simply attaches to that one.
 fn start_embedded_proxy(app: &tauri::App) {
-    // If a semantic model was bundled as a resource (models/embed/model.onnx)
-    // and the user hasn't pointed DRIFTERR_EMBED_MODEL somewhere else, use it.
-    // No-op when absent, or when the app wasn't built with `--features semantic`
-    // (the embedder simply falls back to the local lexical model).
-    if std::env::var_os("DRIFTERR_EMBED_MODEL").is_none() {
-        if let Ok(res) = app.path().resource_dir() {
-            let model = res.join("models").join("embed");
-            if model.join("model.onnx").exists() {
-                std::env::set_var("DRIFTERR_EMBED_MODEL", &model);
-            }
-        }
-    }
+    // Point the embedder at a semantic model if one is present — a bundled resource
+    // first, then one the user downloaded on demand into app-data. A no-op when
+    // neither exists or the build has no ONNX support: detection then runs on the
+    // lexical embedder, which is a working configuration rather than a degraded one
+    // (the eval set's goal-drift case is caught either way).
+    model::activate_if_present(app.handle());
 
     let db = app
         .path()
@@ -285,13 +281,43 @@ async fn check_update_now(app: tauri::AppHandle) -> Result<Option<String>, Strin
     }
 }
 
+/// How the semantic embedding model is provisioned, for the settings view.
+#[tauri::command]
+fn semantic_model_status(app: tauri::AppHandle) -> model::ModelStatus {
+    model::status(&app)
+}
+
+/// Fetch the semantic model on demand.
+///
+/// It used to be bundled by default: ~127 MB of install, paid by every user on every
+/// update, to feed the signal that fires least — and since the goal signal's thresholds
+/// became scale-free, the lexical embedder already catches the eval set's goal-drift
+/// case. So nothing ships and a user who wants semantic similarity asks once.
+///
+/// A failed or unverifiable download changes nothing: the app carries on with the
+/// lexical embedder, which is a working configuration rather than a broken one.
+#[tauri::command]
+async fn download_semantic_model(app: tauri::AppHandle) -> Result<String, String> {
+    let dir = model::download(app.clone()).await?;
+    // Take effect without a restart where possible.
+    if std::env::var_os("DRIFTERR_EMBED_MODEL").is_none() {
+        std::env::set_var("DRIFTERR_EMBED_MODEL", &dir);
+    }
+    Ok(dir.to_string_lossy().to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![install_update, check_update_now])
+        .invoke_handler(tauri::generate_handler![
+            install_update,
+            check_update_now,
+            semantic_model_status,
+            download_semantic_model
+        ])
         .setup(|app| {
             // Start the bundled proxy first so the panel has data to show.
             start_embedded_proxy(app);

@@ -17,8 +17,8 @@ on:
         description: "Release tag to build (e.g. v0.2.5)"
         required: true
         default: "v0.2.5"
-      lexical_only:
-        description: "Ship WITHOUT the semantic model (smaller, lexical-embedder-only build). Leave unchecked for the normal semantic release."
+      bundle_semantic:
+        description: "Bundle the ~127MB semantic ONNX model in the installer. Normally OFF — the app fetches it on demand when the user asks."
         type: boolean
         required: false
         default: false
@@ -27,12 +27,19 @@ jobs:
   release:
     permissions:
       contents: write
-    # Semantic (ONNX) model is bundled BY DEFAULT — it links on all three
-    # platforms (validated by the `onnx-windows` CI job). Every tag push and
-    # normal manual run ships semantic goal detection. A manual run can opt OUT
-    # with `lexical_only` for a smaller lexical-only build.
+    # The semantic (ONNX) model is NOT bundled by default any more.
+    #
+    # It was ~127 MB of every installer and every update, paid by every user, to feed
+    # the signal that fires least often — and since the goal signal's thresholds became
+    # scale-free (relative rather than an absolute cosine floor), the lexical embedder
+    # detects the eval set's goal-drift case on its own. That made bundling the most
+    # expensive default in the product for the least certain gain.
+    #
+    # The app now fetches the model on demand, verified against a pinned checksum, when
+    # a user asks for semantic similarity. Set `bundle_semantic` on a manual run to
+    # produce a pre-bundled installer anyway (useful for offline/air-gapped installs).
     env:
-      SEMANTIC: ${{ github.event_name != 'workflow_dispatch' || !inputs.lexical_only }}
+      SEMANTIC: ${{ github.event_name == 'workflow_dispatch' && inputs.bundle_semantic }}
     strategy:
       fail-fast: false
       # Build platforms ONE AT A TIME. tauri-action merges each job's platform

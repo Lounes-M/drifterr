@@ -829,6 +829,78 @@ function setupExtras(doc) {
   const report = doc.getElementById("report-copy");
   if (report) report.addEventListener("click", () => copySessionReport(doc));
   setupWeekly(doc);
+  setupSemanticModel(doc);
+}
+
+/// The optional semantic-model offer.
+///
+/// Only shown in the desktop shell (it needs a Tauri command to download), and only
+/// when the build actually supports ONNX — offering a download that cannot be used
+/// would be worse than saying nothing. Absent all that, the section stays hidden and
+/// detection runs on the lexical embedder, which is a working default.
+export async function setupSemanticModel(doc, invokeImpl) {
+  const block = doc.getElementById("semantic-block");
+  if (!block) return;
+  const invoke =
+    invokeImpl ||
+    (typeof window !== "undefined" && window.__TAURI__?.core?.invoke) ||
+    null;
+  if (!invoke) return; // Browser dashboard: nothing to offer.
+
+  const render = (st) => {
+    if (!st || !st.supported) {
+      block.hidden = true;
+      return;
+    }
+    block.hidden = false;
+    const get = doc.getElementById("semantic-get");
+    const label = {
+      bundled: "Bundled with this build",
+      downloaded: "Installed",
+      custom: "Custom path (DRIFTERR_EMBED_MODEL)",
+      absent: "Not installed — using the lexical embedder",
+    }[st.source] || "Unknown";
+    setText(doc, "semantic-state", label);
+    if (get) get.hidden = st.ready;
+    // An unpinned build refuses to download rather than fetch an unverifiable binary
+    // that an inference runtime would then execute. Say so instead of failing later.
+    if (st.unpinned && !st.ready) {
+      if (get) get.hidden = true;
+      const msg = doc.getElementById("semantic-msg");
+      if (msg) {
+        msg.hidden = false;
+        msg.textContent =
+          "This build has no pinned model checksum, so the download is disabled. Point DRIFTERR_EMBED_MODEL at a model you obtained yourself.";
+      }
+    }
+  };
+
+  try {
+    render(await invoke("semantic_model_status"));
+  } catch (_e) {
+    block.hidden = true;
+    return;
+  }
+
+  const get = doc.getElementById("semantic-get");
+  if (get) {
+    get.addEventListener("click", async () => {
+      const msg = doc.getElementById("semantic-msg");
+      get.disabled = true;
+      get.textContent = "Downloading…";
+      try {
+        await invoke("download_semantic_model");
+        if (msg) { msg.hidden = false; msg.textContent = "Installed and verified."; }
+        render(await invoke("semantic_model_status"));
+      } catch (e) {
+        // Includes a checksum mismatch, which must be visible rather than silent.
+        if (msg) { msg.hidden = false; msg.textContent = String(e); }
+      } finally {
+        get.disabled = false;
+        get.textContent = "Download (127 MB)";
+      }
+    });
+  }
 }
 
 /// The weekly report view: fetch on open, toggle closed on a second click.
