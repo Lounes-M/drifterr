@@ -297,6 +297,11 @@ export function renderError(doc, message) {
   }
 }
 
+/// Signals allowed to drive RED. Mirrors `HARD_SIGNALS` in the engine and the eval
+/// harness — a deterministic constraint violation and context saturation are facts;
+/// everything else is advisory.
+const HARD_SIGNALS = new Set(["constraint", "saturation"]);
+
 function signalRow(doc, s) {
   const li = doc.createElement("li");
   li.className = "signal-row";
@@ -304,14 +309,46 @@ function signalRow(doc, s) {
   dot.className = "mini " + (stateInfo(s.state).cls);
   const body = doc.createElement("div");
   body.className = "signal-body";
+
+  const head = doc.createElement("div");
+  head.className = "signal-head";
   const name = doc.createElement("span");
   name.className = "signal-name";
   name.textContent = signalLabel(s.signal);
+  head.appendChild(name);
+  // Say which kind it is, so an amber reads as "advisory" rather than "weak alarm".
+  const kind = doc.createElement("span");
+  const isHard = HARD_SIGNALS.has(s.signal);
+  kind.className = "signal-kind " + (isHard ? "hard" : "soft");
+  kind.textContent = isHard ? "hard" : "soft";
+  head.appendChild(kind);
+
   const detail = doc.createElement("span");
   detail.className = "signal-detail";
   detail.textContent = s.detail || "";
-  body.appendChild(name);
+  body.appendChild(head);
   body.appendChild(detail);
+
+  // Evidence, per signal rather than only for the one named as the cause. This is
+  // what makes a flag checkable instead of something to be taken on trust.
+  if (s.constraintId || s.span) {
+    const ev = doc.createElement("div");
+    ev.className = "signal-evidence";
+    if (s.constraintId) {
+      const c = doc.createElement("span");
+      c.className = "ev-chip";
+      c.textContent = s.constraintId;
+      ev.appendChild(c);
+    }
+    if (s.span) {
+      const sp = doc.createElement("code");
+      sp.className = "ev-span";
+      sp.textContent = s.span;
+      ev.appendChild(sp);
+    }
+    body.appendChild(ev);
+  }
+
   li.appendChild(dot);
   li.appendChild(body);
   return li;

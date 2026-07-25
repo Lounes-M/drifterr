@@ -202,6 +202,34 @@ async function main() {
   check(!(await page.locator("#map-lock").isVisible()), "Pro unlocks the drift map");
   check(!(await page.locator("#upgrade-nudge").isVisible()), "Pro hides the upgrade nudge");
 
+  console.log("SIGNAL hierarchy (named causes lead, score is demoted):");
+  scenario = RED;
+  await page.waitForFunction(() => document.querySelectorAll("#signals .signal-row").length === 2, null, { timeout: 5000 });
+  // Signals must come BEFORE the drift score in document order — the named causes are
+  // the differentiator; the 0-100 aggregate is a summary the architecture forbids
+  // treating as a verdict.
+  check(
+    await page.evaluate(() => {
+      const sig = document.querySelector(".signals");
+      const score = document.querySelector(".score-summary");
+      return !!sig && !!score &&
+        (sig.compareDocumentPosition(score) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    }),
+    "signals are rendered above the drift score"
+  );
+  check((await page.locator(".signal-kind.hard").count()) >= 1, "hard signals are labelled hard");
+  check((await page.locator("#signals .ev-chip").count()) >= 1, "per-signal evidence shows the constraint id");
+  check((await page.locator("#signals .ev-span").first().textContent()) === ".js", "per-signal evidence shows the offending span");
+  check((await page.locator(".score-note").textContent()).includes("summary only"), "the score is labelled a summary");
+  // The saturation signal in the RED fixture is green — it must still be labelled hard,
+  // since hardness is about what a signal *may* do, not its current state.
+  check(
+    await page.evaluate(() =>
+      [...document.querySelectorAll("#signals .signal-row")].every((r) => r.querySelector(".signal-kind"))
+    ),
+    "every signal carries a hard/soft label"
+  );
+
   console.log("WEEKLY report:");
   await page.route("**/report*", (route) =>
     route.fulfill({

@@ -258,12 +258,35 @@
         <span id="ro-text" class="ro-text"></span>
       </section>
 
+      <!--
+        Signals lead, the score follows.
+
+        The named signals with their evidence ARE the product's differentiator, and
+        CLAUDE.md forbids fusing them into one opaque number. The panel previously
+        opened with a 0–100 gauge — which is exactly such a number, built from a
+        hardcoded constant table — and buried the named causes at the bottom. That
+        taught users to read the one figure that cannot be justified and to ignore the
+        several that can.
+
+        The hard/soft split is surfaced too, because it is the honest frame: only the
+        hard signals are allowed to raise a red, and a user who knows that reads an
+        amber correctly instead of as a weak alarm.
+      -->
+      <section class="signals session-only">
+        <h2 class="section-title">Signals</h2>
+        <p class="signal-legend">
+          <b>Hard</b> signals are facts and can raise a red. <b>Soft</b> ones are
+          advisory and cap at amber.
+        </p>
+        <ul id="signals" class="signal-list"></ul>
+      </section>
+
       <section class="sat session-only">
         <div class="sat-head">
-          <span>Drift score</span>
-          <span id="drift-meta" class="sat-meta">—</span>
+          <span>Context</span>
+          <span id="sat-meta" class="sat-meta">—</span>
         </div>
-        <div class="bar"><div id="drift-fill" class="bar-fill" style="width:0%"></div></div>
+        <div class="bar"><div id="sat-fill" class="bar-fill" style="width:0%"></div></div>
       </section>
 
       <section class="sat session-only" id="drift-map-section">
@@ -275,17 +298,13 @@
         <p class="lock-hint">Upgrade to Pro to see how drift built up across the session.</p>
       </section>
 
-      <section class="sat session-only">
+      <!-- Demoted on purpose: a rough summary, never the reason. -->
+      <section class="sat session-only score-summary">
         <div class="sat-head">
-          <span>Context</span>
-          <span id="sat-meta" class="sat-meta">—</span>
+          <span>Drift score <span class="score-note">summary only — the signals above are the reason</span></span>
+          <span id="drift-meta" class="sat-meta">—</span>
         </div>
-        <div class="bar"><div id="sat-fill" class="bar-fill" style="width:0%"></div></div>
-      </section>
-
-      <section class="signals session-only">
-        <h2 class="section-title">Signals</h2>
-        <ul id="signals" class="signal-list"></ul>
+        <div class="bar bar-thin"><div id="drift-fill" class="bar-fill" style="width:0%"></div></div>
       </section>
 
       <section id="activity" class="activity session-only" hidden>
