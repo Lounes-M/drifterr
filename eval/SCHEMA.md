@@ -158,8 +158,64 @@ enough to confirm it out of sample.
 
 ## Adding real sessions
 
-The synthetic `e1..e8` cases prove the mechanism. The *product* is proven only on
-**real** annotated sessions (coding, writing, analysis) with a genuine
-turn-level drift label. Capture your own Claude Code sessions and beta-tester
-transcripts, annotate the onset turn and the true cause, and drop them here
-(dev) or in `blind/` (holdout). The harness turns them straight into numbers.
+The synthetic cases prove the *mechanism*. The **product** is proven only on real
+annotated sessions with a genuine turn-level label. There is no shortcut here and no
+way to synthesise one: a corpus is the single thing in this repo that cannot be
+written, only collected.
+
+### 1. Export your own sessions
+
+```bash
+cargo run -p drifterr-store --example annotate -- \
+  --db ~/.drifterr/drifterr.db --out eval/inbox
+```
+
+That writes one schema-valid case per stored session. Sessions with fewer than three
+turns, or with no stated intent, are skipped — neither can illustrate drift.
+
+**Stubs are not pre-labelled, on purpose.** Each arrives with `expect.state: "TODO"`
+and the harness *refuses to load it*. It would be trivial to run the engine over each
+session and write its own verdict into `expect`; it would also make the corpus
+worthless, because the engine would then be graded against its own output and score
+100% by construction. A human has to decide what the right answer was.
+
+### 2. Harvest false positives, which are free ground truth
+
+```bash
+cargo run -p drifterr-store --example annotate -- \
+  --feedback ~/.drifterr/feedback.jsonl --out eval/inbox
+```
+
+Every "this wasn't drift" report is a case where the truth is already known — the
+user looked at an alert and said it was wrong. These come out pre-labelled `green` on
+*their* authority, not the engine's, and they're the most valuable cases the project
+can collect: zero hard-signal false positives is the metric the whole release gate is
+built around. (The feedback record doesn't carry the turns, so paste those in from
+the session before using the case.)
+
+### 3. Annotate, then split ~70/30
+
+Fill in the state, the cause, and the onset turn; delete the `_annotation` block;
+move the file into `eval/` (development) or `eval/blind/` (holdout). Keep the ratio
+around 70/30 and grow both together.
+
+> **Privacy.** These files contain your conversations verbatim. They're written
+> locally and nothing is uploaded, but they are exactly what you would be sharing if
+> you contributed a corpus upstream. Read them before sharing; redact anything you
+> wouldn't post publicly.
+
+### What the numbers may be used to claim
+
+Every run prints a **CORPUS MATURITY** block, because a percentage next to eight
+self-authored cases reads exactly like a percentage backed by hundreds of real ones.
+This repo has made that mistake already — the README once advertised "100% accuracy"
+on a set with an empty holdout.
+
+While the set is small or the holdout empty, the block says `NOT PUBLISHABLE` and the
+numbers are for regression detection only. Once a real corpus exists, turn on the
+out-of-sample requirement in CI so no figure can rest on the set it was tuned
+against:
+
+```bash
+cargo run -p drifterr-engine --example eval -- eval/blind/ --gate --require-blind 30
+```
