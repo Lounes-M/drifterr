@@ -23,7 +23,7 @@ fn no_js_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| {
         Regex::new(
-            r"(?i)\b(?:no|not|avoid|don'?t\s+use|do\s+not\s+use|pas\s+de|sans|évite(?:\s+le)?)\s+\.?(?:js|javascript)\b",
+            r"(?i)\b(?:no|not|avoid|don'?t\s+use|do\s+not\s+use|never\s+use|pas\s+de|sans|évite(?:\s+le)?)\s+`?\.?(?:js|javascript)\b",
         )
         .unwrap()
     })
@@ -83,7 +83,7 @@ fn no_todo_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| {
         Regex::new(
-            r"(?i)\b(?:no|not|avoid|don'?t\s+(?:use|leave)|do\s+not\s+(?:use|leave)|without|pas\s+de|sans|aucun)\s+(?:todos?|fixmes?|placeholders?)\b",
+            r"(?i)\b(?:no|not|avoid|don'?t\s+(?:use|leave)|do\s+not\s+(?:use|leave)|never\s+(?:use|leave|commit)|without|pas\s+de|sans|aucun)\s+`?(?:todos?|fixmes?|placeholders?)\b",
         )
         .unwrap()
     })
@@ -96,7 +96,9 @@ fn no_console_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| {
         Regex::new(
-            r"(?i)\b(?:no|not|avoid|don'?t\s+use|do\s+not\s+use|remove|strip|pas\s+de|sans)\s+console(?:\.\w+|\s+(?:logs?|statements?|calls?))?\b",
+            // A leading `` ` `` is tolerated because rules files habitually write the
+            // symbol as an inline code span (``no `console.log` ``).
+            r"(?i)\b(?:no|not|avoid|don'?t\s+use|do\s+not\s+use|never\s+(?:use|commit|leave)|remove|strip|pas\s+de|sans)\s+`?console(?:\.\w+|\s+(?:logs?|statements?|calls?))?\b",
         )
         .unwrap()
     })
@@ -110,8 +112,11 @@ fn no_any_type_re() -> &'static Regex {
     R.get_or_init(|| {
         // Requires the TYPE context — "any type(s)", a backticked `any`, or the
         // explicit FR "pas de any" — so the everyday word "any" never fires.
+        // "never use" is included because it is the dominant phrasing in project
+        // rules files ("Never use `any`"), which is where most of these now come
+        // from; it is no less unambiguous than "don't use".
         Regex::new(
-            r"(?i)(?:\b(?:no|avoid|don'?t\s+use|do\s+not\s+use)\s+(?:`any`|\bany\b)\s+types?\b|\b(?:no|avoid|don'?t\s+use|do\s+not\s+use)\s+`any`|\bpas\s+de\s+(?:`any`|\bany\b))",
+            r"(?i)(?:\b(?:no|avoid|don'?t\s+use|do\s+not\s+use|never\s+use)\s+(?:`any`|\bany\b)\s+types?\b|\b(?:no|avoid|don'?t\s+use|do\s+not\s+use|never\s+use)\s+`any`|\bpas\s+de\s+(?:`any`|\bany\b))",
         )
         .unwrap()
     })
@@ -683,6 +688,53 @@ mod tests {
             "any"
         ));
         assert!(infer_rules("pick any font you like").is_empty());
+    }
+
+    /// "Never …" is the dominant phrasing in project rules files (`CLAUDE.md`,
+    /// `.cursor/rules`), which are now a primary source of constraints. It was
+    /// missing from four of the families, so a rule the user had genuinely written
+    /// down imported as nothing.
+    #[test]
+    fn never_phrasing_infers_like_dont() {
+        assert!(infers_code_pattern("Never use `any`", "any"));
+        assert!(infers_code_pattern("Never use any types", "any"));
+        assert!(infers_code_pattern("Never use console.log", "console"));
+        assert!(infers_code_pattern(
+            "Never commit console statements",
+            "console"
+        ));
+        assert!(infers_code_pattern("Never leave TODOs behind", "TODO"));
+        assert!(matches!(
+            infer_rules("Never use JavaScript here").first(),
+            Some(Rule::ForbidPattern { .. })
+        ));
+
+        // Precision must survive: "never" alone is not a prohibition on these
+        // things, and the everyday adverb must not manufacture a rule.
+        assert!(infer_rules("I never got around to it").is_empty());
+        assert!(infer_rules("this never happens in practice").is_empty());
+        assert!(infer_rules("never mind the formatting").is_empty());
+        // "never use" still needs a real object to attach to.
+        assert!(infer_rules("never use it that way").is_empty());
+    }
+
+    /// Rules files write symbols as inline code spans, so the object of a
+    /// prohibition is routinely backticked. Without tolerating that, a rule the
+    /// user did write imports as nothing.
+    #[test]
+    fn backticked_objects_still_infer() {
+        assert!(infers_code_pattern("Never use `console.log`", "console"));
+        assert!(infers_code_pattern(
+            "No `console.log` in committed code",
+            "console"
+        ));
+        assert!(infers_code_pattern("Don't leave `TODO` markers", "TODO"));
+        assert!(matches!(
+            infer_rules("No `.js` files — TypeScript only").first(),
+            Some(Rule::ForbidPattern { .. })
+        ));
+        // A backtick alone is not a rule statement.
+        assert!(infer_rules("run `npm test` before pushing").is_empty());
     }
 
     #[test]

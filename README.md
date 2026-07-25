@@ -32,9 +32,14 @@ click. It runs as a quiet menubar app alongside the tools you already use.
 ## Why it's trustworthy
 
 - **Local-first.** Conversations live in local SQLite. **No chat content ever
-  leaves your machine.** The only server-side component is accounts & billing
-  (identity + plan, nothing else). Not a promise — [enforced in CI](crates/proxy/tests/egress.rs)
-  and laid out at [drifterr.app/proof](https://drifterr.app/proof).
+  leaves your machine**, and the app itself sends nothing at all — no telemetry, no
+  analytics, no heartbeat. It runs with no account, in which case there is no
+  Drifterr server in the picture whatsoever; the only server-side component is
+  accounts & billing (identity + plan, nothing else). Not a promise —
+  [enforced in CI](crates/proxy/tests/egress.rs) and laid out at
+  [drifterr.app/proof](https://drifterr.app/proof). (The marketing website does
+  count its own page views — first-party, cookieless, no visitor id. The boundary
+  is spelled out on that page.)
 - **Named causes, not a black box.** Each signal carries its own evidence (turn,
   constraint, offending span) so the UI can tell you *what* drifted — signals are
   never fused into one opaque score.
@@ -80,13 +85,30 @@ they auto-apply to every new session — your rules stick without restating them
 ## Install
 
 Download for macOS, Windows or Linux at **[drifterr.app/download](https://drifterr.app/download)**.
-Free to use; Pro and Team plans add unlimited sessions, the hosted fail-safe
-judge, the drift map and team features — see [Pricing](https://drifterr.app/#pricing).
+
+**No account required.** Detection, constraints, standing orders and re-anchor all
+work signed out and offline — an account exists only to attach a paid plan. Every
+install starts with **14 days of Pro**, tracked locally (no card, no signup). After
+that, Free keeps the whole detection loop and unlimited sessions; Pro adds
+unlimited history, the drift map and automatic re-anchor injection — see
+[Pricing](https://drifterr.app/#pricing).
+
+> **First launch:** releases are currently **unsigned**, so macOS Gatekeeper and
+> Windows SmartScreen will warn you. On macOS: right-click the app → **Open** →
+> **Open**. On Windows: **More info** → **Run anyway**. Full steps on
+> [drifterr.app/download](https://drifterr.app/download) and in
+> [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
 **Using Claude Code? Nothing to set up.** Drifterr auto-watches your local
-sessions (`~/.claude/projects`) — no keys, no env vars, fully local. Just declare
-your intent in the panel and keep coding; it warns at the exact turn a reply
-breaks one of your rules. (Override the watched dir with `DRIFTERR_WATCH_DIR`.)
+sessions (`~/.claude/projects`) — no keys, no env vars, fully local. It warns at
+the exact turn a reply breaks one of your rules. (Override the watched dir with
+`DRIFTERR_WATCH_DIR`.)
+
+**Your rules file is the anchor.** If the project has a `CLAUDE.md`, `AGENTS.md`
+or `.cursor/rules`, Drifterr imports the rules it can check deterministically —
+"no new dependencies", "never use `any`", "no `console.log`", "keep functions
+under 50 lines" — so there is nothing to retype. Prose it cannot verify is left
+alone rather than guessed at. Edit or retire anything it imported from the panel.
 
 For any other tool, run **`drifterr-proxy init`** — it detects your tool and
 provider key and prints the exact config — or set it by hand:
@@ -156,17 +178,18 @@ Honest state of each capability — no claim here overshoots what actually runs.
 | Constraint signal (deterministic, hard) | ✅ shipped | EN/FR phrasings; code rules (no JS/TODO/console.log/`any`/eval/secrets, no new deps, protected files, word & line caps) |
 | Saturation signal (hard) | ✅ shipped | Exact only via the proxy |
 | Degradation signal (soft) | ✅ shipped | Looping, verbosity, hedging (EN/FR) |
-| Goal-alignment signal (soft) | ✅ shipped | Local **ONNX semantic** model (bge-small, 384-dim, ~127MB) bundled by default since 0.2.5; lexical fallback. Goal↔drift separation 0.07→0.22; eval accuracy 67%→100% |
+| Goal-alignment signal (soft) | ✅ shipped | Local **ONNX semantic** model (bge-small, 384-dim, ~127MB) bundled by default since 0.2.5; lexical fallback. Goal↔drift separation on the fixture set improved 0.07→0.22. **Not yet calibrated on real sessions** — its thresholds are conservative, so expect it to stay quiet |
 | Decision-coherence judge (soft) | ✅ shipped | Opt-in, BYOK (your OpenRouter key); fail-safe (degrades, never blocks) |
 | Auto-intent (AI infers goal + constraints) | ✅ shipped | Opt-in, BYOK; continuous re-baseline |
 | Re-anchor (snapshot + preamble) | ✅ shipped | Copy or auto-inject (proxy channel) |
 | Standing orders (cross-session rules) | ✅ shipped | |
 | Menubar app (tray + panel) | ✅ shipped | Auto-hide on blur, resumes state |
+| Rules-file import (`CLAUDE.md`, `.cursor/rules`) | ✅ shipped | Checkable rules imported automatically from the project's own rules file — nothing to retype ([`crates/engine/src/rules_file.rs`](crates/engine/src/rules_file.rs)) |
 | Detection eval harness + release gate | ✅ shipped | Metrics + zero-hard-FP gate, tunable thresholds ([`eval/thresholds.conf`](eval/thresholds.conf), [`eval/SCHEMA.md`](eval/SCHEMA.md)) |
 | Egress guarantee (CI-enforced) | ✅ shipped | [`crates/proxy/tests/egress.rs`](crates/proxy/tests/egress.rs) |
-| Browser extension (MV3) | 🚧 partial | Built; not store-published |
-| Signed / notarized desktop builds | 📋 planned | Ships **unsigned** today (Gatekeeper right-click → Open on macOS) |
-| Validated on a large real corpus | 📋 planned | The irreplaceable next step — drop annotated sessions into `eval/` |
+| Browser extension (MV3) | 🚧 partial | Built and working; **not store-published**, so it's a manual install |
+| Signed / notarized desktop builds | 🚧 partial | Pipeline is in place ([`.github/workflows/release.yml`](.github/workflows/release.yml)); **certificates not yet provisioned**, so releases still ship unsigned and the OS warns on first launch |
+| Validated on a real corpus | 📋 planned | **The honest state:** detection is validated against 8 hand-written fixtures in [`eval/`](eval/), authored by the same person who wrote the engine, and [`eval/blind/`](eval/blind/) is still empty. That is enough to catch regressions and nowhere near enough to publish an accuracy number — so we don't. The next real milestone is a few hundred annotated sessions and a held-out blind split |
 
 ## More docs
 

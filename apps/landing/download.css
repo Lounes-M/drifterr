@@ -134,6 +134,29 @@ footer { position: relative; z-index: 2; border-top: 1px solid var(--edge-soft);
 .toast .bar i { display: block; height: 100%; width: 0; background: var(--grad); transition: width .3s; }
 .toast .tip { margin-top: 9px; font-size: 12px; color: var(--mute2); line-height: 1.45; }
 
+/* first-launch notice (unsigned builds) — deliberately loud: a user who misses
+   this concludes the download is broken. */
+.notice { padding: 26px 28px; border-radius: 20px; background: rgba(255,120,71,.06); border: 1px solid rgba(255,120,71,.3); }
+.notice-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 22px; }
+.notice-ic { flex: 0 0 auto; width: 30px; height: 30px; color: #ff8a64; }
+.notice-ic svg { width: 100%; height: 100%; }
+.notice-head b { display: block; font-size: 17px; letter-spacing: -.01em; margin-bottom: 6px; }
+.notice-head p { font-size: 14px; line-height: 1.6; color: var(--mute); margin: 0; }
+.notice-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+.notice-os { padding: 18px; border-radius: 14px; background: rgba(0,0,0,.24); border: 1px solid var(--edge); }
+/* The visitor's own platform sorts first and gets the accent. */
+.notice-os.mine { order: -1; border-color: rgba(255,120,71,.42); background: rgba(255,120,71,.07); }
+.notice-tag { display: inline-block; font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: #ff8a64; margin-bottom: 10px; }
+.notice-os p { font-size: 13px; line-height: 1.55; color: var(--mute); margin: 0 0 10px; }
+.notice-os p i { color: #dcdae8; font-style: normal; }
+.notice-os ol { margin: 0 0 10px; padding-left: 18px; font-size: 13px; line-height: 1.7; color: #dcdae8; }
+.notice-os ol b { color: #fff; }
+.notice-os code { font-family: var(--mono); font-size: 11.5px; padding: 2px 5px; border-radius: 5px; background: rgba(0,0,0,.45); color: #ffb695; overflow-wrap: anywhere; }
+.notice-alt { font-size: 12px !important; color: var(--mute2) !important; margin-bottom: 0 !important; }
+.notice-foot { margin: 20px 0 0; font-size: 13px; line-height: 1.6; color: var(--mute2); }
+.notice-foot a { color: #ff8a64; text-decoration: none; }
+.notice-foot a:hover { text-decoration: underline; }
+
 /* reveal */
 .reveal { opacity: 0; transform: translateY(24px); transition: opacity .8s var(--ease), transform .8s var(--ease); }
 .reveal.in { opacity: 1; transform: none; }
@@ -141,6 +164,7 @@ footer { position: relative; z-index: 2; border-top: 1px solid var(--edge-soft);
 @media (max-width: 920px) {
   .grid4 { grid-template-columns: repeat(2,1fr); }
   .grid3 { grid-template-columns: 1fr; }
+  .notice-grid { grid-template-columns: 1fr; }
   .nav-right .ver { display: none; }
 }
 @media (max-width: 540px) { .grid4 { grid-template-columns: 1fr; } }

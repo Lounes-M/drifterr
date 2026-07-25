@@ -86,6 +86,48 @@ export function apiBase() {
   return "http://127.0.0.1:8788";
 }
 
+/// Show the effective plan from a `/status` entitlement.
+///
+/// The proxy resolves the plan, including the local first-run trial, so this is
+/// the honest answer for a signed-out user too. A running trial reads as
+/// "Pro trial · 6d" rather than "Pro", and never shows the upgrade nudge — you
+/// already have everything.
+export function renderEffectivePlan(doc, ent) {
+  const plan = ent && ent.plan;
+  if (!plan) return;
+  const trialDays = ent.trialDaysLeft;
+  const label =
+    plan === "trial"
+      ? `Pro trial${Number.isFinite(trialDays) ? ` · ${trialDays}d` : ""}`
+      : plan.charAt(0).toUpperCase() + plan.slice(1);
+  const isFree = plan === "free";
+  const pill = doc.getElementById("plan-pill");
+  if (pill) {
+    pill.hidden = false;
+    pill.textContent = label;
+    pill.classList.toggle("free", isFree);
+    pill.classList.toggle("trial", plan === "trial");
+  }
+  const nudge = doc.getElementById("upgrade-nudge");
+  if (nudge) nudge.hidden = !isFree;
+  // Near the end of the trial, say what is about to be lost rather than leaving
+  // the downgrade to be discovered.
+  const expiring = plan === "trial" && Number.isFinite(trialDays) && trialDays <= 3;
+  const soon = doc.getElementById("trial-ending");
+  if (soon) {
+    soon.hidden = !expiring;
+    if (expiring) {
+      setText(
+        doc,
+        "trial-ending-text",
+        trialDays <= 0
+          ? "Your Pro trial ends today — the drift map and auto re-anchor switch off after that. Detection keeps running."
+          : `${trialDays} day${trialDays > 1 ? "s" : ""} of Pro left. After that the drift map and auto re-anchor switch off — detection keeps running.`
+      );
+    }
+  }
+}
+
 /// Render a full status payload into the document. Pure w.r.t. the network:
 /// give it a document and data, it mutates the DOM.
 export function render(doc, data) {
@@ -161,6 +203,12 @@ export function render(doc, data) {
   // proxy withholds history unless the plan unlocks it, so we lock the section
   // and prompt to upgrade instead of showing an empty chart.
   const ent = (data && data.entitlement) || {};
+
+  // The proxy is the authority on the *effective* plan: it resolves the local
+  // trial, which a signed-out user has with no account at all. So the pill and
+  // the upgrade nudge follow /status, not the auth module.
+  renderEffectivePlan(doc, ent);
+
   const mapSection = doc.getElementById("drift-map-section");
   const mapLocked = ent.driftMap === false;
   if (mapSection) mapSection.classList.toggle("locked", mapLocked);
@@ -1074,16 +1122,28 @@ async function setAutoReanchor(doc, on, fetchImpl) {
   }
 }
 
-// --- accounts: login gate + plan ------------------------------------------
+// --- accounts: optional sign-in + plan -------------------------------------
 //
 // auth.js (and the Supabase client it pulls from a CDN) is imported lazily so
-// it can never block the core panel. When accounts aren't configured (the
-// shipped default until config.js is filled), none of this runs and the panel
-// behaves exactly as before.
+// it can never block the core panel.
+//
+// **Signing in is optional.** Detection, constraints, the intent baseline and
+// re-anchor are all local and must work with no account and no network — an
+// account exists only to attach a paid plan to the install. So the panel body is
+// never hidden behind auth: the sign-in sheet is opt-in (Settings → Account →
+// Sign in) and dismissible. Gating a local-first tool behind a server account
+// would contradict the product's own premise, and it costs activation for zero
+// functional gain.
 
 let _auth = null;
+/// The resolved auth module, once (and if) the lazy import lands. Held separately
+/// from the in-flight promise so synchronous code can use it opportunistically
+/// without awaiting a CDN fetch that may be slow or never complete.
+let _authReady = null;
 function authMod() {
-  return (_auth ??= import("./auth.js").catch(() => null));
+  return (_auth ??= import("./auth.js")
+    .then((m) => (_authReady = m))
+    .catch(() => null));
 }
 
 let gateMode = "signin"; // "signin" | "signup"
@@ -1092,8 +1152,8 @@ function applyGateMode(doc) {
   const signup = gateMode === "signup";
   setText(doc, "gate-title", signup ? "Create your account" : "Sign in to Drifterr");
   setText(doc, "gate-sub", signup
-    ? "Free to start. Pick a plan after you sign in."
-    : "Connect your account to start tracking drift.");
+    ? "Starts a 14-day Pro trial. Detection keeps running locally either way."
+    : "Only needed to buy or restore a paid plan. Drift detection runs locally either way.");
   setText(doc, "gate-submit", signup ? "Create account" : "Sign in");
   setText(doc, "gate-alt-text", signup ? "Already have an account?" : "New here?");
   setText(doc, "gate-toggle", signup ? "Sign in" : "Create an account");
@@ -1109,6 +1169,19 @@ function gateMessage(doc, text, kind) {
   msg.textContent = text || "";
 }
 
+/// Open / close the opt-in sign-in sheet. The panel body stays mounted
+/// underneath either way — the sheet is an overlay, never a gate.
+export function openGate(doc) {
+  const gate = doc.getElementById("gate");
+  if (gate) gate.hidden = false;
+}
+
+export function closeGate(doc) {
+  const gate = doc.getElementById("gate");
+  if (gate) gate.hidden = true;
+  gateMessage(doc, "", "");
+}
+
 async function submitGate(doc, mod) {
   const email = (doc.getElementById("gate-email").value || "").trim();
   const password = doc.getElementById("gate-password").value || "";
@@ -1119,10 +1192,11 @@ async function submitGate(doc, mod) {
   try {
     if (gateMode === "signup") {
       const data = await mod.signUp(email, password, name);
-      if (data.session) await refreshAuth(doc, mod);
+      if (data.session) { closeGate(doc); await refreshAuth(doc, mod); }
       else gateMessage(doc, "Check your email to confirm, then sign in.", "ok");
     } else {
       await mod.signIn(email, password);
+      closeGate(doc);
       await refreshAuth(doc, mod);
     }
   } catch (err) {
@@ -1142,54 +1216,74 @@ function wireGate(doc, mod) {
   });
   const submit = doc.getElementById("gate-submit");
   if (submit) submit.addEventListener("click", () => submitGate(doc, mod));
+  for (const id of ["gate-close", "gate-dismiss"]) {
+    const el = doc.getElementById(id);
+    if (el) el.addEventListener("click", (e) => { e.preventDefault(); closeGate(doc); });
+  }
   applyGateMode(doc);
 }
 
-/// Show the gate (logged out) or the panel body (logged in).
+/// Reflect the current auth state in the Account block and the plan pill.
+///
+/// Never hides the panel body: signed out is a fully supported, fully functional
+/// state. Signed out simply means the Free entitlement, which the proxy already
+/// defaults to.
 export async function refreshAuth(doc, mod) {
   const user = await mod.currentUser();
-  const gate = doc.getElementById("gate");
-  const body = doc.getElementById("app-body");
+  const block = doc.getElementById("account-block");
+  if (block) block.hidden = false;
+  const anon = doc.getElementById("acct-anon");
+  const signed = doc.getElementById("acct-user");
+  if (anon) anon.hidden = !!user;
+  if (signed) signed.hidden = !user;
+
   if (!user) {
-    if (gate) gate.hidden = false;
-    if (body) body.hidden = true;
+    // Local-only mode: make sure the proxy is on the Free entitlement and the
+    // panel is honest about it. No account, no network required.
+    await pushPlan("free");
+    renderPlan(doc, "Free", "free");
     return;
   }
-  if (gate) gate.hidden = true;
-  if (body) body.hidden = false;
   await loadEntitlement(doc, mod, user);
 }
 
-async function loadEntitlement(doc, mod, user) {
-  const block = doc.getElementById("account-block");
-  if (block) block.hidden = false;
-  setText(doc, "acct-email", user.email || "");
-
-  let isFree = true, planName = "Free", planId = "free";
-  try {
-    const me = await mod.fetchMe();
-    const ent = me.entitlement || {};
-    planName = ent.plan_name || "Free";
-    planId = ent.plan_id || "free";
-    isFree = planId === "free";
-  } catch (_e) { /* keep Free defaults */ }
-
-  // Tell the local proxy which plan to enforce (identity only — no chat content).
-  // The proxy derives the capability flags from the plan id itself.
+/// Tell the local proxy which plan to enforce (identity only — no chat content).
+/// The proxy derives the capability flags from the plan id itself.
+async function pushPlan(planId) {
   try {
     await fetch(apiBase() + "/entitlement", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ plan: planId }),
     });
-  } catch (_e) { /* proxy not reachable yet — status poll will still reflect Free */ }
+  } catch (_e) { /* proxy not reachable yet — the status poll still reflects Free */ }
+}
 
+/// Show the *account's* plan in the Account block.
+///
+/// Deliberately does not touch the plan pill or the upgrade nudge: those follow
+/// the proxy's effective entitlement (see `renderEffectivePlan`), which is what
+/// actually gates capability and which knows about the local trial. Two writers
+/// on one pill would just fight over it every poll.
+function renderPlan(doc, planName, _planId) {
   setText(doc, "acct-plan", planName);
-  const pill = doc.getElementById("plan-pill");
-  if (pill) { pill.hidden = false; pill.textContent = planName; pill.classList.toggle("free", isFree); }
-  const nudge = doc.getElementById("upgrade-nudge");
-  if (nudge) nudge.hidden = !isFree;
+}
 
+async function loadEntitlement(doc, mod, user) {
+  setText(doc, "acct-email", user.email || "");
+
+  let planName = "Free", planId = "free";
+  try {
+    const me = await mod.fetchMe();
+    const ent = me.entitlement || {};
+    planName = ent.plan_name || "Free";
+    planId = ent.plan_id || "free";
+  } catch (_e) { /* keep Free defaults */ }
+
+  await pushPlan(planId);
+  renderPlan(doc, planName, planId);
+
+  const isFree = planId === "free";
   const planBtn = doc.getElementById("acct-plan-btn");
   if (planBtn) {
     planBtn.textContent = isFree ? "Choose plan" : "Manage billing";
@@ -1197,24 +1291,50 @@ async function loadEntitlement(doc, mod, user) {
   }
 }
 
+/// Open a URL in the user's browser. Mirrors `auth.js`'s helper but works without
+/// it, so the pricing links stay live even when accounts aren't configured.
+function openSite(mod, path) {
+  const base = (mod && mod.SITE_URL) || "https://drifterr.app";
+  if (mod && mod.openExternal) return void mod.openExternal(base + path);
+  try {
+    window.open(base + path, "_blank", "noopener");
+  } catch (_e) { /* no browser to open (headless) — nothing to do */ }
+}
+
 export async function initAccounts(doc) {
+  // Wire the pricing links FIRST, synchronously, before awaiting anything.
+  //
+  // Two reasons this cannot wait for the auth module: the upgrade nudge is driven
+  // by the proxy's entitlement (see `renderEffectivePlan`), which knows nothing
+  // about whether accounts are configured; and `authMod()` imports the Supabase
+  // client from a CDN, so on a slow or offline launch the await can outlast the
+  // moment the user reaches for the button. Either way the result was a visible
+  // button that did nothing.
+  //
+  // `openSite(null, …)` falls back to the canonical site URL, which is what
+  // `auth.js` would have supplied anyway.
+  for (const id of ["upgrade-btn", "acct-plans", "trial-upgrade-btn"]) {
+    const el = doc.getElementById(id);
+    if (el) el.addEventListener("click", () => openSite(_authReady, "/#pricing"));
+  }
+
   const mod = await authMod();
   if (!mod || !mod.configured) {
     // Accounts are off, or the auth module couldn't load (e.g. offline / CDN
-    // hiccup). Either way, never leave the panel blank: undo the pre-hide and
-    // fall back to the accounts-free experience.
-    const body = doc.getElementById("app-body");
-    if (body) body.hidden = false;
-    const gate = doc.getElementById("gate");
-    if (gate) gate.hidden = true;
+    // hiccup). The panel is already fully usable; just make sure the opt-in sheet
+    // stays shut and the Account block doesn't advertise a sign-in that cannot
+    // work.
+    closeGate(doc);
     return;
   }
   wireGate(doc, mod);
 
+  const block = doc.getElementById("account-block");
+  if (block) block.hidden = false;
+  const signin = doc.getElementById("acct-signin");
+  if (signin) signin.addEventListener("click", () => openGate(doc));
   const signout = doc.getElementById("acct-signout");
   if (signout) signout.addEventListener("click", async () => { await mod.signOut(); await refreshAuth(doc, mod); });
-  const upgrade = doc.getElementById("upgrade-btn");
-  if (upgrade) upgrade.addEventListener("click", () => mod.openExternal(mod.SITE_URL + "/#pricing"));
 
   if (mod.supabase) mod.supabase.auth.onAuthStateChange(() => refreshAuth(doc, mod));
   await refreshAuth(doc, mod);
@@ -1415,10 +1535,9 @@ if (typeof document !== "undefined" && typeof window !== "undefined" && !window.
   if (window.__TAURI__ || window.__TAURI_INTERNALS__) {
     document.documentElement.classList.add("tauri");
   }
-  // The panel starts visible and `initAccounts` swaps in the login gate only
-  // once auth confirms there's no session. This way a slow/failed auth load (or
-  // an offline launch) can never leave a blank panel — worst case the user just
-  // sees the (data-free) panel until the gate resolves.
+  // The panel is always mounted and fully usable. `initAccounts` only fills in
+  // the Account block and the plan pill; it can never hide the body, so a slow,
+  // failed or entirely absent auth load just leaves the app in local-only mode.
   setupSplash(document);
   setupUi(document);
   setupOnboarding(document);

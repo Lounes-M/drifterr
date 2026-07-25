@@ -4,8 +4,13 @@
 //! Today: the Claude Code file watcher. Each adapter only *produces* the
 //! normalized format — it never reaches into the engine — so the engine stays
 //! channel-agnostic.
+//!
+//! [`rules_import`] is the other direction of the same idea: it supplies the
+//! *baseline* from a file the user already maintains (`CLAUDE.md`,
+//! `.cursor/rules`), keeping the filesystem knowledge here and out of the engine.
 
 pub mod claude_code;
+pub mod rules_import;
 
 use notify::{RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};

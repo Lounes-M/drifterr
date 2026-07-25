@@ -557,6 +557,9 @@ code { font-family: var(--mono); }
   background: linear-gradient(135deg, var(--blue), var(--blue-deep));
 }
 .plan-pill.free { background: rgba(255, 255, 255, 0.1); color: var(--ink); }
+/* A running trial reads as "Pro trial · 6d" — distinct from paid Pro so the
+   countdown never looks like a permanent state. */
+.plan-pill.trial { background: linear-gradient(135deg, #ff7847, #ff3d81); color: #1a0d12; }
 
 #app-body { display: flex; flex-direction: column; gap: 14px; }
 
@@ -582,9 +585,32 @@ code { font-family: var(--mono); }
 .history-goal.untitled { font-weight: 500; color: var(--ink-soft); }
 .history-meta { font-size: 11px; color: var(--ink-faint); }
 
-.gate { display: flex; flex-direction: column; gap: 10px; padding: 6px 2px 4px; }
-.gate h1 { font-family: var(--display); font-size: 19px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
-.gate .muted { margin: -4px 0 6px; }
+/* The sign-in sheet is an opt-in overlay, not a gate: the panel underneath
+   stays mounted and usable, so this only ever covers it while the user is
+   deliberately signing in. Mirrors the onboarding overlay's geometry. */
+.gate-sheet {
+  position: fixed; inset: 0; z-index: 55;
+  display: flex; justify-content: center; align-items: flex-start;
+  overflow-y: auto; padding: 16px;
+  background: radial-gradient(120% 90% at 50% -10%, rgba(14,13,28,0.86), rgba(5,4,9,0.92));
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  animation: onb-fade 0.4s var(--spring) both;
+}
+.gate-sheet[hidden] { display: none; }
+.gate-card {
+  width: 100%; max-width: 330px; display: flex; flex-direction: column; gap: 10px;
+  padding: 18px; border-radius: var(--radius); isolation: isolate;
+  background: linear-gradient(150deg, var(--glass-top), var(--glass-bot));
+  border: 1px solid var(--edge);
+  box-shadow: 0 40px 90px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.1);
+  animation: onb-pop 0.55s var(--spring) both;
+}
+.gate-top { display: flex; align-items: center; margin-bottom: 2px; }
+.gate-card h1 { font-family: var(--display); font-size: 19px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+.gate-card .muted { margin: -4px 0 6px; }
+.gate-foot { text-align: center; font-size: 12px; color: var(--ink-faint); margin: 2px 0 0; }
+.gate-foot a { color: var(--ink-soft); font-weight: 600; }
+.gate-foot a:hover { color: var(--ink); }
 
 .gate-field { display: flex; flex-direction: column; gap: 5px; }
 .gate-field span {

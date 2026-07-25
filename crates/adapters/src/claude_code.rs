@@ -148,6 +148,34 @@ pub fn scan_dir(dir: &Path) -> Vec<(std::path::PathBuf, Conversation)> {
     out
 }
 
+/// The project directory a session was run from, if the transcript records one.
+///
+/// Claude Code writes a `cwd` on its message events. That is the only reliable
+/// pointer from a session file back to the repo it belongs to, which is what lets
+/// Drifterr find *that* project's rules file (`CLAUDE.md`, `.cursor/rules`) rather
+/// than guessing from the app's own working directory — the desktop app is
+/// launched from Applications, so its cwd means nothing.
+///
+/// Best-effort like the rest of this adapter: unknown or malformed lines are
+/// skipped, and a missing `cwd` simply means "no project known".
+pub fn session_cwd(content: &str) -> Option<String> {
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if let Some(cwd) = v.get("cwd").and_then(Value::as_str) {
+            if !cwd.is_empty() {
+                return Some(cwd.to_string());
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,5 +238,29 @@ not json at all
         let found = scan_dir(&dir);
         assert_eq!(found.len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn session_cwd_finds_the_project_directory() {
+        let jsonl = concat!(
+            r#"{"type":"summary","summary":"whatever"}"#,
+            "\n",
+            r#"{"type":"user","cwd":"/Users/x/code/drifterr","message":{"role":"user","content":"hi"}}"#,
+            "\n"
+        );
+        assert_eq!(
+            session_cwd(jsonl).as_deref(),
+            Some("/Users/x/code/drifterr")
+        );
+    }
+
+    #[test]
+    fn session_cwd_is_none_when_absent_or_unusable() {
+        assert!(session_cwd("").is_none());
+        assert!(session_cwd(r#"{"type":"user","message":{"content":"hi"}}"#).is_none());
+        // Malformed lines are skipped, never fatal.
+        assert!(session_cwd("{not json}\ngarbage").is_none());
+        // An empty cwd is not a project.
+        assert!(session_cwd(r#"{"type":"user","cwd":""}"#).is_none());
     }
 }

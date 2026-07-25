@@ -6,6 +6,8 @@
 // The accounts helpers (supabase.js) are loaded lazily, so a CDN hiccup on the
 // Supabase client can never take down the core page behaviour.
 
+import * as analytics from "./analytics.js";
+
 // The billing interval the pricing toggle currently shows. Read by checkout.
 let billingInterval = "year";
 
@@ -46,14 +48,20 @@ function setupParallax(doc) {
   })();
 }
 
-// Count the drift score up to 87% once the mockup scrolls into view.
+// Count the drift score up once the mockup scrolls into view.
+//
+// 73 is not a decorative number: it is what `Verdict::drift_score()` returns for
+// the scenario the mock depicts — one constraint RED (55) plus a saturation
+// AMBER (18). If the mock's scenario changes, recompute this from
+// crates/engine/src/state_machine.rs rather than picking something that looks
+// dramatic.
 function setupDriftScore(doc) {
   const el = doc.getElementById("driftScore");
   if (!el) return;
   let done = false;
   const run = () => {
     if (done) return; done = true;
-    const dur = 1700, start = performance.now(), to = 87;
+    const dur = 1700, start = performance.now(), to = 73;
     (function step(now) {
       const t = Math.min(1, (now - start) / dur);
       el.textContent = Math.round((1 - Math.pow(1 - t, 3)) * to);
@@ -143,6 +151,7 @@ function setupCheckout(doc) {
         if (user) {
           await mod.startCheckout(plan, billingInterval);
         } else {
+          analytics.track("signup_start", { plan });
           window.location.href = `/signup?plan=${plan}&interval=${billingInterval}`;
         }
       } catch (_e) {
@@ -202,6 +211,25 @@ function setupSplash(doc) {
   playSplash(el);
 }
 
+/// Funnel instrumentation: which download button, which plan, which FAQ.
+/// Every value sent is an enum from analytics.js's allowlist — no URLs, no text.
+function setupAnalytics(doc) {
+  analytics.init(doc);
+  for (const id of ["download", "download-2", "download-3"]) {
+    const el = doc.getElementById(id);
+    if (el) el.addEventListener("click", () => analytics.track("download_click"));
+  }
+  doc.querySelectorAll(".pick[data-plan]").forEach((el) =>
+    el.addEventListener("click", () => analytics.track("plan_click", { plan: el.dataset.plan }))
+  );
+  doc.querySelectorAll(".qa button").forEach((btn, i) =>
+    btn.addEventListener("click", () => {
+      // Only count opens, not the collapse on a second click.
+      if (btn.parentElement.classList.contains("open")) analytics.track("faq_open", { index: i });
+    })
+  );
+}
+
 if (typeof document !== "undefined" && typeof navigator !== "undefined") {
   setupSplash(document);
   setupReveal(document);
@@ -213,4 +241,5 @@ if (typeof document !== "undefined" && typeof navigator !== "undefined") {
   setupPricing(document);
   setupCheckout(document);
   setupNavAccount(document);
+  setupAnalytics(document);
 }

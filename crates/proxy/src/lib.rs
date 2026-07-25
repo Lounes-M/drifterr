@@ -194,10 +194,14 @@ pub struct AppState {
     /// surfaced at `GET /config` so the panel can show a "Watching Claude Code"
     /// indicator. Purely informational.
     pub watching_files: Arc<AtomicBool>,
-    /// Current plan entitlement, set by the desktop app after login. Defaults to
-    /// Free so the proxy works standalone. Gates paid capabilities (drift map,
-    /// extra sessions, auto-re-anchor).
-    pub entitlement: Arc<RwLock<Entitlement>>,
+    /// The plan the desktop app reported for the signed-in account, or Free when
+    /// nobody is signed in — which is a fully supported state, since detection is
+    /// local. The *effective* entitlement is derived from this plus the local
+    /// trial; read it via [`AppState::entitlement`], never straight from here.
+    pub account_plan: Arc<RwLock<Plan>>,
+    /// When the local first-run Pro trial started (ms since epoch), if it has.
+    /// Read from `app_meta` on startup — no account and no network involved.
+    pub trial_started_ms: Arc<RwLock<Option<i64>>>,
     /// The active upstream provider — runtime-switchable via `POST /provider`.
     pub upstream: Arc<RwLock<ActiveUpstream>>,
 }
@@ -220,7 +224,37 @@ impl AppState {
         );
         s.auto_intent
             .store(truthy("DRIFTERR_AUTO_INTENT"), Ordering::Relaxed);
+        // Production path only: stamp (or read back) the local trial start. Test
+        // constructors deliberately skip this so plan gating stays deterministic.
+        s.begin_trial_if_new();
         s
+    }
+
+    /// Start the local Pro trial on first launch, or read back the existing start
+    /// stamp. No-op without a durable store (nothing to remember it in).
+    ///
+    /// The trial exists so a new user meets the full product before any wall.
+    /// It is intentionally local and therefore resettable — requiring an account
+    /// to unlock a trial would put back the signup gate we removed, and a trial
+    /// is not a security boundary.
+    pub fn begin_trial_if_new(&self) {
+        let now = state::now_millis();
+        let started = self
+            .core
+            .lock()
+            .ok()
+            .and_then(|c| c.trial_started_or_init(now));
+        if let Ok(mut w) = self.trial_started_ms.write() {
+            *w = started;
+        }
+    }
+
+    /// Override the trial start (tests).
+    pub fn with_trial_started(self, ms: Option<i64>) -> Self {
+        if let Ok(mut w) = self.trial_started_ms.write() {
+            *w = ms;
+        }
+        self
     }
 
     /// Build state with an explicit judge (used by tests). Auto-re-anchor off.
@@ -255,12 +289,17 @@ impl AppState {
         self.auto_intent.load(Ordering::Relaxed)
     }
 
-    /// Set the active plan entitlement (used by tests and the app embedder).
+    /// Set the account plan (used by tests and the app embedder).
     pub fn with_plan(self, plan: Plan) -> Self {
-        if let Ok(mut w) = self.entitlement.write() {
-            *w = Entitlement::for_plan(plan);
-        }
+        self.set_account_plan(plan);
         self
+    }
+
+    /// Record the plan reported for the signed-in account (Free when signed out).
+    pub fn set_account_plan(&self, plan: Plan) {
+        if let Ok(mut w) = self.account_plan.write() {
+            *w = plan;
+        }
     }
 
     fn build(
@@ -306,14 +345,23 @@ impl AppState {
             auto_intent: Arc::new(AtomicBool::new(false)),
             notifications_muted: Arc::new(AtomicBool::new(false)),
             watching_files: Arc::new(AtomicBool::new(false)),
-            entitlement: Arc::new(RwLock::new(Entitlement::default())),
+            account_plan: Arc::new(RwLock::new(Plan::default())),
+            trial_started_ms: Arc::new(RwLock::new(None)),
             upstream: Arc::new(RwLock::new(upstream)),
         }
     }
 
-    /// Read the current entitlement (Free if the lock is poisoned).
+    /// The entitlement actually in force: the account plan, upgraded to
+    /// [`Plan::Trial`] while the local first-run trial is still running.
+    ///
+    /// Derived on every read rather than cached, so an expiring trial downgrades
+    /// on its own without anything having to notice the clock.
     pub fn entitlement(&self) -> Entitlement {
-        self.entitlement.read().map(|e| *e).unwrap_or_default()
+        let account = self.account_plan.read().map(|p| *p).unwrap_or_default();
+        let trial = self.trial_started_ms.read().ok().and_then(|t| *t);
+        let now = state::now_millis();
+        let plan = entitlement::resolve_plan(account, trial, now);
+        Entitlement::for_plan(plan).with_trial_days_left(entitlement::trial_days_left(trial, now))
     }
 
     /// Mark whether the Claude Code file channel is active (embedder-set).
@@ -339,6 +387,47 @@ pub fn default_claude_projects_dir() -> Option<std::path::PathBuf> {
     Some(std::path::Path::new(&home).join(".claude").join("projects"))
 }
 
+type RulesConstraint = drifterr_engine::baseline::Constraint;
+
+/// Import the rules file of the project a session belongs to, and stage its
+/// constraints for that session.
+///
+/// This is what makes the zero-config path actually zero-config: a developer with
+/// a `CLAUDE.md` has already written their standing rules down, so Drifterr can
+/// start from a real anchor instead of an empty form. The project is identified by
+/// the `cwd` the transcript records — the app's own working directory is
+/// meaningless, since it launches from Applications.
+///
+/// Cached per project directory, and staged only for sessions that don't exist
+/// yet, so a rules file is read once and never resurrects a constraint the user
+/// retired.
+fn seed_project_rules(
+    state: &AppState,
+    cache: &Arc<Mutex<std::collections::HashMap<String, Vec<RulesConstraint>>>>,
+    content: &str,
+    session_id: &str,
+) {
+    let Some(cwd) = drifterr_adapters::claude_code::session_cwd(content) else {
+        return;
+    };
+    let constraints = {
+        let Ok(mut c) = cache.lock() else { return };
+        c.entry(cwd.clone())
+            .or_insert_with(|| {
+                drifterr_adapters::rules_import::discover(std::path::Path::new(&cwd))
+                    .map(|i| i.constraints)
+                    .unwrap_or_default()
+            })
+            .clone()
+    };
+    if constraints.is_empty() {
+        return;
+    }
+    if let Ok(mut core) = state.core.lock() {
+        core.stage_imported_constraints(session_id, constraints);
+    }
+}
+
 /// Watch a directory of Claude Code sessions and feed each into the shared engine
 /// state — the SAME pipeline the HTTP proxy uses, so detection, notifications and
 /// the panel all work identically for file-sourced sessions. Does an initial scan
@@ -348,14 +437,23 @@ pub fn watch_claude_sessions(
     dir: &std::path::Path,
     state: AppState,
 ) -> Option<drifterr_adapters::RecommendedWatcher> {
+    // Rules files are read once per project directory, not once per file event: a
+    // busy session fires many change events per minute and the rules file rarely
+    // moves. `None` caches "this project has no rules file" just as firmly.
+    let rules_cache: Arc<Mutex<std::collections::HashMap<String, Vec<RulesConstraint>>>> =
+        Arc::new(Mutex::new(std::collections::HashMap::new()));
+
     // Initial scan so already-open sessions are picked up on launch.
-    for (_, conv) in drifterr_adapters::claude_code::scan_dir(dir) {
+    for (path, conv) in drifterr_adapters::claude_code::scan_dir(dir) {
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        seed_project_rules(&state, &rules_cache, &content, &conv.session_id);
         if let Ok(mut core) = state.core.lock() {
             core.record_conversation(&conv);
         }
     }
 
     let ingest_state = state.clone();
+    let ingest_cache = rules_cache.clone();
     let ingest = move |file: std::path::PathBuf| {
         let Ok(content) = std::fs::read_to_string(&file) else {
             return;
@@ -365,6 +463,9 @@ pub fn watch_claude_sessions(
             .and_then(|s| s.to_str())
             .unwrap_or("session");
         if let Some(conv) = drifterr_adapters::claude_code::parse_session(&content, stem) {
+            // Stage before recording: the import must be part of the session's
+            // first baseline, not applied a turn later.
+            seed_project_rules(&ingest_state, &ingest_cache, &content, &conv.session_id);
             if let Ok(mut core) = ingest_state.core.lock() {
                 core.record_conversation(&conv);
             }
@@ -654,9 +755,14 @@ async fn history_handler(State(app): State<AppState>) -> Json<Vec<HistoryItem>> 
         .lock()
         .map(|c| c.session_history(50))
         .unwrap_or_default();
+    let cutoff = retention_cutoff_ms(&app);
     Json(
         sessions
             .into_iter()
+            // Retention is the Free plan's real limit: recent sessions always
+            // readable, older ones behind Pro. Sessions with no recorded activity
+            // (last_ts == 0) are kept — they're new, not old.
+            .filter(|s| cutoff.is_none_or(|c| s.last_ts == 0 || s.last_ts >= c))
             .map(|s| HistoryItem {
                 session_id: s.session_id,
                 model: s.model,
@@ -1141,6 +1247,13 @@ async fn status_handler(State(app): State<AppState>) -> Json<StatusResponse> {
     })
 }
 
+/// Oldest `last_ts` still readable under the active plan's retention, or `None`
+/// when retention is unlimited.
+fn retention_cutoff_ms(app: &AppState) -> Option<i64> {
+    let days = app.entitlement().history_days? as i64;
+    Some(state::now_millis() - days * 86_400_000)
+}
+
 async fn entitlement_handler(State(app): State<AppState>) -> Json<Entitlement> {
     Json(app.entitlement())
 }
@@ -1157,10 +1270,10 @@ async fn set_entitlement_handler(
     State(app): State<AppState>,
     Json(body): Json<SetEntitlement>,
 ) -> Json<Entitlement> {
-    let ent = Entitlement::for_plan(Plan::from_id(&body.plan));
-    if let Ok(mut w) = app.entitlement.write() {
-        *w = ent;
-    }
+    app.set_account_plan(Plan::from_id(&body.plan));
+    // Re-derive: an account on Free while the local trial is still running stays
+    // on trial capabilities.
+    let ent = app.entitlement();
     Json(ent)
 }
 
