@@ -104,6 +104,15 @@ sessions (`~/.claude/projects`) — no keys, no env vars, fully local. It warns 
 the exact turn a reply breaks one of your rules. (Override the watched dir with
 `DRIFTERR_WATCH_DIR`.)
 
+**Catch it *before* the reply, not after.** Run `drifterr-proxy hook --install` and
+add the printed block to `~/.claude/settings.json`. Drifterr then restates your goal
+and live constraints as context on a drifting turn — *before* the model answers —
+instead of telling you about the broken rule afterwards. Prevention beats detection,
+and on the file-watch channel there is no request to rewrite, so a hook is the only
+honest way to do it. The hook can never break your prompt: every failure path
+(Drifterr not running, a timeout, malformed input) exits silently and the turn
+proceeds untouched.
+
 **Your rules file is the anchor.** If the project has a `CLAUDE.md`, `AGENTS.md`
 or `.cursor/rules`, Drifterr imports the rules it can check deterministically —
 "no new dependencies", "never use `any`", "no `console.log`", "keep functions
@@ -181,7 +190,9 @@ Honest state of each capability — no claim here overshoots what actually runs.
 | Goal-alignment signal (soft) | ✅ shipped | Local **ONNX semantic** model (bge-small, 384-dim, ~127MB) bundled by default since 0.2.5; lexical fallback. Goal↔drift separation on the fixture set improved 0.07→0.22. **Not yet calibrated on real sessions** — its thresholds are conservative, so expect it to stay quiet |
 | Decision-coherence judge (soft) | ✅ shipped | Opt-in, BYOK (your OpenRouter key); fail-safe (degrades, never blocks) |
 | Auto-intent (AI infers goal + constraints) | ✅ shipped | Opt-in, BYOK; continuous re-baseline |
-| Re-anchor (snapshot + preamble) | ✅ shipped | Copy or auto-inject (proxy channel) |
+| Re-anchor (snapshot + preamble) | ✅ shipped | Copy anywhere; auto-inject on the proxy channel, or on Claude Code via `drifterr-proxy hook` (a `UserPromptSubmit` hook, so the reminder lands *before* the reply). Automatic injection is Pro |
+| Re-anchor outcome tracking | ✅ shipped | Records whether the same cause stayed quiet afterwards — "held for 3 turns" / "broke again on turn 7". Undecided stays undecided |
+| Weekly report | ✅ shipped | `GET /report`, or the panel's **Last 7 days**. Flags grouped by cause; generated locally, offline |
 | Standing orders (cross-session rules) | ✅ shipped | |
 | Menubar app (tray + panel) | ✅ shipped | Auto-hide on blur, resumes state |
 | Rules-file import (`CLAUDE.md`, `.cursor/rules`) | ✅ shipped | Checkable rules imported automatically from the project's own rules file — nothing to retype ([`crates/engine/src/rules_file.rs`](crates/engine/src/rules_file.rs)) |

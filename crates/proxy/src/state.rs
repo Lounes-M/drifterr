@@ -596,13 +596,18 @@ impl AppCore {
         // Only open a window when there is a named cause to fix. Re-anchoring a green
         // session is a no-op to measure — there is nothing that could "come back".
         if let Some(t) = session.status.triggering.as_ref() {
-            session.reanchor = Some(ReanchorMark {
+            let mark = ReanchorMark {
                 at_turn: session.turns_seen,
                 signal: t.signal.clone(),
                 constraint_id: t.constraint_id.clone(),
                 held_turns: 0,
                 broke_again_at_turn: None,
-            });
+            };
+            // Publish into the status immediately, not just on the next ingest.
+            // Otherwise the panel shows nothing until another turn arrives, and the
+            // user has no confirmation that the check even started.
+            session.status.reanchor = Some(mark.clone());
+            session.reanchor = Some(mark);
         }
 
         let out = drifterr_intervention::reanchor(

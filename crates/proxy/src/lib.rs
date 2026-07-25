@@ -23,6 +23,7 @@
 
 pub mod dashboard;
 pub mod entitlement;
+pub mod hook;
 pub mod provider;
 pub mod state;
 pub mod upstreams;
