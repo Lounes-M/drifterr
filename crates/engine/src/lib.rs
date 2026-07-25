@@ -29,6 +29,7 @@
 pub mod baseline;
 pub mod conversation;
 pub mod infer;
+pub mod rules_file;
 pub mod signals;
 pub mod state_machine;
 
