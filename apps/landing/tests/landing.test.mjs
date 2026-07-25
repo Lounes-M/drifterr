@@ -122,6 +122,29 @@ async function main() {
     check((await page.locator(".tier .soon").count()) === 0, "no unbuilt features listed as tier contents");
     check(/no account/i.test(text), "the page says no account is required");
     check(!/github\.com/.test(html), "landing page exposes no github.com link");
+
+    // Positioning guards. The universal-chatbot-layer framing was broader and weaker
+    // than the product, and it is the easy thing to drift back into.
+    check(/coding agent/i.test(text), "leads with coding agents");
+    check(/Claude Code/.test(text), "names the zero-setup channel");
+    check(
+      (await page.locator(".marquee").count()) === 0,
+      "no scrolling logo wall — it reads as 'we integrate with everything'"
+    );
+    check((await page.locator(".chan").count()) === 3, "channels stated plainly instead");
+    // The web-UI channel must stay labelled beta until the extension is store-published
+    // (see apps/extension/STORE_LISTING.md).
+    check(
+      await page.evaluate(() => {
+        const beta = document.querySelector(".chan-tag.chan-beta");
+        return !!beta && /beta/i.test(beta.textContent);
+      }),
+      "the unpublished browser channel is labelled beta"
+    );
+    check(
+      /not store-published/i.test(text),
+      "says plainly that the extension isn't on the stores"
+    );
   }
 
   // --- download hub page ---
