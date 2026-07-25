@@ -122,9 +122,40 @@
           <tr><td>Drift signals & scores</td><td class="stay">Your device</td></tr>
           <tr><td>Re-anchor snapshots</td><td class="stay">Your device</td></tr>
           <tr><td>Model / judge calls</td><td class="stay">Your provider, your key</td></tr>
-          <tr><td>Email, plan, subscription</td><td class="leave">Server (accounts only)</td></tr>
+          <tr><td>Email, plan, subscription</td><td class="leave">Server (accounts only — and only if you sign up)</td></tr>
         </tbody>
       </table>
+
+      <h2>The app and this website are not the same thing</h2>
+      <p class="lede" style="margin-bottom:6px">
+        Worth being blunt about, because "local-first" gets used loosely: the
+        boundary is the app binary, and it is absolute.
+      </p>
+      <div class="invariant">
+        <b>The app sends nothing. Not even a ping.</b>
+        <p>No analytics, no telemetry, no crash reporting, no usage counters, no
+        heartbeat. There is no account required to run it, and with no account
+        there is no Drifterr server in the picture at all. The 14-day Pro trial is
+        tracked in your own local database.</p>
+      </div>
+      <div class="invariant">
+        <b>This marketing website does count page views.</b>
+        <p>drifterr.app measures its own funnel — which page you landed on, which
+        download button got clicked, which platform. It is first-party (our own
+        <span class="mono">/api/event</span>, no third-party script), <b>cookieless</b>,
+        carries <b>no visitor identifier of any kind</b>, and stores no IP or user
+        agent. Event names and values come from a fixed allowlist, so no URL or
+        free text is ever recorded. <b>Do Not Track and Global Privacy Control are
+        honored</b> — with either set, nothing is sent.</p>
+      </div>
+      <div class="invariant">
+        <b>Why measure the site at all?</b>
+        <p>Because we shipped unsigned builds without saying so on the download
+        page, and had no way to see how many people hit the OS warning and gave up.
+        Counting button clicks on a public web page is a different thing from
+        reading your conversations — and we'd rather draw that line out loud than
+        claim a purity we don't have.</p>
+      </div>
 
       <h2>Proven, not promised</h2>
       <p class="lede" style="margin-bottom:6px">
