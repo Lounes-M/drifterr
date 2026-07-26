@@ -274,6 +274,25 @@ async function main() {
       /no visitor identifier/i.test(text),
       "states there is no visitor identifier"
     );
+    // Team sharing is the one thing the app can be asked to upload, so the proof page
+    // must say so. "The app sends nothing" would otherwise be a claim the product no
+    // longer honours — exactly the kind of gap this page exists to close.
+    check(
+      /sends nothing on its own/i.test(text),
+      "qualifies the no-egress claim now that Team sharing exists"
+    );
+    check(
+      /Team sharing/i.test(text) && /rule packs/i.test(text),
+      "names what Team sharing uploads"
+    );
+    check(
+      /offending spans?/i.test(text) && /session ids?/i.test(text),
+      "names what Team sharing never uploads"
+    );
+    check(
+      /exactly what would be shared/i.test(text),
+      "points at the in-app payload preview, so the claim is checkable"
+    );
   }
 
   // --- legal pages ---

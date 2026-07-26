@@ -611,54 +611,114 @@ fn constraint_cue_re() -> &'static Regex {
     })
 }
 
-/// A stable human label and category for an inferred rule, used when the
-/// extractor synthesizes a [`crate::baseline::Constraint`] from a bare rule.
-pub fn describe(rule: &Rule) -> (&'static str, crate::baseline::ConstraintType) {
+/// Recover the literal path a parameterized rule was built around, by undoing
+/// [`regex::escape`] on the captured segment between `before` and `after`.
+///
+/// The parameterized rules (protected file, protected directory) bake the user's own
+/// path into their pattern, and that path is the only useful part of the label: "a
+/// protected file must not be modified" tells nobody *which*. Recovering it here keeps
+/// the label honest without having to widen `Rule` itself.
+fn literal_between(pattern: &str, before: &str, after: &str) -> Option<String> {
+    let start = pattern.find(before)? + before.len();
+    let rest = &pattern[start..];
+    let end = rest.find(after)?;
+    let escaped = &rest[..end];
+    if escaped.is_empty() {
+        return None;
+    }
+    // `regex::escape` only ever inserts a backslash before an ASCII punctuation
+    // character, so dropping those backslashes is an exact inverse.
+    let mut out = String::with_capacity(escaped.len());
+    let mut chars = escaped.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some(n) => out.push(n),
+                None => return None,
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    Some(out)
+}
+
+/// A human label and category for an inferred rule, used when the extractor
+/// synthesizes a [`crate::baseline::Constraint`] from a bare rule.
+///
+/// Labels name the *specific* rule wherever the rule carries a parameter, because this
+/// string is what the panel shows, what the re-anchor preamble restates, and what the
+/// MCP server hands an agent asking which rules apply. "A protected file must not be
+/// modified" is useless in all three places; "package.json must not be modified" is
+/// actionable in all three.
+pub fn describe(rule: &Rule) -> (String, crate::baseline::ConstraintType) {
     use crate::baseline::ConstraintType;
-    match rule {
+    let (text, kind): (String, ConstraintType) = match rule {
         // ForbidPattern covers the no-JS rule and the parameterized protected-file
         // rule; the diff-header pattern distinguishes the latter.
         Rule::ForbidPattern { pattern } if pattern.contains("diff --git") => (
-            "A protected file must not be modified",
+            match literal_between(pattern, r"[ab]/(?:\S*/)?", r"\b") {
+                Some(file) => format!("{file} must not be modified"),
+                None => "A protected file must not be modified".to_string(),
+            },
             ConstraintType::Tech,
         ),
-        Rule::ForbidPattern { .. } => ("TypeScript only, no JS files", ConstraintType::Tech),
+        Rule::ForbidPattern { .. } => (
+            "TypeScript only, no JS files".to_string(),
+            ConstraintType::Tech,
+        ),
         // Several distinct code rules share the ForbidInCode mechanism; name each
         // by its pattern so the panel can state the actual cause, not a generic
         // "no comments". Keep these substrings in sync with `infer_rules`.
-        Rule::ForbidInCode { pattern } if pattern.contains("TODO") => {
-            ("No TODOs or FIXMEs in code", ConstraintType::Format)
-        }
-        Rule::ForbidInCode { pattern } if pattern.contains("console") => {
-            ("No console logging in code", ConstraintType::Format)
-        }
+        Rule::ForbidInCode { pattern } if pattern.contains("TODO") => (
+            "No TODOs or FIXMEs in code".to_string(),
+            ConstraintType::Format,
+        ),
+        Rule::ForbidInCode { pattern } if pattern.contains("console") => (
+            "No console logging in code".to_string(),
+            ConstraintType::Format,
+        ),
         Rule::ForbidInCode { pattern } if pattern.contains(":\\s*any") => {
-            ("No `any` type in code", ConstraintType::Tech)
+            ("No `any` type in code".to_string(), ConstraintType::Tech)
         }
         Rule::ForbidInCode { pattern } if pattern.contains("npm") => {
-            ("No new dependencies", ConstraintType::Tech)
+            ("No new dependencies".to_string(), ConstraintType::Tech)
         }
         Rule::ForbidInCode { pattern } if pattern.contains("eval") => {
-            ("No eval() calls in code", ConstraintType::Tech)
+            ("No eval() calls in code".to_string(), ConstraintType::Tech)
         }
-        Rule::ForbidInCode { pattern } if pattern.contains("AKIA") => {
-            ("No hardcoded secrets in code", ConstraintType::Tech)
-        }
-        Rule::ForbidInCode { .. } => ("No comments in code", ConstraintType::Format),
-        Rule::RequirePattern { .. } => ("Required pattern must be present", ConstraintType::Tech),
-        Rule::MaxWords { .. } => ("Stay within the word limit", ConstraintType::Format),
-        Rule::MaxLines { .. } => ("Stay within the code line limit", ConstraintType::Format),
-        Rule::ForbidPathTouch { .. } => (
-            "A protected directory must not be modified",
+        Rule::ForbidInCode { pattern } if pattern.contains("AKIA") => (
+            "No hardcoded secrets in code".to_string(),
             ConstraintType::Tech,
         ),
-        // The label carries the specific boundary ("server-side only"); this is the
-        // family name the panel groups under.
-        Rule::ForbidLayerMarkers { .. } => {
-            ("Work must stay on the pinned layer", ConstraintType::Tech)
+        Rule::ForbidInCode { .. } => ("No comments in code".to_string(), ConstraintType::Format),
+        Rule::RequirePattern { .. } => (
+            "Required pattern must be present".to_string(),
+            ConstraintType::Tech,
+        ),
+        Rule::MaxWords { .. } => (
+            "Stay within the word limit".to_string(),
+            ConstraintType::Format,
+        ),
+        Rule::MaxLines { .. } => (
+            "Stay within the code line limit".to_string(),
+            ConstraintType::Format,
+        ),
+        Rule::ForbidPathTouch { pattern } => (
+            match literal_between(pattern, r"(?:^|/)", r"(?:/|$)") {
+                Some(dir) => format!("Nothing under {dir}/ may be modified"),
+                None => "A protected directory must not be modified".to_string(),
+            },
+            ConstraintType::Tech,
+        ),
+        // The rule already carries the boundary the user pinned, so name it: an agent
+        // told "stay on the pinned layer" has no idea which layer that is.
+        Rule::ForbidLayerMarkers { label, .. } => {
+            (format!("Work must stay {label}"), ConstraintType::Tech)
         }
-        Rule::ForbidNewFiles => ("No new files", ConstraintType::Tech),
-    }
+        Rule::ForbidNewFiles => ("No new files".to_string(), ConstraintType::Tech),
+    };
+    (text, kind)
 }
 
 #[cfg(test)]
@@ -1227,5 +1287,58 @@ mod tests {
         assert_ne!(todo, comments);
         assert_ne!(console, comments);
         assert_ne!(any, comments);
+    }
+
+    #[test]
+    fn parameterized_rules_name_the_path_they_protect() {
+        // The label is what the panel shows, what a re-anchor restates, and what the MCP
+        // server hands an agent asking which rules apply. "A protected file must not be
+        // modified" is useless in all three: it does not say *which* file.
+        let file = infer_rule("Don't touch package.json").expect("a rule");
+        assert_eq!(describe(&file).0, "package.json must not be modified");
+
+        let dir = infer_rule("Don't touch the migrations").expect("a rule");
+        assert_eq!(
+            describe(&dir).0,
+            "Nothing under migrations/ may be modified"
+        );
+
+        // Layer rules already carry the boundary the user pinned; name it rather than
+        // saying "the pinned layer", which tells an agent nothing.
+        let layer = infer_rule("Keep it server-side only").expect("a rule");
+        assert_eq!(describe(&layer).0, "Work must stay server-side only");
+    }
+
+    #[test]
+    fn a_label_falls_back_rather_than_lying_when_the_path_cannot_be_recovered() {
+        use crate::baseline::Rule;
+        // A hand-written or future pattern that doesn't match the shape `infer_rules`
+        // produces must degrade to the generic label, never to a wrong filename.
+        let odd = Rule::ForbidPattern {
+            pattern: "diff --git something else entirely".into(),
+        };
+        assert_eq!(describe(&odd).0, "A protected file must not be modified");
+    }
+
+    #[test]
+    fn literal_between_is_an_exact_inverse_of_regex_escape() {
+        // Round-trip the paths that actually occur, including the dotted and hyphenated
+        // ones where escaping matters.
+        for path in [
+            "package.json",
+            "package-lock.json",
+            "src/legacy/index.ts",
+            "a+b.rs",
+        ] {
+            let pattern = format!(
+                r"(?m)^(?:diff --git |\+\+\+ |--- )[ab]/(?:\S*/)?{}\b",
+                regex::escape(path)
+            );
+            assert_eq!(
+                literal_between(&pattern, r"[ab]/(?:\S*/)?", r"\b").as_deref(),
+                Some(path),
+                "failed to recover {path}"
+            );
+        }
     }
 }

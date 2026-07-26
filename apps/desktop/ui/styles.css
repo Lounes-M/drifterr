@@ -914,3 +914,27 @@ code { font-family: var(--mono); }
    dismissal happens ~2–3s earlier via JS. */
 #splash { animation: sp-safety 0s linear 6s forwards; }
 @keyframes sp-safety { to { opacity: 0; visibility: hidden; pointer-events: none; } }
+
+/* --- rule packs + team share ----------------------------------------------
+   The pack list is read before it is acted on, so rules get room to breathe;
+   the share payload is deliberately shown as raw JSON — the point is that the
+   user can verify it, and a prettified summary would defeat that. */
+.packs-list { display: flex; flex-direction: column; gap: 9px; margin: 2px 0 4px; }
+.pack-row {
+  border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px;
+  padding: 11px 12px; background: rgba(255, 255, 255, 0.02);
+}
+.pack-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.pack-name { font-weight: 600; font-size: 12px; }
+.pack-rules {
+  list-style: none; margin: 7px 0 9px; padding: 0;
+  display: flex; flex-direction: column; gap: 3px;
+  font-family: var(--mono); font-size: 11px; color: var(--ink-soft);
+}
+.pack-rules li::before { content: "· "; opacity: 0.5; }
+.team-payload {
+  margin: 6px 0 0; max-height: 220px; overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px; padding: 12px;
+  font-family: var(--mono); font-size: 10.5px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word; color: var(--ink-soft);
+}

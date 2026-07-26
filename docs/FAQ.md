@@ -50,8 +50,32 @@ and the toggle unlocks.
 
 ### Is it free?
 
-Yes, free to use. Pro and Team plans add unlimited sessions, the hosted fail-safe
-judge, the drift map and team features — see [pricing](https://drifterr.app/#pricing).
+Yes, free to use, and every install starts with 14 days of Pro (no card, no
+account). After that Free keeps the whole detection loop and unlimited sessions;
+Pro adds unlimited history, the drift map and automatic re-anchor injection; Team
+adds shared rule packs and team rule counts — see
+[pricing](https://drifterr.app/#pricing). The judge is always **your own**
+OpenRouter key on every plan; Drifterr never hosts model calls.
+
+### If I'm on Team, what actually leaves my machine?
+
+Two things, and only when you share: the **rule packs** you select (config you
+wrote — text like "Never use `any` types"), and **counts keyed by a rule name**
+("`tight-scope:no-new-deps` fired 7 times in 14 days").
+
+Not shared, ever: offending spans, your goal, prompts, replies, session ids, file
+paths, repo or branch names, model names, or anything timestamped finer than a
+day. Rules you stated *in conversation* are withheld too — their ids were mined
+from your own messages, so publishing even the id would reveal that you said
+something.
+
+Settings → Team sharing → **Show exactly what would be shared** prints the
+payload verbatim, plus a sentence naming what was withheld. The boundary is
+enforced in three independent places: the client filter
+([`crates/proxy/src/team.rs`](../crates/proxy/src/team.rs)), a database `CHECK`
+constraint, and a CI test that drives a real violation through the engine and
+fails if any of it appears
+([`crates/proxy/tests/egress.rs`](../crates/proxy/tests/egress.rs)).
 
 ### macOS says Drifterr is from an "unidentified developer".
 
@@ -61,8 +85,14 @@ See [TROUBLESHOOTING](TROUBLESHOOTING.md).
 
 ### Is it open source?
 
-Source-available, **not** open-source — you can read and evaluate the code, but
-using/redistributing it requires a license. See [LICENSE](../LICENSE).
+The **code** is source-available, not open-source — you can read and evaluate it,
+but using or redistributing it requires a license.
+
+The **evaluation corpus and rule packs are open**: [`fixtures/`](../fixtures/),
+[`eval/`](../eval/) and [`packs/`](../packs/) are **CC BY 4.0**, so anyone can
+reuse, extend and check them. Drift detection is only as honest as the corpus it
+is measured on, and a corpus nobody may reuse cannot be verified by anyone. See
+[LICENSE](../LICENSE).
 
 ### How do I know detection actually works?
 

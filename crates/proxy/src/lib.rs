@@ -25,8 +25,10 @@ pub mod check;
 pub mod dashboard;
 pub mod entitlement;
 pub mod hook;
+pub mod mcp;
 pub mod provider;
 pub mod state;
+pub mod team;
 pub mod upstreams;
 
 use axum::body::Body;
@@ -510,6 +512,7 @@ pub fn control_router(state: AppState) -> Router {
         .route("/reanchor", get(reanchor_handler))
         .route("/intent", get(get_intent_handler).post(set_intent_handler))
         .route("/intent/retire", post(retire_constraint_handler))
+        .route("/anchor", get(anchor_handler))
         .route("/judge", get(get_judge_handler).post(set_judge_handler))
         .route(
             "/auto-reanchor",
@@ -527,6 +530,7 @@ pub fn control_router(state: AppState) -> Router {
         .route("/packs", get(list_packs_handler))
         .route("/packs/apply", post(apply_pack_handler))
         .route("/packs/export", get(export_pack_handler))
+        .route("/team/share-preview", get(team_share_preview_handler))
         .route("/standing-orders", get(standing_orders_handler))
         .route("/standing-orders/promote", post(promote_handler))
         .route("/feedback", post(feedback_handler))
@@ -995,6 +999,83 @@ async fn export_pack_handler(
     ([(header::CONTENT_TYPE, "application/json")], pack.to_json()).into_response()
 }
 
+// --- team sharing -----------------------------------------------------------
+//
+// `GET /team/share-preview` returns *exactly* what a share would upload, so the user can
+// read it before anything leaves. The upload itself is done by the layer that holds the
+// account session — see `crate::team` for why this crate deliberately cannot do it.
+
+#[derive(Deserialize)]
+struct SharePreviewQuery {
+    /// Pack ids to include. Sharing is per-pack and opt-in; omitting this shares counts
+    /// only, which is the safer default.
+    #[serde(default)]
+    packs: Option<String>,
+    #[serde(default)]
+    days: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct SharePreview {
+    /// The exact payload, or `null` when the plan does not include team sharing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload: Option<team::SharePayload>,
+    /// One sentence naming what the filter withheld, for the panel.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    withheld: Option<String>,
+    /// False when the plan has no team sharing — the panel shows the upsell rather than
+    /// an empty payload that reads like a bug.
+    entitled: bool,
+}
+
+async fn team_share_preview_handler(
+    State(app): State<AppState>,
+    Query(q): Query<SharePreviewQuery>,
+) -> Response {
+    if !app.entitlement().team_sharing {
+        return Json(SharePreview {
+            payload: None,
+            withheld: None,
+            entitled: false,
+        })
+        .into_response();
+    }
+
+    let days = q.days.unwrap_or(14).clamp(1, team::MAX_PERIOD_DAYS);
+    let wanted: Vec<String> = q
+        .packs
+        .as_deref()
+        .map(|s| {
+            s.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let packs: Vec<drifterr_engine::pack::Pack> = drifterr_engine::pack::builtin()
+        .into_iter()
+        .filter(|(id, _)| wanted.iter().any(|w| w == id))
+        .map(|(_, p)| p)
+        .collect();
+
+    let since = state::now_millis() - i64::from(days) * 86_400_000;
+    let counts = app
+        .core
+        .lock()
+        .map(|core| core.flag_counts_since(since))
+        .unwrap_or_default();
+
+    let payload = team::build(packs, &counts, days);
+    let withheld = payload.withheld.explain();
+    Json(SharePreview {
+        payload: Some(payload),
+        withheld,
+        entitled: true,
+    })
+    .into_response()
+}
+
 async fn standing_orders_handler(State(app): State<AppState>) -> Json<Vec<StandingOrderView>> {
     let orders = app
         .core
@@ -1079,6 +1160,27 @@ async fn get_intent_handler(
         .and_then(|core| core.intent_of(q.session.as_deref()))
     {
         Some(view) => Json(view).into_response(),
+        None => (StatusCode::NOT_FOUND, "no session yet").into_response(),
+    }
+}
+
+/// The machine-readable anchor (`GET /anchor`) — the baseline exactly as the engine holds
+/// it, constraints and their rules included.
+///
+/// This exists alongside `/intent` rather than replacing it because the two have different
+/// jobs. `/intent` is for the human: flattened, rules hidden, only active constraints.
+/// `/anchor` is for a tool that must reach the *same verdict as the engine* — most notably
+/// the MCP server, where an agent checks its own work before returning it. Handing that
+/// consumer labels instead of rules would let it report a confident pass on rules it never
+/// actually evaluated.
+async fn anchor_handler(State(app): State<AppState>, Query(q): Query<ReanchorQuery>) -> Response {
+    match app
+        .core
+        .lock()
+        .ok()
+        .and_then(|core| core.baseline_of(q.session.as_deref()))
+    {
+        Some(baseline) => Json(baseline).into_response(),
         None => (StatusCode::NOT_FOUND, "no session yet").into_response(),
     }
 }

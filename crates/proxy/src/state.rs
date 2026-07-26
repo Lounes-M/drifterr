@@ -402,6 +402,22 @@ impl AppCore {
         })
     }
 
+    /// The full baseline for a session — goal, constraints *with their rules*, and
+    /// recorded decisions.
+    ///
+    /// [`intent_of`](Self::intent_of) deliberately flattens rules away for the panel,
+    /// which is right for a human but lossy for a machine: re-deriving a rule from its
+    /// label ("package.json must not be modified") does not reproduce the rule that
+    /// generated it, so a consumer that round-trips through text silently checks less
+    /// than it thinks. The MCP server reads this instead, which makes an agent's
+    /// self-check and the engine's verdict the same computation over the same objects.
+    pub fn baseline_of(&self, session: Option<&str>) -> Option<Baseline> {
+        let target = session
+            .map(str::to_string)
+            .or_else(|| self.last_updated.clone())?;
+        self.sessions.get(&target).map(|s| s.baseline.clone())
+    }
+
     pub fn intent_of(&self, session: Option<&str>) -> Option<IntentView> {
         let target = session
             .map(str::to_string)
@@ -1001,6 +1017,18 @@ impl AppCore {
         let store = self.store.as_ref()?;
         let guard = store.lock().ok()?;
         drifterr_store::report::weekly(&guard, now_millis(), window_ms).ok()
+    }
+
+    /// Per-signal, per-constraint flag counts since `since_ms` — the raw material for a
+    /// team share. Deliberately returned unfiltered: the redaction that decides what may
+    /// leave the machine lives in one place ([`crate::team::build`]) so there is one thing
+    /// to audit, not two.
+    pub fn flag_counts_since(&self, since_ms: i64) -> Vec<(String, Option<String>, usize)> {
+        self.store
+            .as_ref()
+            .and_then(|s| s.lock().ok())
+            .and_then(|s| s.flag_counts_since(since_ms).ok())
+            .unwrap_or_default()
     }
 
     pub fn journal(&self, session: Option<&str>, limit: usize) -> Vec<drifterr_store::FlagEvent> {

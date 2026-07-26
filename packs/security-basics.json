@@ -1,0 +1,15 @@
+{
+  "drifterrPack": 1,
+  "name": "Security basics",
+  "description": "The two mistakes worth failing a review over.",
+  "rules": [
+    {
+      "id": "no-secrets",
+      "text": "No hardcoded secrets"
+    },
+    {
+      "id": "no-eval",
+      "text": "No eval"
+    }
+  ]
+}

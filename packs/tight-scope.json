@@ -1,0 +1,23 @@
+{
+  "drifterrPack": 1,
+  "name": "Tight scope",
+  "description": "Stop an agent widening the blast radius of a small change.",
+  "rules": [
+    {
+      "id": "no-new-deps",
+      "text": "No new dependencies"
+    },
+    {
+      "id": "no-new-files",
+      "text": "No new files — work within the existing files"
+    },
+    {
+      "id": "protect-lockfile",
+      "text": "Don't touch package-lock.json"
+    },
+    {
+      "id": "protect-migrations",
+      "text": "Don't touch the migrations"
+    }
+  ]
+}

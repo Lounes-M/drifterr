@@ -19,6 +19,31 @@ NOT PERMITTED WITHOUT A SEPARATE WRITTEN LICENSE FROM DRIFTERR
     a product or a service.
   - Removing or altering this notice, or any copyright or attribution notice.
 
+OPEN CARVE-OUT — THE EVALUATION CORPUS AND RULE PACKS (CC BY 4.0)
+  Notwithstanding anything above, the following directories are licensed to
+  everyone under the Creative Commons Attribution 4.0 International license
+  (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/):
+
+    fixtures/                    annotated transcripts (the engine's validation set)
+    eval/                        the evaluation corpus, its schema and its splits
+    packs/                       shareable rule packs
+
+  You may use, share and adapt this data for any purpose, including
+  commercially, provided you give appropriate credit. See fixtures/LICENSE and
+  eval/LICENSE for the authoritative notice in each directory.
+
+  Why: drift detection is only as honest as the corpus it is measured on, and a
+  corpus nobody may reuse cannot be checked by anyone. Keeping the *engine*
+  proprietary while the *evaluation data* is open means our accuracy claims are
+  independently verifiable and a contributor's annotation work is not locked
+  into one vendor. Code in these directories (the annotation tooling in
+  crates/) remains under the proprietary terms above; only the data is carved
+  out.
+
+  Contributing a transcript is contributing data about your own sessions.
+  Redact before you submit — see CONTRIBUTING.md. Drifterr never uploads
+  conversations; a corpus contribution is always a deliberate, manual act.
+
 The official Drifterr application binaries distributed at https://drifterr.app
 are governed by their own end-user terms, not by this source license.
 

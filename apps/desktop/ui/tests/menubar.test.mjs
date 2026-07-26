@@ -251,6 +251,109 @@ async function main() {
     await sctx.close();
   }
 
+  console.log("RULE PACKS + TEAM share preview:");
+  {
+    const tctx = await browser.newContext();
+    const tp = await tctx.newPage();
+    await tp.addInitScript(() => {
+      window.DRIFTERR_SUPABASE_URL = "";
+      window.DRIFTERR_SUPABASE_ANON_KEY = "";
+      try { localStorage.setItem("drifterr_onboarded", "1"); } catch (_e) {}
+    });
+    await tp.route("**/status*", (route) =>
+      route.fulfill({ contentType: "application/json", body: JSON.stringify(GREEN) })
+    );
+    await tp.goto(url);
+    await tp.locator("#gear").click();
+    await tp.waitForSelector("#settings", { state: "visible" });
+    const mod = await tp.evaluateHandle(() => import("/app.js"));
+
+    const packsJson = [
+      {
+        id: "tight-scope",
+        name: "Tight scope",
+        description: "Stop an agent widening the blast radius.",
+        enforceable: 3,
+        advisory: ["be-careful"],
+        rules: ["No new dependencies", "Don't touch package-lock.json", "No new files", "Be careful"],
+        source: "builtin",
+      },
+    ];
+    await tp.evaluate((p) => { window.__PACKS = p; }, packsJson);
+    await tp.evaluate(async (m) => {
+      await m.setupPacks(document, async () => ({
+        ok: true,
+        json: async () => window.__PACKS,
+      }));
+    }, mod);
+
+    check((await tp.locator(".pack-row").count()) === 1, "the pack catalogue renders");
+    check((await tp.locator(".pack-name").textContent()).includes("Tight scope"), "names the pack");
+    // Enforceability is stated before the user relies on it, not discovered afterwards
+    // when a violation quietly fails to appear.
+    check(
+      (await tp.locator(".pack-head .muted").textContent()).includes("3 of 4"),
+      "states how many rules are actually checked"
+    );
+    check((await tp.locator(".pack-rules li").count()) === 4, "lists every rule");
+
+    // The share preview must show the payload verbatim and name what was withheld.
+    // Replace the button node first: the page already wired the real handler on load,
+    // and two handlers on one button would fight over the toggle.
+    await tp.evaluate((m) => {
+      const b = document.getElementById("team-preview");
+      b.replaceWith(b.cloneNode(true));
+      m.setupTeamShare(document, async () => ({
+        json: async () => ({
+          entitled: true,
+          withheld: "Not shared: 2 rule(s) you stated in conversation (sharing the id would reveal what you said).",
+          payload: {
+            packs: [{ drifterrPack: 1, name: "Tight scope", rules: [{ id: "no-new-deps", text: "No new dependencies" }] }],
+            ruleStats: [{ ruleId: "tight-scope:no-new-deps", flagged: 7 }],
+            periodDays: 14,
+            withheld: { localRules: 2, nonRuleSignals: 1 },
+          },
+        }),
+      }));
+    }, mod);
+    await tp.locator("#team-preview").click();
+    await tp.waitForFunction(
+      () => !document.getElementById("team-payload").hidden,
+      null,
+      { timeout: 5000 }
+    );
+    const shown = await tp.locator("#team-payload").textContent();
+    check(shown.includes("tight-scope:no-new-deps"), "the payload is shown verbatim");
+    check(shown.includes('"flagged": 7'), "counts are visible");
+    check(
+      (await tp.locator("#team-withheld").textContent()).includes("stated in conversation"),
+      "what was withheld is named, not silently dropped"
+    );
+    await tp.locator("#team-preview").click();
+    check(await tp.locator("#team-payload").isHidden(), "second click closes the preview");
+
+    // Unentitled ⇒ the upsell, never an empty payload that reads like a bug.
+    await tp.evaluate((m) => {
+      const b = document.getElementById("team-preview");
+      b.replaceWith(b.cloneNode(true));
+      m.setupTeamShare(document, async () => ({
+        json: async () => ({ entitled: false }),
+      }));
+    }, mod);
+    await tp.locator("#team-preview").click();
+    await tp.waitForFunction(
+      () => !document.getElementById("team-locked").hidden,
+      null,
+      { timeout: 5000 }
+    );
+    check(await tp.locator("#team-payload").isHidden(), "no payload without the entitlement");
+    check(
+      (await tp.locator("#team-locked").textContent()).includes("Team-plan"),
+      "explains the gate rather than showing an empty share"
+    );
+    await tctx.close();
+  }
+
   console.log("SIGNAL hierarchy (named causes lead, score is demoted):");
   scenario = RED;
   await page.waitForFunction(() => document.querySelectorAll("#signals .signal-row").length === 2, null, { timeout: 5000 });

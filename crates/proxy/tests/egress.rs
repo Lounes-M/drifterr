@@ -123,6 +123,144 @@ fn network_callers_hardcode_no_forbidden_host() {
     }
 }
 
+// ---- B2. the team share payload carries config and counts, never content -----
+
+/// Team sharing is the first capability that asks for anything to leave a laptop, so it
+/// gets its own invariant rather than relying on review.
+///
+/// The test drives real chat content — including a canary and a real constraint violation
+/// — through the engine, then asserts that the payload a share would upload contains
+/// neither the canary, nor the violation's span, nor the goal, nor a session id. It also
+/// pins the *withholding*: a session-inferred rule id (`c1`) names a constraint mined from
+/// the user's own messages, so publishing even the id-with-count would reveal that they
+/// said something. The count of what was withheld must be visible, not silent.
+#[tokio::test]
+async fn the_team_share_payload_never_carries_conversation_content() {
+    use drifterr_proxy::control_router;
+    use drifterr_proxy::entitlement::Plan;
+
+    let cfg = ProxyConfig {
+        openai_upstream: "http://unused".into(),
+        anthropic_upstream: "http://unused".into(),
+        openai_strip_v1: false,
+    };
+    // Team plan, so sharing is entitled and the payload is actually built; and a real
+    // store, so there are genuine flag counts to filter rather than an empty list that
+    // would pass vacuously.
+    let state = AppState::with_judge(
+        cfg,
+        Some(drifterr_store::Store::open_in_memory().unwrap()),
+        drifterr_judge::Judge::Disabled,
+    )
+    .with_plan(Plan::Team);
+    let control = spawn(control_router(state)).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let api = format!("http://{control}");
+
+    // The canary is placed inside the *violating code*, so it lands in the evidence span.
+    // That makes this a test of the span specifically, not just of the turn text.
+    let canary = "CANARY-team-4b81-do-not-leak";
+    let turns = serde_json::json!([
+        {"role": "user", "content": "Refactor the reports module, and no console.log"},
+        {"role": "assistant", "content":
+            format!("Done:\n```ts\nconsole.log('{canary}');\n```")}
+    ]);
+    client
+        .post(format!("{api}/ingest"))
+        .json(&serde_json::json!({
+            "sessionId": "team-egress-1", "model": "gpt-4o", "turns": turns
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // Confirm the fixture really did violate a rule, or the test would pass vacuously.
+    let status: serde_json::Value = client
+        .get(format!("{api}/status"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        status["current"]["state"], "red",
+        "fixture must produce a real violation, or this proves nothing"
+    );
+
+    let preview: serde_json::Value = client
+        .get(format!(
+            "{api}/team/share-preview?packs=tight-scope&days=14"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(preview["entitled"], true);
+    let body = serde_json::to_string(&preview).unwrap();
+
+    for leak in [
+        canary,          // the violation's span — an excerpt of the model's own output
+        "team-egress-1", // the session id
+        "gpt-4o",        // the model
+        "console.log(",  // the offending code
+        "Refactor",      // the goal, derived from the user's own message
+    ] {
+        assert!(
+            !body.contains(leak),
+            "team share payload leaked '{leak}': {body}"
+        );
+    }
+
+    // The shared config IS present — otherwise the feature does nothing.
+    assert!(
+        body.contains("No new dependencies"),
+        "the selected pack's rules must be shared: {body}"
+    );
+
+    // And the withheld local rule is reported rather than silently dropped.
+    let withheld = preview["withheld"].as_str().unwrap_or_default();
+    assert!(
+        withheld.contains("stated in conversation"),
+        "the user must be told what was withheld and why: {preview}"
+    );
+}
+
+/// The gate: a plan without team sharing gets no payload at all, not an empty one.
+#[tokio::test]
+async fn team_sharing_is_gated_on_the_plan() {
+    use drifterr_proxy::control_router;
+    use drifterr_proxy::entitlement::Plan;
+
+    let cfg = ProxyConfig {
+        openai_upstream: "http://unused".into(),
+        anthropic_upstream: "http://unused".into(),
+        openai_strip_v1: false,
+    };
+    let state =
+        AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled).with_plan(Plan::Free);
+    let control = spawn(control_router(state)).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    let preview: serde_json::Value = client
+        .get(format!(
+            "http://{control}/team/share-preview?packs=tight-scope"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(preview["entitled"], false);
+    assert!(
+        preview.get("payload").is_none(),
+        "an unentitled plan must not even build a payload: {preview}"
+    );
+}
+
 // ---- C. runtime: chat relays only to the configured upstream -----------------
 
 async fn spawn(router: Router) -> SocketAddr {

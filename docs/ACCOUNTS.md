@@ -78,12 +78,48 @@ enforced — gating is a follow-up once the plumbing is proven.
    | Tracked sessions at once | 1 | ∞ | ∞ |
    | Drift map (history) | 🔒 | ✅ | ✅ |
    | Auto-re-anchor (proxy) | 🔒 | ✅ | ✅ |
-   | Shared standing orders · SSO | 🔒 | 🔒 | ✅ |
+   | Shared rule packs · team rule counts | 🔒 | 🔒 | ✅ |
+   | SSO | 🔒 | 🔒 | roadmap |
 
    The desktop app `POST`s the plan to the proxy's `/entitlement` after `/me`;
    `/status` then returns the active `entitlement` so the menubar can lock
    features and prompt to upgrade. Enforcement of session cap, drift map and
    auto-re-anchor is live; **team sharing / SSO** are the next hookups.
+
+5. ✅ **Teams** — shared rule packs and metadata-only rule counts
+   ([`supabase/migrations/0002_teams.sql`](../supabase/migrations/0002_teams.sql)).
+
+   This is the one feature that puts anything from a working session on a
+   server, so the boundary is enforced in three independent places rather than
+   documented once:
+
+   * **The client filter** ([`crates/proxy/src/team.rs`](../crates/proxy/src/team.rs))
+     builds the payload and drops everything that is not a shared pack or a
+     count keyed by a pack-scoped rule id. What it drops is counted and shown to
+     the user, never silently swallowed.
+   * **The database** `CHECK`-constrains `team_rule_stats.rule_id` to the
+     `pack:rule` shape, so a buggy or compromised client still cannot write a
+     session-local id.
+   * **CI** (`crates/proxy/tests/egress.rs`) drives a real violation through the
+     engine and asserts the payload contains no span, goal, session id, model
+     name or prompt text.
+
+   The subtle exclusion worth stating explicitly: a session-inferred rule id
+   (`c1`) names a constraint the engine **mined from the user's own messages**,
+   so publishing even the id-with-count would reveal that they said something.
+   Only pack-scoped ids — which refer to config both sides already have — are
+   shareable.
+
+   `GET /team/share-preview` returns the exact payload, so the user reads it
+   before anything is uploaded. The upload itself is performed by the layer that
+   holds the account session; the crate that can see chat content deliberately
+   carries no backend hostname, and CI enforces that too.
+
+   What a team gets for it is the one question an individual cannot answer:
+   **which of our rules actually catch things, and which only nag?**
+   `team_rule_leaderboard` aggregates counts across the team with no per-member
+   attribution. A rule with zero flags team-wide for a month is a rule to
+   delete.
 
    The judge (decision-coherence signal) always runs through the **user's own**
    model provider — Drifterr never hosts model calls, so no chat content ever

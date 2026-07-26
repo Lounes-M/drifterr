@@ -32,10 +32,13 @@ click. It runs as a quiet menubar app alongside the tools you already use.
 ## Why it's trustworthy
 
 - **Local-first.** Conversations live in local SQLite. **No chat content ever
-  leaves your machine**, and the app itself sends nothing at all — no telemetry, no
+  leaves your machine**, and the app sends nothing on its own — no telemetry, no
   analytics, no heartbeat. It runs with no account, in which case there is no
-  Drifterr server in the picture whatsoever; the only server-side component is
-  accounts & billing (identity + plan, nothing else). Not a promise —
+  Drifterr server in the picture whatsoever; the server-side components are
+  accounts & billing (identity + plan) and, on a Team plan, the rule packs and
+  rule counts **you explicitly choose to share** — never a span, a goal, a prompt,
+  a session id or a file path, and the panel prints the exact payload first. Not a
+  promise —
   [enforced in CI](crates/proxy/tests/egress.rs) and laid out at
   [drifterr.app/proof](https://drifterr.app/proof). (The marketing website does
   count its own page views — first-party, cookieless, no visitor id. The boundary
@@ -103,6 +106,22 @@ unlimited history, the drift map and automatic re-anchor injection — see
 sessions (`~/.claude/projects`) — no keys, no env vars, fully local. It warns at
 the exact turn a reply breaks one of your rules. (Override the watched dir with
 `DRIFTERR_WATCH_DIR`.)
+
+**Let the agent check itself.** Run `drifterr-proxy mcp --install` (or
+`claude mcp add drifterr -- drifterr-proxy mcp`) and the agent gets two tools:
+
+| Tool | What the agent asks |
+| --- | --- |
+| `drifterr_anchor` | "What did you actually ask for, which rules are in force, and what did you already reject?" |
+| `drifterr_check` | "Before I hand this back — does it break any of them?" |
+
+`drifterr_check` runs the **same deterministic rules as the live engine and CI**, over
+the engine's own rule objects rather than a re-parse of their labels, so a self-check,
+a menubar warning and a CI failure can never disagree. It is local, needs no model
+call, and reports rules it cannot verify as *unverified* rather than passing — an
+agent is never told "clean" about something nobody looked at. This is the one path
+where the violation simply doesn't happen: prevention costs one cheap local call,
+detection costs a wasted turn plus your attention.
 
 **Catch it *before* the reply, not after.** Run `drifterr-proxy hook --install` and
 add the printed block to `~/.claude/settings.json`. Drifterr then restates your goal
@@ -194,6 +213,10 @@ Honest state of each capability — no claim here overshoots what actually runs.
 | Re-anchor outcome tracking | ✅ shipped | Records whether the same cause stayed quiet afterwards — "held for 3 turns" / "broke again on turn 7". Undecided stays undecided |
 | Weekly report | ✅ shipped | `GET /report`, or the panel's **Last 7 days**. Flags grouped by cause; generated locally, offline |
 | Standing orders (cross-session rules) | ✅ shipped | |
+| MCP server (agent self-checks) | ✅ shipped | `drifterr-proxy mcp` gives the agent `drifterr_anchor` + `drifterr_check`, so a violation can be prevented rather than reported. Same rule objects as the engine — a self-check, a menubar warning and a CI failure cannot disagree ([`crates/proxy/src/mcp.rs`](crates/proxy/src/mcp.rs)) |
+| Rule packs (portable, shareable) | ✅ shipped | Natural-language rules, never compiled regexes, so a pack stays reviewable and improves as inference does. Apply to a session, or splice into `CLAUDE.md` so the agent is told too. Shipped packs live in [`packs/`](packs/) under CC BY ([`crates/engine/src/pack.rs`](crates/engine/src/pack.rs)) |
+| CI mode (`drifterr-proxy check`) | ✅ shipped | Same deterministic rules over a diff, with GitHub annotations. Exits 2 — never 0 — when nothing was verifiable, so a misconfigured check can't read as a passing one ([`.github/actions/drifterr-check`](.github/actions/drifterr-check)) |
+| Team sharing (packs + rule counts) | ✅ shipped | Shared packs and per-rule counts, gated on the Team plan. Rule names and counts only: no spans, goals, prompts, session ids, file paths or model names, and a session-inferred rule id is withheld because publishing even the id reveals that the user said something. Enforced in the client filter, a database `CHECK`, and CI ([`crates/proxy/src/team.rs`](crates/proxy/src/team.rs)) |
 | Menubar app (tray + panel) | ✅ shipped | Auto-hide on blur, resumes state |
 | Rules-file import (`CLAUDE.md`, `.cursor/rules`) | ✅ shipped | Checkable rules imported automatically from the project's own rules file — nothing to retype ([`crates/engine/src/rules_file.rs`](crates/engine/src/rules_file.rs)) |
 | Exact saturation on non-proxy channels | ❌ **not possible** | Investigated and rejected with measurements. A Claude Code transcript's `usage` records are cumulative billing counters (one real session: 679,390 "prompt" tokens against a 200k window, 676/851 records over it), and the transcript itself outlives context compaction with no marker for where. Occupancy is unknowable from a file, so the channel reports a **lower bound** and the hard signal abstains from RED rather than crying wolf. Exactness stays proxy-only |
@@ -201,6 +224,7 @@ Honest state of each capability — no claim here overshoots what actually runs.
 | Egress guarantee (CI-enforced) | ✅ shipped | [`crates/proxy/tests/egress.rs`](crates/proxy/tests/egress.rs) |
 | Browser extension (MV3) | 🚧 partial | Built and working; **not store-published**, so it's a manual install |
 | Signed / notarized desktop builds | 🚧 partial | Pipeline is in place ([`.github/workflows/release.yml`](.github/workflows/release.yml)); **certificates not yet provisioned**, so releases still ship unsigned and the OS warns on first launch |
+| Open evaluation corpus | ✅ shipped | [`fixtures/`](fixtures/), [`eval/`](eval/) and [`packs/`](packs/) are **CC BY 4.0** while the engine stays proprietary, so the accuracy claims are independently verifiable and a contributor's annotation work isn't locked to one vendor |
 | Validated on a real corpus | 📋 planned | **The honest state:** detection is validated against 8 hand-written fixtures in [`eval/`](eval/), authored by the same person who wrote the engine, and [`eval/blind/`](eval/blind/) is still empty. That is enough to catch regressions and nowhere near enough to publish an accuracy number — so we don't. The next real milestone is a few hundred annotated sessions and a held-out blind split |
 
 ## More docs

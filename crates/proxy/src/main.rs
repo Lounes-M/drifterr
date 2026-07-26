@@ -46,6 +46,13 @@ async fn main() {
         std::process::exit(run_check());
     }
 
+    // `drifterr-proxy mcp` — the MCP server. Owns stdio (it *is* the transport), so it
+    // must run before anything that might log to stdout.
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        run_mcp().await;
+        return;
+    }
+
     let proxy_addr: SocketAddr = env_or("DRIFTERR_PROXY_ADDR", "127.0.0.1:8787")
         .parse()
         .expect("invalid DRIFTERR_PROXY_ADDR");
@@ -303,6 +310,63 @@ async fn run_hook() {
     }
 }
 
+/// `drifterr-proxy mcp` — serve the anchor and the rule checker as MCP tools.
+///
+/// This is the shift from detection to prevention: instead of telling the user afterwards
+/// that a rule was broken, the agent can ask what the rules are and check its own work
+/// before handing it over. See `mcp.rs` for why that is a different product.
+///
+/// Stdout is the transport, so nothing else may ever be printed there — diagnostics go to
+/// stderr, which MCP clients surface as server logs.
+async fn run_mcp() {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    let args: Vec<String> = std::env::args().skip(2).collect();
+
+    if args.iter().any(|a| a == "--install") {
+        let exe = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.to_str().map(str::to_string))
+            .unwrap_or_else(|| "drifterr-proxy".to_string());
+        println!("Add this to ~/.claude/settings.json (merging with what's there):\n");
+        println!("{}", drifterr_proxy::mcp::install_snippet(&exe));
+        println!(
+            "\nOr, for one project only:  claude mcp add drifterr -- {exe} mcp\n\n\
+             The agent then gets two tools:\n  \
+               drifterr_anchor  what you asked for, the rules in force, what you rejected\n  \
+               drifterr_check   does this work break any of them? (local, deterministic)\n\n\
+             This is prevention rather than detection: a violation the agent catches itself\n\
+             costs one cheap local call, while one Drifterr catches afterwards costs a\n\
+             wasted turn and your attention.\n\n\
+             Both tools read from the running app, so keep Drifterr open."
+        );
+        return;
+    }
+
+    let control = env_or("DRIFTERR_CONTROL_ADDR", "127.0.0.1:8788");
+    let api_base = format!("http://{control}");
+    eprintln!("drifterr mcp: serving drifterr_anchor + drifterr_check (anchor from {api_base})");
+
+    // The anchor is refreshed per tool call rather than cached for the process: an MCP
+    // server outlives many turns, and reporting the goal the user has since changed would
+    // be worse than not reporting one at all.
+    let mut anchor = drifterr_proxy::mcp::Anchor::default();
+    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if drifterr_proxy::mcp::needs_anchor(&line) {
+            anchor = drifterr_proxy::mcp::fetch_anchor(&api_base).await;
+        }
+        if let Some(response) = drifterr_proxy::mcp::handle(&line, &anchor) {
+            // Rust's stdout is line-buffered, so a newline is the flush the client waits
+            // on. Without it the agent hangs on every call.
+            println!("{response}");
+        }
+    }
+}
+
 async fn run_init() {
     let control = env_or("DRIFTERR_CONTROL_ADDR", "127.0.0.1:8788");
     let proxy = env_or("DRIFTERR_PROXY_ADDR", "127.0.0.1:8787");
@@ -315,6 +379,11 @@ async fn run_init() {
         println!("  ✓ Claude Code detected ({})", dir.display());
         println!("    Nothing to configure — the app watches your sessions.");
         println!("    Just declare your intent in the panel and keep coding.");
+        // Detection is the floor, not the ceiling. Say so here, where someone is
+        // already set up and deciding what else to switch on.
+        println!("\n    To prevent drift rather than report it:");
+        println!("      drifterr-proxy mcp --install    # the agent checks its own work");
+        println!("      drifterr-proxy hook --install    # re-anchor before a drifting turn");
     } else {
         println!("  • Claude Code not detected (no ~/.claude/projects).");
     }
