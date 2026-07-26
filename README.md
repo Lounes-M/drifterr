@@ -196,6 +196,7 @@ Honest state of each capability — no claim here overshoots what actually runs.
 | Standing orders (cross-session rules) | ✅ shipped | |
 | Menubar app (tray + panel) | ✅ shipped | Auto-hide on blur, resumes state |
 | Rules-file import (`CLAUDE.md`, `.cursor/rules`) | ✅ shipped | Checkable rules imported automatically from the project's own rules file — nothing to retype ([`crates/engine/src/rules_file.rs`](crates/engine/src/rules_file.rs)) |
+| Exact saturation on non-proxy channels | ❌ **not possible** | Investigated and rejected with measurements. A Claude Code transcript's `usage` records are cumulative billing counters (one real session: 679,390 "prompt" tokens against a 200k window, 676/851 records over it), and the transcript itself outlives context compaction with no marker for where. Occupancy is unknowable from a file, so the channel reports a **lower bound** and the hard signal abstains from RED rather than crying wolf. Exactness stays proxy-only |
 | Detection eval harness + release gate | ✅ shipped | Metrics + zero-hard-FP gate, tunable thresholds ([`eval/thresholds.conf`](eval/thresholds.conf), [`eval/SCHEMA.md`](eval/SCHEMA.md)) |
 | Egress guarantee (CI-enforced) | ✅ shipped | [`crates/proxy/tests/egress.rs`](crates/proxy/tests/egress.rs) |
 | Browser extension (MV3) | 🚧 partial | Built and working; **not store-published**, so it's a manual install |

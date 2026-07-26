@@ -29,8 +29,15 @@ pub const RED_FILL_RATE: f32 = 0.10;
 pub fn evaluate(conv: &Conversation) -> SignalEvent {
     let ratio = conv.saturation_ratio();
     let fill_rate = fill_rate(conv);
+    // Occupancy we cannot vouch for must not drive a red. See
+    // `ContextState::occupancy_known`: on a channel whose transcript outlives a context
+    // compaction, the token sum is a lower bound on what was ever said, not a measure of
+    // what the window currently holds. A hard signal firing on that would be crying
+    // wolf, which `CLAUDE.md` treats as the one unforgivable failure — so it caps at
+    // AMBER and says why.
+    let known = conv.context.occupancy_known;
 
-    let state = if ratio >= RED_RATIO || fill_rate >= RED_FILL_RATE {
+    let state = if known && (ratio >= RED_RATIO || fill_rate >= RED_FILL_RATE) {
         State::Red
     } else if ratio >= AMBER_RATIO {
         State::Amber
@@ -44,11 +51,21 @@ pub fn evaluate(conv: &Conversation) -> SignalEvent {
     } else {
         "estimated"
     };
-    let mut detail = format!(
-        "context {pct}% full ({precision}: {}/{} tokens)",
-        conv.context.used_tokens, conv.context.window_size
-    );
-    if fill_rate >= RED_FILL_RATE {
+    let mut detail = if known {
+        format!(
+            "context {pct}% full ({precision}: {}/{} tokens)",
+            conv.context.used_tokens, conv.context.window_size
+        )
+    } else {
+        format!(
+            "context at least {pct}% full ({}/{} tokens seen); true occupancy unknown — \
+             this transcript spans a context compaction",
+            conv.context.used_tokens, conv.context.window_size
+        )
+    };
+    // Fill rate is derived from the same unreliable sum, so it is only worth mentioning
+    // when occupancy means something.
+    if known && fill_rate >= RED_FILL_RATE {
         detail.push_str(&format!(", filling fast ({:.0}%/turn)", fill_rate * 100.0));
     }
     if conv.context.tool_call_count > 0 {
@@ -104,6 +121,7 @@ mod tests {
                 window_size: window,
                 used_tokens: used,
                 exact: true,
+                occupancy_known: true,
                 tool_call_count: tools,
             },
             source: Source::Proxy,
@@ -131,6 +149,46 @@ mod tests {
     fn red_on_fill_rate_even_if_low_occupancy() {
         // 40% reached in only 2 turns ⇒ 20%/turn ⇒ RED despite <55% occupancy.
         assert_eq!(evaluate(&conv(4000, 10000, 2, 0)).state, State::Red);
+    }
+
+    /// The guardrail: occupancy we cannot vouch for must never drive RED.
+    ///
+    /// On a channel whose transcript outlives a context compaction, the token sum is a
+    /// lower bound on what was ever said rather than a measure of what the window holds.
+    /// A hard signal firing on that is crying wolf — and it would fire on *every* long
+    /// session, not occasionally.
+    #[test]
+    fn unknown_occupancy_never_drives_red() {
+        let unknown = |used, window, turns| Conversation {
+            context: ContextState {
+                occupancy_known: false,
+                exact: false,
+                ..conv(used, window, turns, 0).context
+            },
+            ..conv(used, window, turns, 0)
+        };
+
+        // A full-looking window: RED when known, capped at AMBER when not.
+        assert_eq!(evaluate(&conv(9_900, 10_000, 20, 0)).state, State::Red);
+        let ev = evaluate(&unknown(9_900, 10_000, 20));
+        assert_eq!(ev.state, State::Amber, "must abstain from RED");
+        assert!(
+            ev.evidence.detail.contains("at least") && ev.evidence.detail.contains("unknown"),
+            "must explain that this is a lower bound: {}",
+            ev.evidence.detail
+        );
+        assert!(
+            !ev.evidence.detail.contains("filling fast"),
+            "fill rate comes from the same unreliable sum and must not be quoted: {}",
+            ev.evidence.detail
+        );
+
+        // The fill-rate path is gated too: 40% in 2 turns is RED when known.
+        assert_eq!(evaluate(&conv(4_000, 10_000, 2, 0)).state, State::Red);
+        assert_ne!(evaluate(&unknown(4_000, 10_000, 2)).state, State::Red);
+
+        // And a genuinely low reading still reads green — abstention is not alarm.
+        assert_eq!(evaluate(&unknown(1_000, 10_000, 10)).state, State::Green);
     }
 
     #[test]

@@ -45,6 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             window_size: 200_000,
             used_tokens: 12_000,
             exact: true,
+            occupancy_known: true,
             tool_call_count: 0,
         },
         source: Source::Proxy,

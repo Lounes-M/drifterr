@@ -1078,6 +1078,10 @@ pub fn browser_conversation(
             window_size: context_window(&model),
             used_tokens: used,
             exact: false,
+            // The extension scrapes the *visible* conversation, which is the live
+            // context — an estimate of the right quantity, unlike an append-only
+            // transcript that outlives a compaction.
+            occupancy_known: true,
             tool_call_count: 0,
         },
         session_id,
@@ -1179,6 +1183,9 @@ fn build_conversation(
             window_size: drifterr_tokenizer::context_window(&req.model),
             used_tokens,
             exact,
+            // The proxy sees the actual `messages` array for this request, so occupancy
+            // is exactly the live context by construction.
+            occupancy_known: true,
             tool_call_count: req.tool_call_count,
         },
         source: Source::Proxy,

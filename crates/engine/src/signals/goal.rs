@@ -212,6 +212,7 @@ mod tests {
                 window_size: 1000,
                 used_tokens: 10,
                 exact: true,
+                occupancy_known: true,
                 tool_call_count: 0,
             },
             source: Source::Proxy,

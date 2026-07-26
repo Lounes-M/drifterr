@@ -45,8 +45,30 @@ pub struct ContextState {
     /// whether to present the saturation percentage as truth or estimate. We
     /// never lie about precision.
     pub exact: bool,
+    /// Whether `used_tokens` describes the *live* context at all.
+    ///
+    /// Distinct from [`exact`](Self::exact), which is about precision. This is about
+    /// meaning: an append-only transcript that outlives a context compaction records
+    /// more conversation than the model can be holding, and nothing in it says where
+    /// the reset happened. Summing it answers "how much was ever said", not "how full
+    /// is the window" — a different question with a superficially similar answer.
+    ///
+    /// When this is false, occupancy is a **lower bound** and saturation must not drive
+    /// RED. Measured on a real 178-turn Claude Code session: the previous text-only sum
+    /// reported 8% for a context that had already compacted (so the hard signal was
+    /// effectively switched off), while naively counting everything reports over 100%
+    /// (a false RED — the one unforgivable failure per `CLAUDE.md`). Neither is
+    /// honest, so the adapter says "unknown" instead and the signal abstains.
+    ///
+    /// Defaults to `true` so every existing fixture and eval case stays valid.
+    #[serde(rename = "occupancyKnown", default = "default_true")]
+    pub occupancy_known: bool,
     #[serde(rename = "toolCallCount")]
     pub tool_call_count: usize,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Where a conversation came from.
