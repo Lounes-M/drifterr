@@ -1157,3 +1157,105 @@ async fn claude_code_hook_injects_only_on_a_drifting_pro_session() {
         "an unreachable Drifterr must inject nothing"
     );
 }
+
+/// Rule packs end to end: list, apply, export, and round-trip through a rules file.
+#[tokio::test]
+async fn rule_packs_apply_and_export() {
+    let cfg = ProxyConfig {
+        openai_upstream: "http://unused".into(),
+        anthropic_upstream: "http://unused".into(),
+        openai_strip_v1: false,
+    };
+    let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled);
+    let control = spawn(control_router(state)).await;
+    let client = client();
+    let api = format!("http://{control}");
+
+    // The catalogue states up front how much of each pack is actually enforceable.
+    let packs: serde_json::Value = client
+        .get(format!("{api}/packs"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let list = packs.as_array().unwrap();
+    assert!(list.len() >= 3, "built-in packs are listed");
+    for p in list {
+        assert!(
+            p["advisory"].as_array().unwrap().is_empty(),
+            "a curated pack must be fully enforceable: {p}"
+        );
+        assert!(p["enforceable"].as_u64().unwrap() > 0);
+    }
+
+    // Applying a pack seeds the intent, so the rules govern the next session.
+    let applied: serde_json::Value = client
+        .post(format!("{api}/packs/apply"))
+        .json(&serde_json::json!({"id": "typescript-strict"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(applied["applied"], 4);
+    assert!(applied["advisory"].as_array().unwrap().is_empty());
+
+    let intent: serde_json::Value = client
+        .get(format!("{api}/intent"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let texts: Vec<String> = intent["constraints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["text"].as_str().unwrap_or("").to_string())
+        .collect();
+    assert!(
+        texts.iter().any(|t| t.contains("any")),
+        "pack rules reached the anchor: {texts:?}"
+    );
+
+    // An unknown pack id is a 404, not a silent no-op.
+    let missing = client
+        .post(format!("{api}/packs/apply"))
+        .json(&serde_json::json!({"id": "no-such-pack"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), 404);
+
+    // An inline pack from outside is untrusted input and must be validated.
+    let bad = client
+        .post(format!("{api}/packs/apply"))
+        .json(&serde_json::json!({"pack": {"drifterrPack": 99, "name": "Future", "rules": []}}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        bad.status(),
+        400,
+        "a newer schema is refused, not guessed at"
+    );
+
+    // Export renders markdown for a rules file — the cross-tool direction.
+    let md = client
+        .get(format!("{api}/packs/export?markdown=true&name=Mine"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(
+        md.contains("drifterr:begin"),
+        "managed markers present: {md}"
+    );
+    assert!(md.contains("## Mine"));
+}

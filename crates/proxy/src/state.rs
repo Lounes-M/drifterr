@@ -1029,6 +1029,46 @@ impl AppCore {
     }
 
     /// All standing orders (for the control API).
+    /// Export the user's promoted standing orders as a portable pack.
+    ///
+    /// This is what makes standing orders more than a per-install curiosity: the rules
+    /// you keep repeating become a file you can carry to the next project, commit to a
+    /// repo, or hand to a teammate. Only *promoted* orders are exported — candidates are
+    /// guesses the user hasn't accepted, and shipping guesses into a shared artefact is
+    /// how a pack stops being trustworthy.
+    pub fn export_pack(&self, name: &str) -> drifterr_engine::pack::Pack {
+        let texts: Vec<String> = self
+            .store
+            .as_ref()
+            .and_then(|s| s.lock().ok())
+            .and_then(|s| s.promoted_standing_orders().ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|o| o.text)
+            .collect();
+        drifterr_engine::pack::Pack::from_texts(name, &texts)
+    }
+
+    /// Apply a pack to a session's baseline (or stage it for the next session).
+    ///
+    /// Returns the rule ids that could not be turned into a deterministic check, so the
+    /// caller can tell the user which rules are advisory rather than letting them assume
+    /// everything is enforced.
+    pub fn apply_pack(
+        &mut self,
+        session: Option<&str>,
+        pack_id: &str,
+        pack: &drifterr_engine::pack::Pack,
+    ) -> Vec<String> {
+        let applied = pack.apply(pack_id);
+        let texts: Vec<String> = applied.enforced.iter().map(|c| c.text.clone()).collect();
+        // Reuse the declared-intent path so a pack behaves exactly like the user typing
+        // those rules: same dedup, same persistence, same pending-intent seeding when no
+        // session exists yet.
+        self.set_intent(session, "", &texts);
+        applied.advisory
+    }
+
     pub fn standing_orders(&self) -> Vec<drifterr_store::StandingOrder> {
         self.store
             .as_ref()

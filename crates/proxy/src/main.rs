@@ -40,6 +40,12 @@ async fn main() {
         return;
     }
 
+    // `drifterr-proxy check` — CI mode. Reads agent output on stdin (or a file) and exits
+    // non-zero on a constraint violation.
+    if std::env::args().nth(1).as_deref() == Some("check") {
+        std::process::exit(run_check());
+    }
+
     let proxy_addr: SocketAddr = env_or("DRIFTERR_PROXY_ADDR", "127.0.0.1:8787")
         .parse()
         .expect("invalid DRIFTERR_PROXY_ADDR");
@@ -112,6 +118,143 @@ fn env_or(key: &str, default: &str) -> String {
 /// One-command setup. Detects the AI tool and provider from the environment,
 /// prints the exact config to use, and checks whether the proxy is reachable.
 /// Read-only and side-effect-free — it never writes files or contacts a provider.
+/// `drifterr-proxy check` — run the constraint rules over agent output in CI.
+///
+/// Exits 0 when clean, 1 on a violation, 2 on a usage error. The distinction matters: a
+/// misconfigured check must not look like a passing one, which is why "nothing was
+/// checked" is also an error rather than a cheerful zero.
+fn run_check() -> i32 {
+    use std::io::Read;
+
+    let args: Vec<String> = std::env::args().skip(2).collect();
+    let mut rules_path: Option<String> = None;
+    let mut pack_id: Option<String> = None;
+    let mut pack_path: Option<String> = None;
+    let mut input_path: Option<String> = None;
+    let mut warn_only = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--rules" => {
+                rules_path = args.get(i + 1).cloned();
+                i += 2;
+            }
+            "--pack" => {
+                pack_id = args.get(i + 1).cloned();
+                i += 2;
+            }
+            "--pack-file" => {
+                pack_path = args.get(i + 1).cloned();
+                i += 2;
+            }
+            "--input" => {
+                input_path = args.get(i + 1).cloned();
+                i += 2;
+            }
+            // For adopting the check on an existing repo without blocking everyone on
+            // day one: report violations, exit 0. A team that cannot start gradually
+            // usually does not start.
+            "--warn-only" => {
+                warn_only = true;
+                i += 1;
+            }
+            "--help" | "-h" => {
+                println!(
+                    "Check agent output against the rules you stated.\n\n\
+                     USAGE:\n  \
+                       git diff origin/main... | drifterr-proxy check --rules CLAUDE.md\n  \
+                       drifterr-proxy check --pack tight-scope --input patch.diff\n\n\
+                     OPTIONS:\n  \
+                       --rules <file>      a rules file (CLAUDE.md, AGENTS.md, .cursor/rules)\n  \
+                       --pack <id>         a built-in rule pack\n  \
+                       --pack-file <file>  a rule pack JSON file\n  \
+                       --input <file>      read from a file instead of stdin\n  \
+                       --warn-only         report violations but exit 0\n\n\
+                     EXIT CODES:\n  \
+                       0 clean · 1 violation · 2 usage error (including nothing to check)\n"
+                );
+                return 0;
+            }
+            other => {
+                eprintln!("drifterr check: unknown argument {other}");
+                return 2;
+            }
+        }
+    }
+
+    if rules_path.is_none() && pack_id.is_none() && pack_path.is_none() {
+        eprintln!(
+            "drifterr check: nothing to check against. Pass --rules, --pack or --pack-file.\n\
+             Refusing to exit 0, because a check with no rules is not a passing check."
+        );
+        return 2;
+    }
+
+    let read = |p: &str| -> Result<String, String> {
+        std::fs::read_to_string(p).map_err(|e| format!("cannot read {p}: {e}"))
+    };
+    let rules_text = match rules_path.as_deref().map(read) {
+        Some(Ok(t)) => Some(t),
+        Some(Err(e)) => {
+            eprintln!("drifterr check: {e}");
+            return 2;
+        }
+        None => None,
+    };
+    let pack_json = match pack_path.as_deref().map(read) {
+        Some(Ok(t)) => Some(t),
+        Some(Err(e)) => {
+            eprintln!("drifterr check: {e}");
+            return 2;
+        }
+        None => None,
+    };
+
+    let (constraints, unchecked) = match drifterr_proxy::check::load(
+        rules_text.as_deref(),
+        pack_id.as_deref(),
+        pack_json.as_deref(),
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("drifterr check: {e}");
+            return 2;
+        }
+    };
+
+    // Content to inspect: a file, or stdin (the `git diff | …` case).
+    let content = match input_path.as_deref().map(read) {
+        Some(Ok(t)) => t,
+        Some(Err(e)) => {
+            eprintln!("drifterr check: {e}");
+            return 2;
+        }
+        None => {
+            let mut buf = String::new();
+            if std::io::stdin().read_to_string(&mut buf).is_err() {
+                eprintln!("drifterr check: could not read stdin");
+                return 2;
+            }
+            buf
+        }
+    };
+
+    let report = drifterr_proxy::check::check_with(&content, constraints, unchecked);
+    let gha = std::env::var_os("GITHUB_ACTIONS").is_some();
+    print!("{}", report.render(gha));
+
+    if report.checked == 0 {
+        // Already explained by `render`. Exit 2, never 0 — a check that verified nothing
+        // must not be mistaken for a clean run.
+        return 2;
+    }
+    if report.ok() || warn_only {
+        0
+    } else {
+        1
+    }
+}
+
 /// `drifterr-proxy hook` — Claude Code `UserPromptSubmit` integration.
 ///
 /// This is what makes automatic re-anchoring real on the zero-config path. The file

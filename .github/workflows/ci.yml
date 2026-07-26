@@ -169,3 +169,41 @@ jobs:
 
       - name: Run landing tests
         run: npm test
+
+  # Drifterr checking its own pull requests against its own CLAUDE.md.
+  #
+  # This is the CI mode (`drifterr-proxy check`) dogfooded: the rules the repo already
+  # states for its agents become an enforced gate on the diff. If the check is not good
+  # enough to run here, it is not good enough to sell.
+  #
+  # `--warn-only` for now: the rule set is small and the repo predates it, so blocking
+  # every PR on day one would just get the job deleted. Drop the flag once the rules have
+  # earned it.
+  self-check:
+    name: Drifterr rule check (self)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the checker
+        run: cargo build --quiet --release -p drifterr-proxy --bin drifterr-proxy
+
+      - name: Check this diff against CLAUDE.md
+        run: |
+          set -uo pipefail
+          BASE="${GITHUB_BASE_REF:-}"
+          if [ -n "$BASE" ]; then
+            git fetch --quiet origin "$BASE"
+            git diff "origin/$BASE"... > diff.patch
+          else
+            git diff HEAD~1 > diff.patch || : > diff.patch
+          fi
+          # Fenced, because the engine scopes code rules to fenced blocks — a filename in
+          # prose must never count as touching that file.
+          { echo '```diff'; cat diff.patch; echo '```'; } \
+            | ./target/release/drifterr-proxy check --rules CLAUDE.md --warn-only

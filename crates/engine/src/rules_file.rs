@@ -92,6 +92,42 @@ pub fn constraints_from_text(text: &str, id_prefix: &str) -> Vec<Constraint> {
     out
 }
 
+/// Statements that read like rules but produced no check.
+///
+/// [`constraints_from_text`] is precision-oriented: prose it cannot verify is silently
+/// skipped, which is right for the live engine — a hard signal must not guess. But
+/// silence is the wrong answer when a *user* wants to know what they're covered for. A
+/// rule sitting in someone's `CLAUDE.md` that Drifterr cannot check is exactly the thing
+/// they need told, because otherwise they reasonably assume it is enforced.
+///
+/// Uses [`infer::has_constraint_cue`], which is deliberately recall-oriented, so a line
+/// that merely *sounds* like a rule is reported. Over-reporting here is cheap (the user
+/// glances and moves on); under-reporting is a false assurance.
+pub fn unchecked_statements(text: &str) -> Vec<String> {
+    let prose = strip_code_blocks(text);
+    let mut out = Vec::new();
+    for line in prose.lines() {
+        let stmt = statement(line);
+        if stmt.is_empty() || stmt.chars().count() > MAX_LINE_CHARS {
+            continue;
+        }
+        if !infer::has_constraint_cue(stmt) {
+            continue;
+        }
+        if !infer::infer_rules(stmt).is_empty() {
+            continue; // checkable — not our problem
+        }
+        let owned = stmt.to_string();
+        if !out.contains(&owned) {
+            out.push(owned);
+        }
+        if out.len() >= MAX_IMPORTED {
+            break;
+        }
+    }
+    out
+}
+
 /// Reduce one raw line to the sentence it asserts, or `""` if it asserts nothing.
 ///
 /// Strips Markdown list markers, heading hashes, blockquote arrows, checkbox
