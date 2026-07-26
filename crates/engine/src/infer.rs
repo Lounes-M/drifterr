@@ -632,10 +632,9 @@ fn literal_between(pattern: &str, before: &str, after: &str) -> Option<String> {
     let mut chars = escaped.chars();
     while let Some(c) = chars.next() {
         if c == '\\' {
-            match chars.next() {
-                Some(n) => out.push(n),
-                None => return None,
-            }
+            // A trailing lone backslash means this isn't output of `regex::escape`, so
+            // there is no path to recover — bail rather than invent one.
+            out.push(chars.next()?);
         } else {
             out.push(c);
         }
