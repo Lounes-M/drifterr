@@ -26,6 +26,10 @@ CREATE TABLE IF NOT EXISTS context_state (
   window_size INTEGER NOT NULL,
   used_tokens INTEGER NOT NULL,
   exact       INTEGER NOT NULL,   -- 0/1
+  -- 0/1, defaulting to 1 so rows written before this column existed keep their meaning.
+  -- False = used_tokens is a lower bound, not live occupancy (transcript spans a
+  -- compaction). See ContextState::occupancy_known.
+  occupancy_known INTEGER NOT NULL DEFAULT 1,
   tool_calls  INTEGER NOT NULL
 );
 

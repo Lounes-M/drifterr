@@ -1,0 +1,23 @@
+{
+  "drifterrPack": 1,
+  "name": "TypeScript strict",
+  "description": "Keep an agent from loosening types or leaving debug code behind.",
+  "rules": [
+    {
+      "id": "no-any",
+      "text": "Never use `any` types"
+    },
+    {
+      "id": "no-console",
+      "text": "No console.log in committed code"
+    },
+    {
+      "id": "no-js",
+      "text": "TypeScript only, no JS files"
+    },
+    {
+      "id": "no-todo",
+      "text": "Never leave TODOs or FIXMEs"
+    }
+  ]
+}

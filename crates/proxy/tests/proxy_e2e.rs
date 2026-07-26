@@ -1055,6 +1055,129 @@ async fn judge_can_be_configured_at_runtime() {
     assert_eq!(off["enabled"], false);
 }
 
+/// The MCP server against a live control API.
+///
+/// This is the prevention path, so what matters is that an agent asking "what are the
+/// rules?" gets the *live* answer — the goal the user typed a moment ago and the approaches
+/// they rejected mid-session — and that self-checking gives the same verdict the engine
+/// would have raised afterwards. A stale or empty anchor here is worse than no MCP server,
+/// because the agent would act on it confidently.
+#[tokio::test]
+async fn mcp_tools_read_the_live_anchor_and_agree_with_the_engine() {
+    let cfg = ProxyConfig {
+        openai_upstream: "http://unused".into(),
+        anthropic_upstream: "http://unused".into(),
+        openai_strip_v1: false,
+    };
+    let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled);
+    let control = spawn(control_router(state)).await;
+    let client = client();
+    let api = format!("http://{control}");
+
+    // A session with a rejected decision stated in it, which is exactly the thing an agent
+    // reintroduces a dozen turns later having forgotten.
+    let turns = serde_json::json!([
+        {"role": "user", "content": "Add a CSV export to the reports page. Don't touch package.json, and no new dependencies."},
+        {"role": "assistant", "content": "Understood."},
+        {"role": "user", "content": "No, we're not going to use lodash for this."}
+    ]);
+    client
+        .post(format!("{api}/ingest"))
+        .json(&serde_json::json!({"sessionId": "mcp-1", "model": "gpt-4o", "turns": turns}))
+        .send()
+        .await
+        .unwrap();
+
+    let anchor = drifterr_proxy::mcp::fetch_anchor(&api).await;
+    assert!(
+        !anchor.constraints.is_empty(),
+        "the anchor must carry the constraints the user stated: {anchor:?}"
+    );
+    assert!(
+        anchor
+            .constraints
+            .iter()
+            .any(|c| c.text.to_lowercase().contains("package.json")),
+        "constraints: {:?}",
+        anchor.constraints
+    );
+    assert!(
+        anchor
+            .constraints
+            .iter()
+            .filter(|c| c.text.to_lowercase().contains("package.json"))
+            .all(|c| c.rule.is_some()),
+        "the rule must survive the control API, or the self-check silently checks less"
+    );
+
+    let ask = |method: &str, params: serde_json::Value| {
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}).to_string()
+    };
+    let text_of = |resp: String| -> String {
+        let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+        assert!(v.get("error").is_none(), "unexpected error: {v}");
+        v["result"]["content"][0]["text"].as_str().unwrap().into()
+    };
+
+    // The anchor tool restates what the user asked for.
+    let text = text_of(
+        drifterr_proxy::mcp::handle(
+            &ask(
+                "tools/call",
+                serde_json::json!({"name":"drifterr_anchor","arguments":{}}),
+            ),
+            &anchor,
+        )
+        .unwrap(),
+    );
+    assert!(text.contains("package.json"), "{text}");
+
+    // And the checker refuses the work that would have broken it — the same verdict the
+    // engine raises after the fact, one turn earlier.
+    let text = text_of(
+        drifterr_proxy::mcp::handle(
+            &ask(
+                "tools/call",
+                serde_json::json!({
+                    "name": "drifterr_check",
+                    "arguments": {"content": "```diff\n--- a/package.json\n+++ b/package.json\n@@\n+  \"csv\": \"^1\"\n```"}
+                }),
+            ),
+            &anchor,
+        )
+        .unwrap(),
+    );
+    assert!(text.starts_with("VIOLATION"), "{text}");
+    assert!(text.contains("package.json"), "{text}");
+
+    // With Drifterr not running, the tools must say nothing is pinned rather than report
+    // an empty rule set as a clean bill of health.
+    let none = drifterr_proxy::mcp::fetch_anchor("http://127.0.0.1:1").await;
+    assert!(none.goal.is_empty() && none.constraints.is_empty());
+    let text = text_of(
+        drifterr_proxy::mcp::handle(
+            &ask(
+                "tools/call",
+                serde_json::json!({"name":"drifterr_anchor","arguments":{}}),
+            ),
+            &none,
+        )
+        .unwrap(),
+    );
+    assert!(text.contains("No intent is currently pinned"), "{text}");
+    let text = text_of(
+        drifterr_proxy::mcp::handle(
+            &ask(
+                "tools/call",
+                serde_json::json!({"name":"drifterr_check","arguments":{"content":"anything"}}),
+            ),
+            &none,
+        )
+        .unwrap(),
+    );
+    assert!(text.contains("NOT a pass"), "{text}");
+}
+
 /// The Claude Code hook against a live control API.
 ///
 /// Covers the property that matters most: the hook sits in the path of a keypress, so
@@ -1156,4 +1279,106 @@ async fn claude_code_hook_injects_only_on_a_drifting_pro_session() {
         out.is_empty(),
         "an unreachable Drifterr must inject nothing"
     );
+}
+
+/// Rule packs end to end: list, apply, export, and round-trip through a rules file.
+#[tokio::test]
+async fn rule_packs_apply_and_export() {
+    let cfg = ProxyConfig {
+        openai_upstream: "http://unused".into(),
+        anthropic_upstream: "http://unused".into(),
+        openai_strip_v1: false,
+    };
+    let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled);
+    let control = spawn(control_router(state)).await;
+    let client = client();
+    let api = format!("http://{control}");
+
+    // The catalogue states up front how much of each pack is actually enforceable.
+    let packs: serde_json::Value = client
+        .get(format!("{api}/packs"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let list = packs.as_array().unwrap();
+    assert!(list.len() >= 3, "built-in packs are listed");
+    for p in list {
+        assert!(
+            p["advisory"].as_array().unwrap().is_empty(),
+            "a curated pack must be fully enforceable: {p}"
+        );
+        assert!(p["enforceable"].as_u64().unwrap() > 0);
+    }
+
+    // Applying a pack seeds the intent, so the rules govern the next session.
+    let applied: serde_json::Value = client
+        .post(format!("{api}/packs/apply"))
+        .json(&serde_json::json!({"id": "typescript-strict"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(applied["applied"], 4);
+    assert!(applied["advisory"].as_array().unwrap().is_empty());
+
+    let intent: serde_json::Value = client
+        .get(format!("{api}/intent"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let texts: Vec<String> = intent["constraints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["text"].as_str().unwrap_or("").to_string())
+        .collect();
+    assert!(
+        texts.iter().any(|t| t.contains("any")),
+        "pack rules reached the anchor: {texts:?}"
+    );
+
+    // An unknown pack id is a 404, not a silent no-op.
+    let missing = client
+        .post(format!("{api}/packs/apply"))
+        .json(&serde_json::json!({"id": "no-such-pack"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), 404);
+
+    // An inline pack from outside is untrusted input and must be validated.
+    let bad = client
+        .post(format!("{api}/packs/apply"))
+        .json(&serde_json::json!({"pack": {"drifterrPack": 99, "name": "Future", "rules": []}}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        bad.status(),
+        400,
+        "a newer schema is refused, not guessed at"
+    );
+
+    // Export renders markdown for a rules file — the cross-tool direction.
+    let md = client
+        .get(format!("{api}/packs/export?markdown=true&name=Mine"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(
+        md.contains("drifterr:begin"),
+        "managed markers present: {md}"
+    );
+    assert!(md.contains("## Mine"));
 }

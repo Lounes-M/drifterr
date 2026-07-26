@@ -18,7 +18,8 @@
 //! # let baseline = Baseline { goal: "g".into(), constraints: vec![], decisions: vec![] };
 //! # let conv = Conversation {
 //! #   session_id: "s".into(), model: "claude-opus-4-x".into(), turns: vec![],
-//! #   context: ContextState { window_size: 1000, used_tokens: 100, exact: true, tool_call_count: 0 },
+//! #   context: ContextState { window_size: 1000, used_tokens: 100, exact: true,
+//! #                           occupancy_known: true, tool_call_count: 0 },
 //! #   source: Source::Proxy,
 //! # };
 //! let mut monitor = SessionMonitor::default();
@@ -29,6 +30,7 @@
 pub mod baseline;
 pub mod conversation;
 pub mod infer;
+pub mod pack;
 pub mod rules_file;
 pub mod signals;
 pub mod state_machine;
@@ -119,6 +121,7 @@ mod tests {
                 window_size: 200_000,
                 used_tokens: 5_000,
                 exact: true,
+                occupancy_known: true,
                 tool_call_count: 0,
             },
             source: Source::Proxy,
@@ -199,6 +202,7 @@ mod tests {
                     window_size: 200_000,
                     used_tokens: used,
                     exact: true,
+                    occupancy_known: true,
                     tool_call_count: 0,
                 },
                 source: Source::Proxy,

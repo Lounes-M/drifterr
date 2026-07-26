@@ -21,11 +21,14 @@
 //! Keeping them on separate ports means the status contract can never collide
 //! with a proxied path.
 
+pub mod check;
 pub mod dashboard;
 pub mod entitlement;
 pub mod hook;
+pub mod mcp;
 pub mod provider;
 pub mod state;
+pub mod team;
 pub mod upstreams;
 
 use axum::body::Body;
@@ -509,6 +512,7 @@ pub fn control_router(state: AppState) -> Router {
         .route("/reanchor", get(reanchor_handler))
         .route("/intent", get(get_intent_handler).post(set_intent_handler))
         .route("/intent/retire", post(retire_constraint_handler))
+        .route("/anchor", get(anchor_handler))
         .route("/judge", get(get_judge_handler).post(set_judge_handler))
         .route(
             "/auto-reanchor",
@@ -523,6 +527,10 @@ pub fn control_router(state: AppState) -> Router {
         .route("/history", get(history_handler))
         .route("/journal", get(journal_handler))
         .route("/report", get(report_handler))
+        .route("/packs", get(list_packs_handler))
+        .route("/packs/apply", post(apply_pack_handler))
+        .route("/packs/export", get(export_pack_handler))
+        .route("/team/share-preview", get(team_share_preview_handler))
         .route("/standing-orders", get(standing_orders_handler))
         .route("/standing-orders/promote", post(promote_handler))
         .route("/feedback", post(feedback_handler))
@@ -864,6 +872,210 @@ async fn journal_handler(State(app): State<AppState>, Query(q): Query<ReanchorQu
     Json(items).into_response()
 }
 
+// --- rule packs -------------------------------------------------------------
+//
+// A pack is the one artefact in Drifterr that composes over time: rules you've settled
+// on, in a file you own, portable between projects and tools. See
+// `drifterr_engine::pack` for why packs carry natural-language intent rather than
+// compiled regexes.
+
+/// One pack in the catalogue.
+#[derive(Serialize)]
+struct PackSummary {
+    id: String,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    /// How many of its rules the engine can check deterministically.
+    enforceable: usize,
+    /// Rule ids that would import as advisory only — stated up front so a user is never
+    /// left believing a rule is enforced when it isn't.
+    advisory: Vec<String>,
+    rules: Vec<String>,
+    /// "builtin" today; user-installed packs arrive with the same shape.
+    source: &'static str,
+}
+
+async fn list_packs_handler() -> Json<Vec<PackSummary>> {
+    let out = drifterr_engine::pack::builtin()
+        .into_iter()
+        .map(|(id, p)| {
+            let applied = p.apply(id);
+            PackSummary {
+                enforceable: applied.enforced.len() - applied.advisory.len(),
+                advisory: applied.advisory,
+                rules: p.rules.iter().map(|r| r.text.clone()).collect(),
+                id: id.to_string(),
+                name: p.name,
+                description: p.description,
+                source: "builtin",
+            }
+        })
+        .collect();
+    Json(out)
+}
+
+/// `POST /packs/apply` — apply a built-in pack by id, or an inline pack body.
+#[derive(Deserialize)]
+struct ApplyPackBody {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    session: Option<String>,
+    /// An inline pack, for importing a file the user was handed.
+    #[serde(default)]
+    pack: Option<serde_json::Value>,
+}
+
+#[derive(Serialize)]
+struct ApplyPackResponse {
+    applied: usize,
+    /// Rules that landed as advisory rather than enforced.
+    advisory: Vec<String>,
+}
+
+async fn apply_pack_handler(
+    State(app): State<AppState>,
+    Json(body): Json<ApplyPackBody>,
+) -> Response {
+    // An inline pack goes through the same validation as a file on disk — a pack from
+    // outside is untrusted input, and version/size checks are the point.
+    let resolved = match body.pack {
+        Some(v) => match drifterr_engine::pack::Pack::from_json(&v.to_string()) {
+            Ok(p) => Some(("imported".to_string(), p)),
+            Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+        },
+        None => drifterr_engine::pack::builtin()
+            .into_iter()
+            .find(|(id, _)| *id == body.id)
+            .map(|(id, p)| (id.to_string(), p)),
+    };
+    let Some((pack_id, pack)) = resolved else {
+        return (StatusCode::NOT_FOUND, "no such pack").into_response();
+    };
+    let total = pack.rules.len();
+    let advisory = match app.core.lock() {
+        Ok(mut core) => core.apply_pack(body.session.as_deref(), &pack_id, &pack),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "busy").into_response(),
+    };
+    Json(ApplyPackResponse {
+        applied: total,
+        advisory,
+    })
+    .into_response()
+}
+
+/// `GET /packs/export` — the user's promoted standing orders as a portable pack.
+#[derive(Deserialize)]
+struct ExportQuery {
+    #[serde(default)]
+    name: Option<String>,
+    /// When set, render the pack as markdown ready to paste into a rules file instead of
+    /// JSON. This is the cross-tool direction: telling the *agent* the rules, not just
+    /// the watcher.
+    #[serde(default)]
+    markdown: Option<bool>,
+}
+
+async fn export_pack_handler(
+    State(app): State<AppState>,
+    Query(q): Query<ExportQuery>,
+) -> Response {
+    let name = q
+        .name
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| "My standing orders".to_string());
+    let pack = match app.core.lock() {
+        Ok(core) => core.export_pack(&name),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "busy").into_response(),
+    };
+    if q.markdown.unwrap_or(false) {
+        return (
+            [(header::CONTENT_TYPE, "text/markdown; charset=utf-8")],
+            pack.to_markdown(),
+        )
+            .into_response();
+    }
+    ([(header::CONTENT_TYPE, "application/json")], pack.to_json()).into_response()
+}
+
+// --- team sharing -----------------------------------------------------------
+//
+// `GET /team/share-preview` returns *exactly* what a share would upload, so the user can
+// read it before anything leaves. The upload itself is done by the layer that holds the
+// account session — see `crate::team` for why this crate deliberately cannot do it.
+
+#[derive(Deserialize)]
+struct SharePreviewQuery {
+    /// Pack ids to include. Sharing is per-pack and opt-in; omitting this shares counts
+    /// only, which is the safer default.
+    #[serde(default)]
+    packs: Option<String>,
+    #[serde(default)]
+    days: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct SharePreview {
+    /// The exact payload, or `null` when the plan does not include team sharing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload: Option<team::SharePayload>,
+    /// One sentence naming what the filter withheld, for the panel.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    withheld: Option<String>,
+    /// False when the plan has no team sharing — the panel shows the upsell rather than
+    /// an empty payload that reads like a bug.
+    entitled: bool,
+}
+
+async fn team_share_preview_handler(
+    State(app): State<AppState>,
+    Query(q): Query<SharePreviewQuery>,
+) -> Response {
+    if !app.entitlement().team_sharing {
+        return Json(SharePreview {
+            payload: None,
+            withheld: None,
+            entitled: false,
+        })
+        .into_response();
+    }
+
+    let days = q.days.unwrap_or(14).clamp(1, team::MAX_PERIOD_DAYS);
+    let wanted: Vec<String> = q
+        .packs
+        .as_deref()
+        .map(|s| {
+            s.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let packs: Vec<drifterr_engine::pack::Pack> = drifterr_engine::pack::builtin()
+        .into_iter()
+        .filter(|(id, _)| wanted.iter().any(|w| w == id))
+        .map(|(_, p)| p)
+        .collect();
+
+    let since = state::now_millis() - i64::from(days) * 86_400_000;
+    let counts = app
+        .core
+        .lock()
+        .map(|core| core.flag_counts_since(since))
+        .unwrap_or_default();
+
+    let payload = team::build(packs, &counts, days);
+    let withheld = payload.withheld.explain();
+    Json(SharePreview {
+        payload: Some(payload),
+        withheld,
+        entitled: true,
+    })
+    .into_response()
+}
+
 async fn standing_orders_handler(State(app): State<AppState>) -> Json<Vec<StandingOrderView>> {
     let orders = app
         .core
@@ -948,6 +1160,27 @@ async fn get_intent_handler(
         .and_then(|core| core.intent_of(q.session.as_deref()))
     {
         Some(view) => Json(view).into_response(),
+        None => (StatusCode::NOT_FOUND, "no session yet").into_response(),
+    }
+}
+
+/// The machine-readable anchor (`GET /anchor`) — the baseline exactly as the engine holds
+/// it, constraints and their rules included.
+///
+/// This exists alongside `/intent` rather than replacing it because the two have different
+/// jobs. `/intent` is for the human: flattened, rules hidden, only active constraints.
+/// `/anchor` is for a tool that must reach the *same verdict as the engine* — most notably
+/// the MCP server, where an agent checks its own work before returning it. Handing that
+/// consumer labels instead of rules would let it report a confident pass on rules it never
+/// actually evaluated.
+async fn anchor_handler(State(app): State<AppState>, Query(q): Query<ReanchorQuery>) -> Response {
+    match app
+        .core
+        .lock()
+        .ok()
+        .and_then(|core| core.baseline_of(q.session.as_deref()))
+    {
+        Some(baseline) => Json(baseline).into_response(),
         None => (StatusCode::NOT_FOUND, "no session yet").into_response(),
     }
 }

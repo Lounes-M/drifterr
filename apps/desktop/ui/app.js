@@ -830,6 +830,131 @@ function setupExtras(doc) {
   if (report) report.addEventListener("click", () => copySessionReport(doc));
   setupWeekly(doc);
   setupSemanticModel(doc);
+  setupPacks(doc);
+  setupTeamShare(doc);
+}
+
+/// The rule-pack catalogue.
+///
+/// Two actions per pack, because they serve different jobs. **Apply** anchors *this*
+/// session — useful now, gone tomorrow. **Copy for CLAUDE.md** writes the rules where
+/// the agent already reads, which is the one that compounds: a rule the agent was told
+/// is a rule it usually doesn't break, and detection is only the fallback for when it
+/// does.
+///
+/// Advisory rules are labelled as such, always. A user who thinks a rule is enforced
+/// when it isn't is worse off than one who knows it's a reminder.
+export async function setupPacks(doc, fetchImpl) {
+  const list = doc.getElementById("packs-list");
+  if (!list) return;
+  const f = fetchImpl || fetch;
+  let packs = [];
+  try {
+    const res = await f(apiBase() + "/packs", { cache: "no-store" });
+    if (!res.ok) return;
+    packs = await res.json();
+  } catch (_e) {
+    return;
+  }
+  list.textContent = "";
+  for (const p of packs) {
+    const row = doc.createElement("div");
+    row.className = "pack-row";
+    const head = doc.createElement("div");
+    head.className = "pack-head";
+    const name = doc.createElement("span");
+    name.className = "pack-name";
+    name.textContent = p.name;
+    const count = doc.createElement("span");
+    count.className = "muted";
+    // State enforceability up front rather than after a violation fails to appear.
+    count.textContent =
+      p.enforceable + " of " + (p.rules || []).length + " checked automatically";
+    head.append(name, count);
+    const rules = doc.createElement("ul");
+    rules.className = "pack-rules";
+    for (const text of p.rules || []) {
+      const li = doc.createElement("li");
+      li.textContent = text;
+      rules.append(li);
+    }
+    const actions = doc.createElement("div");
+    actions.className = "intent-actions";
+    const apply = doc.createElement("button");
+    apply.className = "mini-btn";
+    apply.type = "button";
+    apply.dataset.pack = p.id;
+    apply.textContent = "Apply to this session";
+    apply.addEventListener("click", async () => {
+      apply.disabled = true;
+      try {
+        const res = await f(apiBase() + "/packs/apply", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: p.id }),
+        });
+        apply.textContent = res.ok ? "Applied ✓" : "Couldn't apply";
+      } catch (_e) {
+        apply.textContent = "Drifterr not reachable";
+      } finally {
+        apply.disabled = false;
+        setTimeout(() => (apply.textContent = "Apply to this session"), 1800);
+      }
+    });
+    actions.append(apply);
+    row.append(head, rules, actions);
+    list.append(row);
+  }
+}
+
+/// The team-share preview.
+///
+/// This exists so the local-first promise is checkable by the person relying on it, not
+/// merely asserted in a privacy policy. The button shows the exact payload — nothing is
+/// uploaded from here — alongside a plain sentence naming what the filter withheld and
+/// why. A short list with no explanation would read as a bug; a long list with no
+/// explanation would read as a leak.
+export function setupTeamShare(doc, fetchImpl) {
+  const btn = doc.getElementById("team-preview");
+  const out = doc.getElementById("team-payload");
+  const locked = doc.getElementById("team-locked");
+  const withheld = doc.getElementById("team-withheld");
+  if (!btn || !out) return;
+  btn.addEventListener("click", async () => {
+    if (!out.hidden) {
+      out.hidden = true;
+      if (withheld) withheld.hidden = true;
+      return;
+    }
+    const f = fetchImpl || fetch;
+    // Every built-in pack, so the preview shows the largest payload the user could
+    // send rather than a flattering subset.
+    const ids = Array.from(doc.querySelectorAll("#packs-list [data-pack]"))
+      .map((el) => el.dataset.pack)
+      .join(",");
+    try {
+      const res = await f(
+        apiBase() + "/team/share-preview?days=14" + (ids ? "&packs=" + ids : ""),
+        { cache: "no-store" }
+      );
+      const data = await res.json();
+      if (!data.entitled) {
+        if (locked) locked.hidden = false;
+        out.hidden = true;
+        return;
+      }
+      if (locked) locked.hidden = true;
+      out.hidden = false;
+      out.textContent = JSON.stringify(data.payload, null, 2);
+      if (withheld) {
+        withheld.hidden = !data.withheld;
+        withheld.textContent = data.withheld || "";
+      }
+    } catch (_e) {
+      out.hidden = false;
+      out.textContent = "Drifterr proxy not reachable.";
+    }
+  });
 }
 
 /// The optional semantic-model offer.

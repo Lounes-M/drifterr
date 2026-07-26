@@ -135,6 +135,29 @@
           <p id="semantic-msg" class="muted" hidden></p>
         </div>
 
+        <!--
+          Rule packs: the portable constraint layer. Applying one anchors the session; the
+          markdown export writes the rules where the *agent* already reads them, which
+          prevents more violations than watching for them does.
+        -->
+        <h2 class="section-title" style="margin-top:12px">Rule packs</h2>
+        <p class="muted">Curated rules you can apply to this session, or write into the project's <code>CLAUDE.md</code> so the agent is told them too.</p>
+        <div id="packs-list" class="packs-list"></div>
+
+        <!--
+          Team sharing. The preview is not a nicety: it is how the local-first promise
+          stays checkable by the person relying on it. Nothing uploads from this panel —
+          the payload shown here is exactly what would be sent.
+        -->
+        <h2 class="section-title" style="margin-top:12px">Team sharing</h2>
+        <p class="muted">Share rule packs and how often each rule fires. Rule names and counts only — never spans, goals, prompts, file paths or model names.</p>
+        <div class="intent-actions">
+          <button id="team-preview" class="mini-btn" type="button">Show exactly what would be shared</button>
+        </div>
+        <p id="team-locked" class="muted lock-hint" hidden>Team sharing is a Team-plan feature.</p>
+        <p id="team-withheld" class="muted" hidden></p>
+        <pre id="team-payload" class="team-payload" hidden></pre>
+
         <h2 class="section-title" style="margin-top:12px">Notifications</h2>
         <p class="muted">Do Not Disturb silences the OS notifications (drift alerts &amp; update alerts). The tray and panel keep updating.</p>
         <label class="toggle-row">

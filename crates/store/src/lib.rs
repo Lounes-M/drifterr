@@ -16,6 +16,30 @@ use rusqlite::{params, Connection};
 mod convert;
 pub mod report;
 
+/// Additive column migrations for databases created by an earlier version.
+///
+/// `CREATE TABLE IF NOT EXISTS` in `schema.sql` establishes new *tables*, but it cannot
+/// add a column to a table that already exists — so an existing install would keep an
+/// old shape and every query naming the new column would fail. SQLite has no
+/// `ADD COLUMN IF NOT EXISTS`, and it errors when the column is already there, so each
+/// statement is run and its error deliberately ignored: "already applied" and "applied
+/// now" are both success. Every migration here must therefore be additive and carry a
+/// `DEFAULT`, so old rows get a correct value rather than NULL.
+///
+/// Best-effort by design. A migration that cannot run must not stop the app from
+/// starting — the user's sessions matter more than a column.
+fn migrate(conn: &Connection) {
+    const ADDITIVE: &[&str] = &[
+        // Distinguishes "this is live occupancy" from "this is a lower bound", for
+        // channels whose transcript outlives a context compaction. Defaults to 1 so rows
+        // written before it existed keep the meaning they were recorded with.
+        "ALTER TABLE context_state ADD COLUMN occupancy_known INTEGER NOT NULL DEFAULT 1",
+    ];
+    for stmt in ADDITIVE {
+        let _ = conn.execute(stmt, []);
+    }
+}
+
 /// Milliseconds since the epoch. Used as the default timestamp when a caller does
 /// not supply one; the `*_at` variants exist so tests never depend on the clock.
 pub(crate) fn now_millis() -> i64 {
@@ -60,6 +84,7 @@ impl Store {
     fn init(conn: Connection) -> Result<Self> {
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         conn.execute_batch(include_str!("schema.sql"))?;
+        migrate(&conn);
         Ok(Self { conn })
     }
 
@@ -233,16 +258,19 @@ impl Store {
         }
 
         tx.execute(
-            "INSERT INTO context_state (session_id, window_size, used_tokens, exact, tool_calls)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO context_state
+               (session_id, window_size, used_tokens, exact, occupancy_known, tool_calls)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(session_id) DO UPDATE SET
                window_size = excluded.window_size, used_tokens = excluded.used_tokens,
-               exact = excluded.exact, tool_calls = excluded.tool_calls",
+               exact = excluded.exact, occupancy_known = excluded.occupancy_known,
+               tool_calls = excluded.tool_calls",
             params![
                 conv.session_id,
                 conv.context.window_size as i64,
                 conv.context.used_tokens as i64,
                 conv.context.exact as i64,
+                conv.context.occupancy_known as i64,
                 conv.context.tool_call_count as i64
             ],
         )?;
@@ -277,14 +305,16 @@ impl Store {
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
         let context = self.conn.query_row(
-            "SELECT window_size, used_tokens, exact, tool_calls FROM context_state WHERE session_id = ?1",
+            "SELECT window_size, used_tokens, exact, occupancy_known, tool_calls
+             FROM context_state WHERE session_id = ?1",
             params![session_id],
             |r| {
                 Ok(ContextState {
                     window_size: r.get::<_, i64>(0)? as usize,
                     used_tokens: r.get::<_, i64>(1)? as usize,
                     exact: r.get::<_, i64>(2)? != 0,
-                    tool_call_count: r.get::<_, i64>(3)? as usize,
+                    occupancy_known: r.get::<_, i64>(3)? != 0,
+                    tool_call_count: r.get::<_, i64>(4)? as usize,
                 })
             },
         )?;
@@ -729,6 +759,7 @@ mod tests {
                 window_size: 200_000,
                 used_tokens: 1234,
                 exact: true,
+                occupancy_known: true,
                 tool_call_count: 2,
             },
             source: Source::Proxy,

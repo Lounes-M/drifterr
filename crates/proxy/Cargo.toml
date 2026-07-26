@@ -20,7 +20,8 @@ path = "src/lib.rs"
 semantic = ["drifterr-embeddings/onnx"]
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "fs"] }
+# io-std: the MCP server's transport *is* stdio, so it needs async stdin.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "fs", "io-std", "io-util"] }
 axum = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "rustls-tls", "http2"] }
 futures-util = "0.3"

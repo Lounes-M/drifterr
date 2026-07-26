@@ -1,0 +1,86 @@
+name: "Drifterr rule check"
+description: >-
+  Check a pull request's diff against the rules your project already states — in
+  CLAUDE.md / AGENTS.md / .cursor/rules, or a Drifterr rule pack. Deterministic, no model
+  call, no network.
+author: "Drifterr"
+branding:
+  icon: anchor
+  color: orange
+
+inputs:
+  rules:
+    description: >-
+      Path to a rules file (CLAUDE.md, AGENTS.md, .cursor/rules). The same file your agent
+      reads, so CI enforces exactly what the agent was told.
+    required: false
+    default: ""
+  pack:
+    description: "Built-in rule pack id (typescript-strict | tight-scope | security-basics)."
+    required: false
+    default: ""
+  pack-file:
+    description: "Path to a rule pack JSON file."
+    required: false
+    default: ""
+  base:
+    description: "Base ref to diff against. Defaults to the pull request's base."
+    required: false
+    default: ""
+  warn-only:
+    description: >-
+      Report violations but do not fail the job. Use this to adopt the check on an existing
+      repo without blocking everyone on day one.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Check inputs
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.rules }}" ] && [ -z "${{ inputs.pack }}" ] && [ -z "${{ inputs.pack-file }}" ]; then
+          echo "::error::Set one of `rules`, `pack` or `pack-file`. A check with no rules is not a passing check."
+          exit 1
+        fi
+
+    - name: Build the checker
+      shell: bash
+      run: |
+        # Built from source so the action pins no binary the caller cannot inspect. Cached
+        # by the caller's own Rust cache if they have one.
+        cargo build --quiet --release -p drifterr-proxy --bin drifterr-proxy
+
+    - name: Collect the diff
+      shell: bash
+      id: diff
+      run: |
+        set -euo pipefail
+        BASE="${{ inputs.base }}"
+        if [ -z "$BASE" ]; then
+          BASE="${GITHUB_BASE_REF:-}"
+        fi
+        if [ -n "$BASE" ]; then
+          git fetch --quiet --depth=1 origin "$BASE" || true
+          git diff "origin/$BASE"... > drifterr-diff.patch || git diff HEAD~1 > drifterr-diff.patch
+        else
+          # Not a pull request: check the last commit rather than nothing at all.
+          git diff HEAD~1 > drifterr-diff.patch || : > drifterr-diff.patch
+        fi
+        echo "bytes=$(wc -c < drifterr-diff.patch)" >> "$GITHUB_OUTPUT"
+
+    - name: Run the rule check
+      shell: bash
+      run: |
+        set -uo pipefail
+        ARGS=()
+        [ -n "${{ inputs.rules }}" ]     && ARGS+=(--rules "${{ inputs.rules }}")
+        [ -n "${{ inputs.pack }}" ]      && ARGS+=(--pack "${{ inputs.pack }}")
+        [ -n "${{ inputs.pack-file }}" ] && ARGS+=(--pack-file "${{ inputs.pack-file }}")
+        [ "${{ inputs.warn-only }}" = "true" ] && ARGS+=(--warn-only)
+
+        # The diff is wrapped in a fence because the engine scopes code rules to fenced
+        # blocks — prose mentioning a filename must never count as touching it.
+        { echo '```diff'; cat drifterr-diff.patch; echo '```'; } \
+          | ./target/release/drifterr-proxy check "${ARGS[@]}"

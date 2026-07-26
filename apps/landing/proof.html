@@ -99,11 +99,12 @@
         </div>
         <div class="zone server">
           <h3><span class="dot9 o"></span> Reaches the server</h3>
-          <p class="sub">Accounts & billing only (Supabase + Stripe).</p>
+          <p class="sub">Accounts & billing (Supabase + Stripe), plus opt-in Team config.</p>
           <ul>
             <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ff9a6c" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Your email</li>
             <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ff9a6c" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Your plan</li>
             <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ff9a6c" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Subscription status</li>
+            <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ff9a6c" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> On Team, if you share: rule packs &amp; rule counts</li>
             <li style="color:#6f6d82"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6f6d82" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg> No chat content. Ever.</li>
           </ul>
         </div>
@@ -123,6 +124,9 @@
           <tr><td>Re-anchor snapshots</td><td class="stay">Your device</td></tr>
           <tr><td>Model / judge calls</td><td class="stay">Your provider, your key</td></tr>
           <tr><td>Email, plan, subscription</td><td class="leave">Server (accounts only — and only if you sign up)</td></tr>
+          <tr><td>Shared rule packs <span class="mono">(Team, opt-in)</span></td><td class="leave">Server — the rule text you wrote, e.g. "Never use <span class="mono">any</span> types"</td></tr>
+          <tr><td>Rule counts <span class="mono">(Team, opt-in)</span></td><td class="leave">Server — a rule name and a number, nothing about what triggered it</td></tr>
+          <tr><td>Offending spans, goals, session ids, file paths, model names</td><td class="stay">Your device — never shareable, on any plan</td></tr>
         </tbody>
       </table>
 
@@ -132,11 +136,28 @@
         boundary is the app binary, and it is absolute.
       </p>
       <div class="invariant">
-        <b>The app sends nothing. Not even a ping.</b>
+        <b>The app sends nothing on its own. Not even a ping.</b>
         <p>No analytics, no telemetry, no crash reporting, no usage counters, no
         heartbeat. There is no account required to run it, and with no account
         there is no Drifterr server in the picture at all. The 14-day Pro trial is
         tracked in your own local database.</p>
+      </div>
+      <div class="invariant">
+        <b>Team sharing is the one thing you can ask it to send — and you see the
+        bytes first.</b>
+        <p>On a Team plan you can share <b>rule packs</b> (config you wrote) and
+        <b>how often each rule fired</b>. That is the whole list. No offending
+        spans, no goal, no prompts or replies, no session ids, no file, repo or
+        branch names, no model names, and nothing timestamped finer than a day.
+        Rules you stated in conversation are withheld too — their ids were derived
+        from your own messages, so publishing even the id would reveal that you
+        said something.</p>
+        <p><b>Settings → Team sharing → “Show exactly what would be shared”</b>
+        prints the payload verbatim, plus a sentence naming what was withheld and
+        why. Nothing uploads until you act. The boundary is enforced in three
+        independent places: the filter that builds the payload, a database
+        constraint that rejects anything else, and a CI test that drives a real
+        violation through the engine and fails if any of it appears.</p>
       </div>
       <div class="invariant">
         <b>This marketing website does count page views.</b>

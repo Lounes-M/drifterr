@@ -1,14 +1,24 @@
 # Drifterr accounts & billing (Supabase + Stripe)
 
-This directory is the backend for accounts and subscriptions. It is the **only**
-server-side state in Drifterr, and it deliberately holds **just identity and
-billing** — never conversations. Chats stay in the user's local SQLite; the
-local-first promise is intact.
+This directory is the backend for accounts, subscriptions and team sharing. It is
+the **only** server-side state in Drifterr, and it deliberately holds **just
+identity, billing, and shared configuration** — never conversations. Chats stay in
+the user's local SQLite; the local-first promise is intact.
+
+Team sharing is the one feature that puts anything from a working session here, so
+the boundary is written into the schema itself: shared **rule packs** (config the
+user wrote) and **counts keyed by a pack-scoped rule id**. No spans, no goals, no
+prompts, no session ids, no file paths, no model names, and nothing timestamped
+finer than a day. `team_rule_stats.rule_id` carries a `CHECK` constraint that the
+database itself refuses a session-local id with — see the header comment in
+`migrations/0002_teams.sql` for the reasoning on each exclusion, and
+`crates/proxy/src/team.rs` for the client-side filter that runs first.
 
 ```
 supabase/
   config.toml                 Supabase CLI project config (auth + functions)
   migrations/0001_*.sql        profiles / plans / subscriptions + RLS + triggers
+  migrations/0002_teams.sql    teams / members / shared packs / rule counts + RLS
   seed.sql                     the three plans (free / pro / team)
   functions/
     _shared/                   CORS + Supabase/Stripe client helpers
@@ -28,6 +38,17 @@ supabase/
   (the webhook) writes it; clients can read their own row via RLS and nothing
   else. `my_entitlement` is a security-invoker view that joins plan + sub for
   the caller in a single query.
+- **teams / team_members** — a team and its roster. Members read; admins manage.
+  Creation goes through the service role so a Free account cannot mint a team.
+- **team_packs** — shared rule packs, keyed by a per-team slug so a member can run
+  `--pack our-house-rules`. Config only, and shape-checked at the boundary: a pack
+  arriving on a teammate's machine carries the authority of "your team set this
+  rule", so it is validated before it can.
+- **team_rule_stats** — `(rule_id, day, flagged)` per member. `team_rule_leaderboard`
+  aggregates it across the team without per-member attribution, which answers the
+  one question a team has and an individual cannot: **which of our rules actually
+  catch things, and which only nag?** A rule with zero flags across the whole team
+  for a month is a rule to delete.
 
 ## One-time setup
 

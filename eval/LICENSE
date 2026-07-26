@@ -1,0 +1,18 @@
+The corpus data in this directory is licensed under the Creative Commons
+Attribution 4.0 International license (CC BY 4.0).
+
+  https://creativecommons.org/licenses/by/4.0/
+
+You may share and adapt it for any purpose, including commercially, provided
+you give appropriate credit ("Drifterr drift-detection corpus,
+https://drifterr.app") and indicate if changes were made.
+
+Why this is open: drift detection is only as honest as the corpus it is measured
+on, and a corpus nobody may reuse cannot be checked by anyone. Keeping the
+engine proprietary while the evaluation data is open means the accuracy claims
+are independently verifiable, and a contributor's annotation work is not locked
+into one vendor.
+
+This notice covers the data files only. The Drifterr source code, including the
+annotation and evaluation tooling under ../crates/, is licensed separately —
+see ../LICENSE.

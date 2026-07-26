@@ -59,7 +59,7 @@
       <h2>2. What stays on your device (and never reaches us)</h2>
       <p>
         Detection runs entirely locally. The following never leave your machine
-        and we never receive them:
+        and we never receive them — on any plan, including Team:
       </p>
       <ul>
         <li>Your conversations, prompts and the assistant's replies;</li>
@@ -74,13 +74,27 @@
         provider, never through Drifterr.
       </p>
 
-      <h2>3. What we do collect (accounts &amp; billing only)</h2>
+      <h2>3. What we do collect (accounts, billing, and opt-in Team sharing)</h2>
       <ul>
         <li><strong>Account:</strong> your email address, and your name if you provide it.</li>
         <li><strong>Subscription:</strong> your plan, subscription status and renewal date.</li>
         <li><strong>Billing:</strong> a Stripe customer/subscription identifier. Payment card details are handled by Stripe — we never see or store them.</li>
         <li><strong>Auth metadata:</strong> standard sign-in data (e.g. timestamps), and, if you use Google/GitHub sign-in, the basic profile your provider returns.</li>
+        <li><strong>Team sharing (Team plans only, and only when you act):</strong>
+          the <em>rule packs</em> you choose to share — configuration text you wrote,
+          such as "Never use <code>any</code> types" — and <em>counts of how often each
+          shared rule fired</em>, such as ("tight-scope:no-new-deps", 7), bucketed by day.
+          That is the complete list.</li>
       </ul>
+      <p>
+        Team sharing never includes offending spans or excerpts, your goal, prompts
+        or replies, session identifiers, file, repository or branch names, model
+        names, or timestamps finer than a day. Rules you stated in conversation are
+        excluded as well, because their identifiers were derived from your own
+        messages. Before anything is sent, the app can print the exact payload —
+        Settings → Team sharing → "Show exactly what would be shared" — together
+        with a note of what was withheld and why.
+      </p>
 
       <h2>4. Processors we use</h2>
       <ul>

@@ -402,6 +402,22 @@ impl AppCore {
         })
     }
 
+    /// The full baseline for a session — goal, constraints *with their rules*, and
+    /// recorded decisions.
+    ///
+    /// [`intent_of`](Self::intent_of) deliberately flattens rules away for the panel,
+    /// which is right for a human but lossy for a machine: re-deriving a rule from its
+    /// label ("package.json must not be modified") does not reproduce the rule that
+    /// generated it, so a consumer that round-trips through text silently checks less
+    /// than it thinks. The MCP server reads this instead, which makes an agent's
+    /// self-check and the engine's verdict the same computation over the same objects.
+    pub fn baseline_of(&self, session: Option<&str>) -> Option<Baseline> {
+        let target = session
+            .map(str::to_string)
+            .or_else(|| self.last_updated.clone())?;
+        self.sessions.get(&target).map(|s| s.baseline.clone())
+    }
+
     pub fn intent_of(&self, session: Option<&str>) -> Option<IntentView> {
         let target = session
             .map(str::to_string)
@@ -1003,6 +1019,18 @@ impl AppCore {
         drifterr_store::report::weekly(&guard, now_millis(), window_ms).ok()
     }
 
+    /// Per-signal, per-constraint flag counts since `since_ms` — the raw material for a
+    /// team share. Deliberately returned unfiltered: the redaction that decides what may
+    /// leave the machine lives in one place ([`crate::team::build`]) so there is one thing
+    /// to audit, not two.
+    pub fn flag_counts_since(&self, since_ms: i64) -> Vec<(String, Option<String>, usize)> {
+        self.store
+            .as_ref()
+            .and_then(|s| s.lock().ok())
+            .and_then(|s| s.flag_counts_since(since_ms).ok())
+            .unwrap_or_default()
+    }
+
     pub fn journal(&self, session: Option<&str>, limit: usize) -> Vec<drifterr_store::FlagEvent> {
         let id = match session
             .map(str::to_string)
@@ -1029,6 +1057,46 @@ impl AppCore {
     }
 
     /// All standing orders (for the control API).
+    /// Export the user's promoted standing orders as a portable pack.
+    ///
+    /// This is what makes standing orders more than a per-install curiosity: the rules
+    /// you keep repeating become a file you can carry to the next project, commit to a
+    /// repo, or hand to a teammate. Only *promoted* orders are exported — candidates are
+    /// guesses the user hasn't accepted, and shipping guesses into a shared artefact is
+    /// how a pack stops being trustworthy.
+    pub fn export_pack(&self, name: &str) -> drifterr_engine::pack::Pack {
+        let texts: Vec<String> = self
+            .store
+            .as_ref()
+            .and_then(|s| s.lock().ok())
+            .and_then(|s| s.promoted_standing_orders().ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|o| o.text)
+            .collect();
+        drifterr_engine::pack::Pack::from_texts(name, &texts)
+    }
+
+    /// Apply a pack to a session's baseline (or stage it for the next session).
+    ///
+    /// Returns the rule ids that could not be turned into a deterministic check, so the
+    /// caller can tell the user which rules are advisory rather than letting them assume
+    /// everything is enforced.
+    pub fn apply_pack(
+        &mut self,
+        session: Option<&str>,
+        pack_id: &str,
+        pack: &drifterr_engine::pack::Pack,
+    ) -> Vec<String> {
+        let applied = pack.apply(pack_id);
+        let texts: Vec<String> = applied.enforced.iter().map(|c| c.text.clone()).collect();
+        // Reuse the declared-intent path so a pack behaves exactly like the user typing
+        // those rules: same dedup, same persistence, same pending-intent seeding when no
+        // session exists yet.
+        self.set_intent(session, "", &texts);
+        applied.advisory
+    }
+
     pub fn standing_orders(&self) -> Vec<drifterr_store::StandingOrder> {
         self.store
             .as_ref()
@@ -1078,6 +1146,10 @@ pub fn browser_conversation(
             window_size: context_window(&model),
             used_tokens: used,
             exact: false,
+            // The extension scrapes the *visible* conversation, which is the live
+            // context — an estimate of the right quantity, unlike an append-only
+            // transcript that outlives a compaction.
+            occupancy_known: true,
             tool_call_count: 0,
         },
         session_id,
@@ -1179,6 +1251,9 @@ fn build_conversation(
             window_size: drifterr_tokenizer::context_window(&req.model),
             used_tokens,
             exact,
+            // The proxy sees the actual `messages` array for this request, so occupancy
+            // is exactly the live context by construction.
+            occupancy_known: true,
             tool_call_count: req.tool_call_count,
         },
         source: Source::Proxy,
