@@ -44,6 +44,29 @@ fn migrate(conn: &Connection) {
     }
 }
 
+/// Tighten a database file to owner read/write.
+///
+/// Best-effort by design: a filesystem that cannot express the mode (a mounted
+/// share, Windows) is not a reason to refuse to start, and on Windows the
+/// per-user app-data directory already provides the same isolation.
+#[cfg(unix)]
+fn restrict_to_owner(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    // SQLite's sidecars carry the same content mid-transaction.
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let mut side = path.as_os_str().to_owned();
+        side.push(suffix);
+        let side = std::path::PathBuf::from(side);
+        if side.exists() {
+            let _ = std::fs::set_permissions(&side, std::fs::Permissions::from_mode(0o600));
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn restrict_to_owner(_path: &std::path::Path) {}
+
 /// Milliseconds since the epoch. Used as the default timestamp when a caller does
 /// not supply one; the `*_at` variants exist so tests never depend on the clock.
 pub(crate) fn now_millis() -> i64 {
@@ -74,8 +97,16 @@ pub struct Store {
 
 impl Store {
     /// Open (and migrate) a store at `path`. Creates the file if absent.
+    ///
+    /// The file is tightened to owner-only on Unix. This database holds the full
+    /// text of every turn of every session — it is the single most sensitive thing
+    /// Drifterr writes, and leaving it at the ambient umask meant every other
+    /// account on a shared machine could read the user's conversations. The
+    /// permission is set on every open, not only on create, so an install that
+    /// predates this is fixed the next time the app starts.
     pub fn open(path: &str) -> Result<Self> {
         let conn = Connection::open(path)?;
+        restrict_to_owner(std::path::Path::new(path));
         Self::init(conn)
     }
 
@@ -93,6 +124,109 @@ impl Store {
     }
 
     // --- install metadata --------------------------------------------------
+
+    // --- the user's own data, and getting rid of it -------------------------
+
+    /// Delete everything about one session: turns, constraints, decisions,
+    /// signals, re-anchors, context.
+    ///
+    /// The child tables all declare `ON DELETE CASCADE`, but the pragma that makes
+    /// that fire has to be on for the connection — so this deletes the parent row
+    /// *and* asserts the cascade rather than trusting it, because a partial delete
+    /// that leaves the transcript behind is the one outcome a delete button must
+    /// never produce.
+    pub fn forget_session(&mut self, session_id: &str) -> Result<bool> {
+        let tx = self.conn.transaction()?;
+        for table in [
+            "turns",
+            "constraints",
+            "decisions",
+            "signal_events",
+            "reanchors",
+            "context_state",
+        ] {
+            tx.execute(
+                &format!("DELETE FROM {table} WHERE session_id = ?1"),
+                params![session_id],
+            )?;
+        }
+        let n = tx.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
+        tx.commit()?;
+        Ok(n > 0)
+    }
+
+    /// Delete every session older than `days`, returning how many went.
+    ///
+    /// This is what makes a retention setting mean something. The Free plan already
+    /// said "7 days of session history", but that was a *display* limit: the text of
+    /// every turn stayed on disk forever, so a user who believed their history had
+    /// expired was wrong. Retention now deletes.
+    ///
+    /// `days == 0` is treated as "keep nothing older than now", which still keeps
+    /// the live session — deleting the session in progress would be a bug wearing a
+    /// privacy setting's clothes.
+    pub fn prune_sessions_older_than(&mut self, days: u32, now_ms: i64) -> Result<usize> {
+        let cutoff = now_ms - (days as i64) * 86_400_000;
+        let ids: Vec<String> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id FROM sessions WHERE COALESCE(started_at, 0) < ?1")?;
+            let rows = stmt.query_map(params![cutoff], |r| r.get::<_, String>(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let mut gone = 0;
+        for id in ids {
+            if self.forget_session(&id)? {
+                gone += 1;
+            }
+        }
+        Ok(gone)
+    }
+
+    /// Delete every session and everything derived from one, then reclaim the disk.
+    ///
+    /// Deliberately leaves `app_meta` alone: it holds the trial start stamp and the
+    /// user's own preferences, not conversation content. Wiping it would silently
+    /// restart the trial, which would turn a privacy control into a licence bypass
+    /// and give a user a reason to distrust the button.
+    ///
+    /// `VACUUM` matters here and is not a tidiness flourish: without it the deleted
+    /// text stays readable in free pages of the file, so "delete everything" would
+    /// not have.
+    pub fn forget_everything(&mut self) -> Result<usize> {
+        let ids: Vec<String> = {
+            let mut stmt = self.conn.prepare("SELECT id FROM sessions")?;
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let n = ids.len();
+        let tx = self.conn.transaction()?;
+        for table in [
+            "turns",
+            "constraints",
+            "decisions",
+            "signal_events",
+            "reanchors",
+            "context_state",
+            "standing_orders",
+            "sessions",
+        ] {
+            tx.execute(&format!("DELETE FROM {table}"), [])?;
+        }
+        tx.commit()?;
+        // Overwrite the free pages so the text is gone from the file, not just
+        // unlinked from the index.
+        self.conn.execute_batch("VACUUM")?;
+        Ok(n)
+    }
+
+    /// How many sessions are stored, for the panel's "delete everything" prompt —
+    /// a destructive button should say what it is about to destroy.
+    pub fn session_count(&self) -> Result<usize> {
+        let mut stmt = self.conn.prepare("SELECT COUNT(*) FROM sessions")?;
+        let n: i64 = stmt.query_row([], |r| r.get(0))?;
+        Ok(n as usize)
+    }
 
     /// Read an install-scoped metadata value. `None` when unset.
     pub fn meta(&self, key: &str) -> Result<Option<String>> {
@@ -235,11 +369,30 @@ impl Store {
     /// Persist a conversation (session + turns + context). Idempotent on
     /// session id: re-saving replaces the prior rows for that session.
     pub fn save_conversation(&mut self, conv: &Conversation) -> Result<()> {
+        self.save_conversation_at(conv, now_millis())
+    }
+
+    /// [`Self::save_conversation`] with an explicit start stamp, so retention tests
+    /// never depend on the clock.
+    pub fn save_conversation_at(&mut self, conv: &Conversation, started_ms: i64) -> Result<()> {
         let tx = self.conn.transaction()?;
         tx.execute(
-            "INSERT INTO sessions (id, model, source, status) VALUES (?1, ?2, ?3, NULL)
-             ON CONFLICT(id) DO UPDATE SET model = excluded.model, source = excluded.source",
-            params![conv.session_id, conv.model, source_str(conv.source)],
+            // `started_at` is stamped on first insert and never overwritten, so it
+            // marks when the session began rather than when it was last touched.
+            // Retention reads it; a session with no stamp would otherwise look
+            // infinitely old and be deleted on the first prune.
+            "INSERT INTO sessions (id, model, source, status, started_at)
+             VALUES (?1, ?2, ?3, NULL, ?4)
+             ON CONFLICT(id) DO UPDATE SET
+               model = excluded.model,
+               source = excluded.source,
+               started_at = COALESCE(sessions.started_at, excluded.started_at)",
+            params![
+                conv.session_id,
+                conv.model,
+                source_str(conv.source),
+                started_ms
+            ],
         )?;
 
         tx.execute(
@@ -948,5 +1101,95 @@ mod tests {
         store.record_events("sess-1", &events).unwrap();
         let back = store.load_events("sess-1").unwrap();
         assert_eq!(events, back);
+    }
+
+    /// A delete button that leaves the transcript behind is worse than no delete
+    /// button, because the user now believes it is gone.
+    #[test]
+    fn forgetting_a_session_removes_its_content() {
+        let mut st = Store::open_in_memory().unwrap();
+        let mut conv = sample();
+        conv.session_id = "gone-1".into();
+        st.save_conversation(&conv).unwrap();
+        st.save_baseline(
+            "gone-1",
+            &Baseline {
+                goal: "g".into(),
+                constraints: vec![],
+                decisions: vec![],
+            },
+        )
+        .unwrap();
+        assert!(st.load_conversation("gone-1").is_ok());
+
+        assert!(st.forget_session("gone-1").unwrap());
+        assert!(
+            st.load_conversation("gone-1").is_err(),
+            "the session is gone"
+        );
+        // And nothing derived from it survives to be read back.
+        for table in [
+            "turns",
+            "constraints",
+            "decisions",
+            "signal_events",
+            "context_state",
+        ] {
+            let n: i64 = st
+                .conn
+                .query_row(
+                    &format!("SELECT COUNT(*) FROM {table} WHERE session_id = 'gone-1'"),
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(n, 0, "{table} still holds rows for a forgotten session");
+        }
+        // Forgetting something that is not there is not an error.
+        assert!(!st.forget_session("never-existed").unwrap());
+    }
+
+    /// Retention has to delete, not just hide. The Free plan's "7 days of history"
+    /// was a display limit, so a user whose history had "expired" still had every
+    /// turn of it on disk.
+    #[test]
+    fn retention_deletes_old_sessions_and_keeps_recent_ones() {
+        let mut st = Store::open_in_memory().unwrap();
+        let now = 30 * 86_400_000i64;
+
+        let mut old = sample();
+        old.session_id = "old-1".into();
+        st.save_conversation_at(&old, 0).unwrap();
+        let mut fresh = sample();
+        fresh.session_id = "fresh-1".into();
+        st.save_conversation_at(&fresh, now).unwrap();
+
+        let gone = st.prune_sessions_older_than(7, now).unwrap();
+        assert_eq!(gone, 1, "only the session older than the window goes");
+        assert!(st.load_conversation("old-1").is_err());
+        assert!(st.load_conversation("fresh-1").is_ok());
+    }
+
+    /// "Delete everything" must clear conversations without resetting the trial —
+    /// a privacy control that doubles as a licence bypass is one users are right
+    /// to distrust.
+    #[test]
+    fn forget_everything_clears_sessions_but_not_install_metadata() {
+        let mut st = Store::open_in_memory().unwrap();
+        for id in ["a", "b"] {
+            let mut c = sample();
+            c.session_id = id.into();
+            st.save_conversation(&c).unwrap();
+        }
+        st.set_meta("trial_started_at", "12345").unwrap();
+        assert_eq!(st.session_count().unwrap(), 2);
+
+        assert_eq!(st.forget_everything().unwrap(), 2);
+        assert_eq!(st.session_count().unwrap(), 0);
+        assert_eq!(
+            st.meta("trial_started_at").unwrap().as_deref(),
+            Some("12345"),
+            "wiping conversations must not restart the trial"
+        );
     }
 }

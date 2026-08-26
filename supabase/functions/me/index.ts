@@ -7,6 +7,7 @@
 
 import { preflight, json } from "../_shared/cors.ts";
 import { getUser, userClient } from "../_shared/clients.ts";
+import { signPlanToken } from "../_shared/plan_token.ts";
 
 Deno.serve(async (req) => {
   const pre = preflight(req);
@@ -22,11 +23,27 @@ Deno.serve(async (req) => {
     supa.from("my_entitlement").select("*").maybeSingle(),
   ]);
 
+  const entitlement = ent ??
+    { plan_id: "free", plan_name: "Free", status: "free", features: {} };
+
+  // A signed assertion of the plan, for the desktop app.
+  //
+  // The app used to read `plan_id` here and simply tell its local proxy what it
+  // was; the proxy stored whatever it was told. Signing the claim means the proxy
+  // verifies a plan rather than trusting one. Short-lived, so a cancellation stops
+  // mattering within a day, but long enough that a flight or a Supabase outage does
+  // not strip a paying customer of the features they bought.
+  //
+  // Absent when no signing key is configured — the proxy then reports the
+  // entitlement as unverified rather than pretending otherwise.
+  const planToken = await signPlanToken(user.id, String(entitlement.plan_id ?? "free"));
+
   return json(
     {
       user: { id: user.id, email: user.email },
       profile: profile ?? null,
-      entitlement: ent ?? { plan_id: "free", plan_name: "Free", status: "free", features: {} },
+      entitlement,
+      ...(planToken ? { planToken } : {}),
     },
     200,
     origin,

@@ -367,6 +367,61 @@ impl AppCore {
         Some(IntentView::from_baseline(&session.baseline))
     }
 
+    // --- the user's own data -----------------------------------------------
+
+    /// How much is stored, so a destructive control can say what it will destroy.
+    pub fn stored_session_count(&self) -> usize {
+        self.store
+            .as_ref()
+            .and_then(|s| s.lock().ok())
+            .and_then(|s| s.session_count().ok())
+            .unwrap_or(0)
+    }
+
+    /// Delete every stored session, and drop the in-memory ones with them.
+    ///
+    /// Both halves matter. Clearing SQLite alone would leave the live sessions —
+    /// with their spans and goals — sitting in `/status` until the process
+    /// restarted, so a user who pressed "delete everything" would watch their
+    /// conversation stay on screen.
+    pub fn forget_everything(&mut self) -> usize {
+        let deleted = self
+            .store
+            .as_ref()
+            .and_then(|s| s.lock().ok())
+            .and_then(|mut s| s.forget_everything().ok())
+            .unwrap_or(0);
+        self.sessions.clear();
+        self.last_updated = None;
+        deleted
+    }
+
+    /// Delete one session, from the store and from memory.
+    pub fn forget_session(&mut self, session_id: &str) -> bool {
+        let in_store = self
+            .store
+            .as_ref()
+            .and_then(|s| s.lock().ok())
+            .and_then(|mut s| s.forget_session(session_id).ok())
+            .unwrap_or(false);
+        let in_memory = self.sessions.remove(session_id).is_some();
+        if self.last_updated.as_deref() == Some(session_id) {
+            self.last_updated = None;
+        }
+        in_store || in_memory
+    }
+
+    /// Apply the retention window: delete stored sessions older than `days`.
+    /// `None` keeps everything. Returns how many were deleted.
+    pub fn apply_retention(&mut self, days: Option<u32>) -> usize {
+        let Some(days) = days else { return 0 };
+        self.store
+            .as_ref()
+            .and_then(|s| s.lock().ok())
+            .and_then(|mut s| s.prune_sessions_older_than(days, now_millis()).ok())
+            .unwrap_or(0)
+    }
+
     /// Confirm a proposed constraint: the user has read the rule Drifterr imported
     /// and accepts it, so it stops being advisory and may drive RED like any rule
     /// they typed themselves.

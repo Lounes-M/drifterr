@@ -20,6 +20,33 @@ local SQLite on the user's machine. The backend (Supabase + Stripe) stores only:
 No chat content, ever. If a feature would require sending conversation data to
 the server, it does not belong here — it belongs in the local engine.
 
+## What entitlement enforcement can and cannot do
+
+Drifterr runs on the user's machine, so this needs stating plainly rather than
+implied.
+
+The accounts backend signs a short-lived assertion of the plan — *this user, this
+plan, expiring then* — with a key only it holds, and the proxy verifies it against
+a public key compiled into the release build (`crates/proxy/src/plan_token.rs`).
+Until that existed the panel simply *told* the proxy which plan to apply and the
+proxy stored it, so a single unauthenticated request granted Team.
+
+What signing buys is real: a plan cannot be asserted, only presented; a
+cancellation stops mattering when the token lapses rather than at the next
+reinstall; and there is one place in the system that answers "what plan is this?".
+
+What it does not buy, and cannot: tamper-proofing. The user owns the machine, the
+source is public, and a determined person can patch the binary or the embedded key.
+That is a property of local software, not a gap to be closed, and no amount of
+obfuscation changes it — it only makes the code worse. We treat paid plans the way
+we already treat the local trial: a boundary that stops accidents and scripts, not
+one that stops the machine's owner.
+
+A build with no key configured (a development build, a self-hoster) accepts the
+plain assertion and reports `"verified": false` at `GET /entitlement`, so
+"Pro" and "Pro, unverified" are never the same string.
+
+
 ## Components
 
 ```

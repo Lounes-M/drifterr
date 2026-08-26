@@ -189,6 +189,9 @@ fn start_embedded_proxy(app: &tauri::App) {
         }
     }
 
+    // Enforce the retention window at launch, before anything is served.
+    state.sweep_retention();
+
     tauri::async_runtime::spawn(async move {
         if let Err(e) = drifterr_proxy::serve(proxy_addr(), control_addr(), state).await {
             eprintln!("drifterr: embedded proxy stopped: {e}");

@@ -1433,3 +1433,135 @@ async fn rule_packs_apply_and_export() {
     );
     assert!(md.contains("## Mine"));
 }
+
+/// The data controls a local-first product has to have and did not.
+///
+/// Everything Drifterr sees was written to SQLite in full with no retention, no
+/// per-session delete and no wipe. "It never leaves your machine" is only half a
+/// promise if the other half is "and it stays there forever whether you like it or
+/// not". This drives the whole path over HTTP: ingest two sessions, delete one,
+/// then delete the rest.
+#[tokio::test]
+async fn a_user_can_delete_their_own_history() {
+    let dir = std::env::temp_dir().join(format!("drifterr-forget-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let db = dir.join("t.sqlite");
+    let store = drifterr_store::Store::open(db.to_str().unwrap()).unwrap();
+
+    let cfg = ProxyConfig {
+        openai_upstream: "http://unused".into(),
+        anthropic_upstream: "http://unused".into(),
+        openai_strip_v1: false,
+    };
+    let state = AppState::new(cfg, Some(store));
+    let control = spawn(control_router(pin(state))).await;
+    let c = client();
+
+    for id in ["s-one", "s-two"] {
+        let res = c
+            .post(format!("http://{control}/ingest"))
+            .json(&serde_json::json!({
+                "sessionId": id,
+                "model": "gpt-4",
+                "turns": [
+                    { "role": "user", "content": "migrate the payroll database" },
+                    { "role": "assistant", "content": "here is the migration" }
+                ]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert!(res.status().is_success(), "ingest {id}");
+    }
+
+    let prefs: serde_json::Value = c
+        .get(format!("http://{control}/prefs"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        prefs["storedSessions"], 2,
+        "the panel must be able to say what it is about to delete"
+    );
+
+    // Delete one. `/ingest` prefixes browser sessions, so ask /sessions for the id.
+    let sessions: serde_json::Value = c
+        .get(format!("http://{control}/sessions"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let first = sessions[0]["sessionId"].as_str().unwrap().to_string();
+    let one: serde_json::Value = c
+        .post(format!("http://{control}/data/forget"))
+        .json(&serde_json::json!({ "session": first }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(one["deleted"], 1);
+    assert_eq!(one["storedSessions"], 1);
+
+    // A request that names nothing must not be read as "delete everything".
+    let ambiguous = c
+        .post(format!("http://{control}/data/forget"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        ambiguous.status(),
+        400,
+        "a malformed body must never wipe the database"
+    );
+
+    let all: serde_json::Value = c
+        .post(format!("http://{control}/data/forget"))
+        .json(&serde_json::json!({ "all": true }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(all["storedSessions"], 0);
+
+    // And the live view is empty too — clearing SQLite while leaving the session on
+    // screen would be the worst of both.
+    let status: serde_json::Value = c
+        .get(format!("http://{control}/status"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(status["current"].is_null(), "the panel must go empty too");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The database holds the full text of every turn. On a shared machine the ambient
+/// umask made that readable by every other account.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_database_is_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("drifterr-perm-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let db = dir.join("p.sqlite");
+    let _store = drifterr_store::Store::open(db.to_str().unwrap()).unwrap();
+    let mode = std::fs::metadata(&db).unwrap().permissions().mode() & 0o777;
+    assert_eq!(
+        mode, 0o600,
+        "the conversation database must not be group- or world-readable"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

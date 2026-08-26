@@ -36,6 +36,7 @@ drifterr-intervention.workspace = true
 drifterr-judge.workspace = true
 drifterr-store.workspace = true
 drifterr-tokenizer.workspace = true
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -43,3 +44,4 @@ reqwest = { version = "0.12", default-features = false, features = ["stream", "j
 futures-util = "0.3"
 drifterr-judge.workspace = true
 drifterr-store.workspace = true
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }

@@ -1435,6 +1435,116 @@ function setupIntent(doc) {
 }
 
 /**
+ * The "Your data" controls: retention window, and delete-everything.
+ *
+ * Delete is two-step rather than a `confirm()` dialog: the first click arms the
+ * button and names the count, the second does it. A dialog would be easier to
+ * dismiss without reading, and this is the one control in the panel with no undo.
+ */
+export function setupDataControls(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  const select = doc.getElementById("retention-select");
+  const del = doc.getElementById("forget-all");
+  const status = doc.getElementById("forget-status");
+  if (!select && !del) return;
+
+  let stored = 0;
+  let armed = false;
+
+  const paintCount = () => {
+    if (!status || armed) return;
+    status.textContent = stored
+      ? `${stored} session${stored === 1 ? "" : "s"} stored`
+      : "Nothing stored";
+  };
+  const disarm = () => {
+    armed = false;
+    if (del) {
+      del.textContent = "Delete all history";
+      del.classList.remove("armed");
+    }
+    paintCount();
+  };
+
+  const load = async () => {
+    try {
+      const res = await f(apiBase() + "/prefs", withAuth({ cache: "no-store" }));
+      if (!res.ok) return;
+      const p = await res.json();
+      stored = Number(p.storedSessions) || 0;
+      if (select) select.value = p.retentionDays == null ? "" : String(p.retentionDays);
+      paintCount();
+    } catch (_e) {
+      /* Proxy unreachable — the status poll already says so. */
+    }
+  };
+
+  if (select) {
+    select.addEventListener("change", async () => {
+      const raw = select.value;
+      try {
+        const res = await f(apiBase() + "/prefs", withAuth({
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          // `null` means forever. Sent explicitly, because omitting the field means
+          // "leave it alone" and would make choosing Forever a silent no-op.
+          body: JSON.stringify({
+            notificationsMuted: doc.getElementById("dnd-toggle")?.checked || false,
+            retentionDays: raw === "" ? null : Number(raw),
+          }),
+        }));
+        if (res.ok) {
+          const p = await res.json();
+          stored = Number(p.storedSessions) || 0;
+          disarm();
+        }
+      } catch (_e) {
+        if (status) status.textContent = "Couldn't save that";
+      }
+    });
+  }
+
+  if (del) {
+    del.addEventListener("click", async () => {
+      if (!armed) {
+        armed = true;
+        del.classList.add("armed");
+        del.textContent = "Click again to delete";
+        if (status) {
+          status.textContent = stored
+            ? `${stored} session${stored === 1 ? "" : "s"} will be erased. This cannot be undone.`
+            : "Nothing to delete.";
+        }
+        window.setTimeout(disarm, 6000);
+        return;
+      }
+      try {
+        const res = await f(apiBase() + "/data/forget", withAuth({
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ all: true }),
+        }));
+        const out = res.ok ? await res.json() : null;
+        stored = out ? Number(out.storedSessions) || 0 : stored;
+        armed = false;
+        del.classList.remove("armed");
+        del.textContent = "Delete all history";
+        if (status) {
+          status.textContent = out
+            ? `Deleted ${out.deleted} session${out.deleted === 1 ? "" : "s"}.`
+            : "Couldn't delete";
+        }
+      } catch (_e) {
+        disarm();
+        if (status) status.textContent = "Couldn't delete";
+      }
+    });
+  }
+
+  load();
+}
+
+/**
  * Show the extension pairing token, masked until asked for.
  *
  * The token is a local capability, but it is still a credential: leaving it in
@@ -1720,7 +1830,7 @@ export async function refreshAuth(doc, mod) {
   if (!user) {
     // Local-only mode: make sure the proxy is on the Free entitlement and the
     // panel is honest about it. No account, no network required.
-    await pushPlan("free");
+    await pushPlan("free", null);
     renderPlan(doc, "Free", "free");
     return;
   }
@@ -1729,12 +1839,15 @@ export async function refreshAuth(doc, mod) {
 
 /// Tell the local proxy which plan to enforce (identity only — no chat content).
 /// The proxy derives the capability flags from the plan id itself.
-async function pushPlan(planId) {
+async function pushPlan(planId, planToken) {
   try {
     await fetch(apiBase() + "/entitlement", withAuth({
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plan: planId }),
+      // The signed assertion is what a release build actually accepts; `plan` is
+      // the development fallback for a build with no entitlement key. Sending
+      // both means one panel works against either.
+      body: JSON.stringify({ plan: planId, planToken }),
     }));
   } catch (_e) { /* proxy not reachable yet — the status poll still reflects Free */ }
 }
@@ -1752,15 +1865,18 @@ function renderPlan(doc, planName, _planId) {
 async function loadEntitlement(doc, mod, user) {
   setText(doc, "acct-email", user.email || "");
 
-  let planName = "Free", planId = "free";
+  let planName = "Free", planId = "free", planToken = null;
   try {
     const me = await mod.fetchMe();
     const ent = me.entitlement || {};
     planName = ent.plan_name || "Free";
     planId = ent.plan_id || "free";
+    // The signed assertion of that plan. A release build of the proxy requires it
+    // and ignores `plan_id`; only a build with no entitlement key falls back.
+    planToken = typeof me.planToken === "string" ? me.planToken : null;
   } catch (_e) { /* keep Free defaults */ }
 
-  await pushPlan(planId);
+  await pushPlan(planId, planToken);
   renderPlan(doc, planName, planId);
 
   const isFree = planId === "free";
@@ -2028,6 +2144,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined" && !window.
   // than one render later.
   ensureToken().then(() => {
     setupPairingToken(document);
+    setupDataControls(document);
     initAccounts(document);
     maybeOnboard(document);
     poll(document);

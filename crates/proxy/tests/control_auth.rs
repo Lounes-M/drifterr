@@ -78,6 +78,7 @@ const PROTECTED_POSTS: &[&str] = &[
     "/standing-orders/promote",
     "/feedback",
     "/ingest",
+    "/data/forget",
 ];
 
 async fn serve() -> SocketAddr {
@@ -452,4 +453,126 @@ async fn the_token_is_never_disclosed_by_the_api() {
             "{path} disclosed the control token"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 4. The entitlement is verified, not asserted.
+// ---------------------------------------------------------------------------
+
+/// A plan the backend signed is accepted; one it did not is not.
+///
+/// The control token authenticates *the panel*; it says nothing about which plan
+/// the user bought. Conflating the two is how a local app ends up treating "this
+/// request came from our own UI" as "this user paid".
+#[tokio::test]
+async fn a_paid_plan_requires_a_signed_assertion() {
+    use ed25519_dalek::{Signer, SigningKey};
+
+    fn b64url(bytes: &[u8]) -> String {
+        const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
+            let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+            for i in 0..chunk.len() + 1 {
+                out.push(T[((n >> (18 - 6 * i)) & 0x3f) as usize] as char);
+            }
+        }
+        out
+    }
+
+    let sk = SigningKey::from_bytes(&[11u8; 32]);
+    std::env::set_var(
+        "DRIFTERR_ENTITLEMENT_PUBKEY",
+        b64url(sk.verifying_key().as_bytes()),
+    );
+
+    let addr = serve().await;
+    let c = client();
+
+    // 1. A bare assertion is refused outright once this build can verify.
+    let asserted = c
+        .post(format!("http://{addr}/entitlement"))
+        .header(TOKEN_HEADER, TOKEN)
+        .json(&serde_json::json!({ "plan": "team" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        asserted.status(),
+        400,
+        "a build that verifies entitlements must refuse a bare assertion"
+    );
+
+    // 2. A token signed by somebody else grants nothing.
+    let other = SigningKey::from_bytes(&[12u8; 32]);
+    let payload = b64url(br#"{"sub":"u","plan":"team","exp":99999999999999}"#);
+    let forged = format!(
+        "{payload}.{}",
+        b64url(&other.sign(payload.as_bytes()).to_bytes())
+    );
+    let got: serde_json::Value = c
+        .post(format!("http://{addr}/entitlement"))
+        .header(TOKEN_HEADER, TOKEN)
+        .json(&serde_json::json!({ "planToken": forged }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_ne!(got["plan"], "team", "a forged token granted a paid plan");
+    assert_eq!(
+        got["teamSharing"], false,
+        "and must not unlock a paid capability"
+    );
+
+    // 3. A token the backend really signed does grant the plan — the boundary has
+    //    to let paying customers through, or it is just an outage.
+    let good_payload = b64url(br#"{"sub":"u","plan":"team","exp":99999999999999}"#);
+    let good = format!(
+        "{good_payload}.{}",
+        b64url(&sk.sign(good_payload.as_bytes()).to_bytes())
+    );
+    let ok: serde_json::Value = c
+        .post(format!("http://{addr}/entitlement"))
+        .header(TOKEN_HEADER, TOKEN)
+        .json(&serde_json::json!({ "planToken": good }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(ok["plan"], "team");
+    assert_eq!(ok["teamSharing"], true);
+    assert_eq!(
+        ok["verified"], true,
+        "and the panel can say it was verified"
+    );
+
+    // 4. An expired one falls back to Free rather than leaving the old plan in
+    //    force — an expiry that keeps the previous answer is not an expiry.
+    let stale_payload = b64url(br#"{"sub":"u","plan":"team","exp":1}"#);
+    let stale = format!(
+        "{stale_payload}.{}",
+        b64url(&sk.sign(stale_payload.as_bytes()).to_bytes())
+    );
+    let lapsed: serde_json::Value = c
+        .post(format!("http://{addr}/entitlement"))
+        .header(TOKEN_HEADER, TOKEN)
+        .json(&serde_json::json!({ "planToken": stale }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_ne!(lapsed["plan"], "team", "an expired plan stayed in force");
+
+    std::env::remove_var("DRIFTERR_ENTITLEMENT_PUBKEY");
 }

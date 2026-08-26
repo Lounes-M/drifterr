@@ -117,6 +117,14 @@ async fn main() {
         drifterr_proxy::auth::state_dir().join("token").display()
     );
     let _ = state.token.as_str();
+
+    // Apply the retention window before serving. A window that is only enforced
+    // when the setting changes would let an app that is opened rarely keep months
+    // of history it had already promised to delete.
+    let swept = state.sweep_retention();
+    if swept > 0 {
+        eprintln!("drifterr retention  → deleted {swept} session(s) past the window");
+    }
     if state.auto_reanchor_on() {
         eprintln!("drifterr re-anchor → ON (injects the preamble into drifting requests)");
     }

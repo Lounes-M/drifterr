@@ -594,6 +594,11 @@ code { font-family: var(--mono); }
 }
 .ghost-btn:hover { background: rgba(255, 255, 255, 0.13); color: #fff; }
 .ghost-btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+/* Destructive: red only once the user has committed to it, so the settings view
+   does not read as alarming while they are only passing through. */
+.ghost-btn.danger { color: var(--red); border-color: rgba(255, 77, 109, 0.32); }
+.ghost-btn.danger:hover { background: rgba(255, 77, 109, 0.16); color: #fff; }
+.ghost-btn.danger.armed { background: var(--red); border-color: var(--red); color: #fff; }
 
 .cfg-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
 .cfg-row span:first-child { flex: 0 0 auto; }

@@ -27,6 +27,7 @@ pub mod dashboard;
 pub mod entitlement;
 pub mod hook;
 pub mod mcp;
+pub mod plan_token;
 pub mod provider;
 pub mod state;
 pub mod team;
@@ -207,6 +208,13 @@ pub struct AppState {
     /// When the local first-run Pro trial started (ms since epoch), if it has.
     /// Read from `app_meta` on startup — no account and no network involved.
     pub trial_started_ms: Arc<RwLock<Option<i64>>>,
+    /// How many days of session history to keep on disk, or `None` for "forever".
+    ///
+    /// A *deletion* policy, not a display filter. The plan's "7 days of history"
+    /// used to hide older sessions while every turn of them stayed on disk, so a
+    /// user whose history had expired still had it. Applied on startup and whenever
+    /// the setting changes.
+    pub retention_days: Arc<RwLock<Option<u32>>>,
     /// The control API's access token. Every route but `/health` and the
     /// dashboard's own assets requires it; see [`auth`] for why localhost alone
     /// was never a boundary.
@@ -237,6 +245,27 @@ impl AppState {
         // constructors deliberately skip this so plan gating stays deterministic.
         s.begin_trial_if_new();
         s
+    }
+
+    /// Enforce the retention window now.
+    ///
+    /// Called once at startup by every embedder, because retention that only ran
+    /// when the setting changed would leave an app that is opened rarely holding
+    /// months of history it had promised to delete. Returns how many sessions went.
+    pub fn sweep_retention(&self) -> usize {
+        let days = self.retention_days.read().ok().and_then(|d| *d);
+        self.core
+            .lock()
+            .map(|mut c| c.apply_retention(days))
+            .unwrap_or(0)
+    }
+
+    /// Set the retention window (embedders and tests).
+    pub fn with_retention_days(self, days: Option<u32>) -> Self {
+        if let Ok(mut w) = self.retention_days.write() {
+            *w = days;
+        }
+        self
     }
 
     /// Start the local Pro trial on first launch, or read back the existing start
@@ -358,6 +387,7 @@ impl AppState {
             trial_started_ms: Arc::new(RwLock::new(None)),
             upstream: Arc::new(RwLock::new(upstream)),
             token: auth::Token::lazy(),
+            retention_days: Arc::new(RwLock::new(retention_from_env())),
         }
     }
 
@@ -377,7 +407,12 @@ impl AppState {
         let trial = self.trial_started_ms.read().ok().and_then(|t| *t);
         let now = state::now_millis();
         let plan = entitlement::resolve_plan(account, trial, now);
-        Entitlement::for_plan(plan).with_trial_days_left(entitlement::trial_days_left(trial, now))
+        let mut ent = Entitlement::for_plan(plan)
+            .with_trial_days_left(entitlement::trial_days_left(trial, now));
+        // A trial is granted locally by design and needs no signature; what
+        // `verified` answers is whether an *account* plan was proven.
+        ent.verified = plan_token::verification_available();
+        ent
     }
 
     /// Mark whether the Claude Code file channel is active (embedder-set).
@@ -537,6 +572,7 @@ pub fn control_router(state: AppState) -> Router {
         )
         .route("/intent-shift", post(resolve_intent_shift_handler))
         .route("/prefs", get(get_prefs_handler).post(set_prefs_handler))
+        .route("/data/forget", post(forget_handler))
         .route("/history", get(history_handler))
         .route("/journal", get(journal_handler))
         .route("/report", get(report_handler))
@@ -1219,28 +1255,119 @@ async fn set_intent_handler(
 struct Prefs {
     #[serde(rename = "notificationsMuted")]
     notifications_muted: bool,
+    /// Days of history kept on disk; `null` means forever.
+    #[serde(rename = "retentionDays")]
+    retention_days: Option<u32>,
+    /// How many sessions are stored right now, so the panel's delete control can
+    /// name what it is about to remove instead of asking for blind confirmation.
+    #[serde(rename = "storedSessions")]
+    stored_sessions: usize,
+}
+
+fn prefs_of(app: &AppState) -> Prefs {
+    Prefs {
+        notifications_muted: app.notifications_muted.load(Ordering::Relaxed),
+        retention_days: app.retention_days.read().ok().and_then(|d| *d),
+        stored_sessions: app
+            .core
+            .lock()
+            .map(|c| c.stored_session_count())
+            .unwrap_or(0),
+    }
 }
 
 async fn get_prefs_handler(State(app): State<AppState>) -> Json<Prefs> {
-    Json(Prefs {
-        notifications_muted: app.notifications_muted.load(Ordering::Relaxed),
-    })
+    Json(prefs_of(&app))
 }
 
 #[derive(Deserialize)]
 struct SetPrefs {
     #[serde(default, rename = "notificationsMuted")]
     notifications_muted: bool,
+    /// Absent leaves retention unchanged; `null` means keep forever. Distinguishing
+    /// the two matters: a panel that only sends the mute toggle must not silently
+    /// switch retention off.
+    #[serde(default, rename = "retentionDays")]
+    retention_days: Option<Option<u32>>,
 }
 
-/// Set preferences (Do Not Disturb). The native shell reads the result from
-/// `/status` and suppresses OS notifications accordingly.
+/// Set preferences (Do Not Disturb, retention). The native shell reads the result
+/// from `/status` and suppresses OS notifications accordingly.
+///
+/// Shortening the retention window takes effect immediately rather than at the next
+/// startup: a user who has just decided they want less of their history on disk
+/// should not have to keep the app running until tomorrow to get it.
 async fn set_prefs_handler(State(app): State<AppState>, Json(body): Json<SetPrefs>) -> Json<Prefs> {
     app.notifications_muted
         .store(body.notifications_muted, Ordering::Relaxed);
-    Json(Prefs {
-        notifications_muted: body.notifications_muted,
+    if let Some(days) = body.retention_days {
+        if let Ok(mut w) = app.retention_days.write() {
+            *w = days;
+        }
+        if let Ok(mut core) = app.core.lock() {
+            core.apply_retention(days);
+        }
+    }
+    Json(prefs_of(&app))
+}
+
+/// `POST /data/forget` — delete stored conversations.
+///
+/// The control a privacy-first product has to have and did not. Everything
+/// Drifterr sees is written to local SQLite in full, and until now there was no
+/// way to get rid of any of it: no per-session delete, no retention, no wipe.
+/// "It never leaves your machine" is only half a promise if the other half is
+/// "and it stays there forever whether you like it or not".
+#[derive(Deserialize)]
+struct ForgetReq {
+    /// A single session id. Omit (or pass `all: true`) to delete everything.
+    #[serde(default)]
+    session: Option<String>,
+    #[serde(default)]
+    all: bool,
+}
+
+#[derive(Serialize)]
+struct ForgetResult {
+    deleted: usize,
+    #[serde(rename = "storedSessions")]
+    stored_sessions: usize,
+}
+
+async fn forget_handler(State(app): State<AppState>, Json(body): Json<ForgetReq>) -> Response {
+    let Ok(mut core) = app.core.lock() else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "busy").into_response();
+    };
+    let deleted = match (&body.session, body.all) {
+        (Some(id), false) => usize::from(core.forget_session(id)),
+        // `all` must be explicit. A malformed body that deserialized to "no session
+        // named" would otherwise wipe everything, which is not a failure mode a
+        // delete endpoint gets to have.
+        (_, true) => core.forget_everything(),
+        (None, false) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "pass `session` to delete one, or `all: true` to delete everything",
+            )
+                .into_response()
+        }
+    };
+    let stored = core.stored_session_count();
+    Json(ForgetResult {
+        deleted,
+        stored_sessions: stored,
     })
+    .into_response()
+}
+
+/// Retention window from the environment, for the standalone proxy and as the
+/// default the panel then edits. Unset means keep everything, which is what the
+/// product did before this existed — so nobody's data changes meaning on upgrade.
+fn retention_from_env() -> Option<u32> {
+    std::env::var("DRIFTERR_RETENTION_DAYS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .filter(|d| *d > 0)
 }
 
 /// Retire (remove) a constraint the user no longer wants enforced.
@@ -1566,19 +1693,57 @@ async fn entitlement_handler(State(app): State<AppState>) -> Json<Entitlement> {
 /// capabilities from the plan id — never from client-sent flags.
 #[derive(Deserialize)]
 struct SetEntitlement {
+    /// The plan, asserted. Accepted only by a build with no entitlement key
+    /// configured — see [`plan_token`] for why an assertion is not a boundary.
     #[serde(default)]
     plan: String,
+    /// A signed plan assertion from the accounts backend. Required whenever this
+    /// build can verify one.
+    #[serde(default, rename = "planToken")]
+    plan_token: Option<String>,
 }
 
+/// Record the plan for the signed-in account.
+///
+/// This used to store whatever it was told. A signed token means the proxy now
+/// *verifies* a plan rather than trusting one — see [`plan_token`], including an
+/// honest account of what that does and does not buy for local software.
+///
+/// A build with no key configured (development, a self-hoster) still accepts the
+/// plain assertion, and `GET /entitlement` reports `verified: false` so the state
+/// is never ambiguous.
 async fn set_entitlement_handler(
     State(app): State<AppState>,
     Json(body): Json<SetEntitlement>,
-) -> Json<Entitlement> {
-    app.set_account_plan(Plan::from_id(&body.plan));
+) -> Response {
+    let plan = if plan_token::verification_available() {
+        let Some(token) = body.plan_token.as_deref() else {
+            return (
+                StatusCode::BAD_REQUEST,
+                "this build verifies entitlements: send `planToken` from /me, not `plan`",
+            )
+                .into_response();
+        };
+        match plan_token::verify(token, state::now_millis()) {
+            Ok(claims) => Plan::from_id(&claims.plan),
+            // Downgrade to Free rather than refuse outright. A lapsed or unreadable
+            // token means we cannot establish a paid plan, and the honest response
+            // to that is the free tier — which still runs the whole detection loop.
+            // Refusing would leave the previous plan in force, which is the one
+            // outcome an expiry must not produce.
+            Err(e) => {
+                eprintln!("drifterr: plan token refused ({e}) — falling back to Free");
+                Plan::Free
+            }
+        }
+    } else {
+        Plan::from_id(&body.plan)
+    };
+
+    app.set_account_plan(plan);
     // Re-derive: an account on Free while the local trial is still running stays
     // on trial capabilities.
-    let ent = app.entitlement();
-    Json(ent)
+    Json(app.entitlement()).into_response()
 }
 
 async fn sessions_handler(State(app): State<AppState>) -> Json<Vec<SessionStatus>> {
