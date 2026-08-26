@@ -179,6 +179,7 @@ mod tests {
                     kind: ConstraintType::Tech,
                     checkable: Checkable::Deterministic,
                     active: true,
+                    proposed: false,
                     rule: None,
                 },
                 Constraint {
@@ -187,6 +188,7 @@ mod tests {
                     kind: ConstraintType::Format,
                     checkable: Checkable::Deterministic,
                     active: false, // retired — must NOT appear
+                    proposed: false,
                     rule: None,
                 },
             ],

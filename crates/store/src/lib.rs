@@ -34,6 +34,10 @@ fn migrate(conn: &Connection) {
         // channels whose transcript outlives a context compaction. Defaults to 1 so rows
         // written before it existed keep the meaning they were recorded with.
         "ALTER TABLE context_state ADD COLUMN occupancy_known INTEGER NOT NULL DEFAULT 1",
+        // Marks a constraint Drifterr inferred from a project rules file rather than
+        // one the user stated. Defaults to 0 so every constraint recorded before this
+        // existed stays enforced — they were all user-stated at the time.
+        "ALTER TABLE constraints ADD COLUMN proposed INTEGER NOT NULL DEFAULT 0",
     ];
     for stmt in ADDITIVE {
         let _ = conn.execute(stmt, []);
@@ -346,8 +350,9 @@ impl Store {
                 None => None,
             };
             tx.execute(
-                "INSERT INTO constraints (id, session_id, text, type, checkable, active, rule_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO constraints
+                   (id, session_id, text, type, checkable, active, rule_json, proposed)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     c.id,
                     session_id,
@@ -355,7 +360,8 @@ impl Store {
                     constraint_type_str(c.kind),
                     checkable_str(c.checkable),
                     c.active as i64,
-                    rule_json
+                    rule_json,
+                    c.proposed as i64
                 ],
             )?;
         }
@@ -385,7 +391,8 @@ impl Store {
             .map_err(|_| StoreError::Data(format!("no session {session_id}")))?;
 
         let mut cstmt = self.conn.prepare(
-            "SELECT id, text, type, checkable, active, rule_json FROM constraints WHERE session_id = ?1",
+            "SELECT id, text, type, checkable, active, rule_json, proposed
+             FROM constraints WHERE session_id = ?1",
         )?;
         let constraints = cstmt
             .query_map(params![session_id], |r| {
@@ -397,11 +404,12 @@ impl Store {
                     r.get::<_, String>(3)?,
                     r.get::<_, i64>(4)? != 0,
                     rule_json,
+                    r.get::<_, i64>(6)? != 0,
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?
             .into_iter()
-            .map(|(id, text, ty, ck, active, rule_json)| {
+            .map(|(id, text, ty, ck, active, rule_json, proposed)| {
                 let rule: Option<Rule> = match rule_json {
                     Some(j) => Some(serde_json::from_str(&j)?),
                     None => None,
@@ -412,6 +420,7 @@ impl Store {
                     kind: parse_constraint_type(&ty),
                     checkable: parse_checkable(&ck),
                     active,
+                    proposed,
                     rule,
                 })
             })
@@ -868,6 +877,7 @@ mod tests {
                 kind: ConstraintType::Tech,
                 checkable: Checkable::Deterministic,
                 active: true,
+                proposed: false,
                 rule: Some(Rule::ForbidPattern {
                     pattern: r"\.js\b".into(),
                 }),

@@ -17,6 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             kind: ConstraintType::Tech,
             checkable: Checkable::Deterministic,
             active: true,
+            proposed: false,
             rule: None, // inferred from the text
         }],
         decisions: vec![],

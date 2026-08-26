@@ -59,14 +59,10 @@ const MAX_LINE_CHARS: usize = 240;
 /// Returns an empty vec when nothing checkable is found — a perfectly normal
 /// outcome for a rules file written entirely in prose.
 pub fn constraints_from_text(text: &str, id_prefix: &str) -> Vec<Constraint> {
-    let prose = strip_code_blocks(text);
     let mut out: Vec<Constraint> = Vec::new();
 
-    for line in prose.lines() {
-        let stmt = statement(line);
-        if stmt.is_empty() || stmt.chars().count() > MAX_LINE_CHARS {
-            continue;
-        }
+    for cand in statements(text) {
+        let stmt = &cand.text;
         for rule in infer::infer_rules(stmt) {
             // A rules file often repeats itself across sections; one check per
             // distinct rule is what the user means.
@@ -78,10 +74,15 @@ pub fn constraints_from_text(text: &str, id_prefix: &str) -> Vec<Constraint> {
                 id: format!("{id_prefix}-{}", out.len() + 1),
                 // Keep the user's own wording: when Drifterr flags a violation it
                 // should quote the line they wrote, not our paraphrase of it.
-                text: stmt.to_string(),
+                text: stmt.clone(),
                 kind,
                 checkable: Checkable::Deterministic,
                 active: true,
+                // Imported, therefore proposed rather than enforced. See
+                // `Constraint::proposed`: an importer reading natural language can
+                // never be perfect, so a mistake here must cost an amber proposal
+                // the user glances at, not a red alert on a rule nobody wrote.
+                proposed: true,
                 rule: Some(rule),
             });
             if out.len() >= MAX_IMPORTED {
@@ -104,25 +105,22 @@ pub fn constraints_from_text(text: &str, id_prefix: &str) -> Vec<Constraint> {
 /// that merely *sounds* like a rule is reported. Over-reporting here is cheap (the user
 /// glances and moves on); under-reporting is a false assurance.
 pub fn unchecked_statements(text: &str) -> Vec<String> {
-    let prose = strip_code_blocks(text);
     let mut out = Vec::new();
-    for line in prose.lines() {
-        let stmt = statement(line);
-        if stmt.is_empty() || stmt.chars().count() > MAX_LINE_CHARS {
+    for cand in statements(text) {
+        // A heading is a label for the rules below it far more often than it is a
+        // rule. Reporting "Architecture rules (don't break these)" as something
+        // Drifterr cannot check is noise in a list a person actually reads.
+        if cand.heading {
             continue;
         }
-        if !infer::has_constraint_cue(stmt) {
+        if !infer::has_constraint_cue(&cand.text) {
             continue;
         }
-        if !infer::infer_rules(stmt).is_empty() {
+        if !infer::infer_rules(&cand.text).is_empty() {
             continue; // checkable — not our problem
         }
-        let owned = stmt.to_string();
-        if !out.contains(&owned) {
-            out.push(owned);
-        }
-        if out.len() >= MAX_IMPORTED {
-            break;
+        if !out.contains(&cand.text) {
+            out.push(cand.text);
         }
     }
     out
@@ -173,6 +171,218 @@ fn statement(line: &str) -> &str {
         return "";
     }
     s.trim_end_matches(['.', ';', ',']).trim()
+}
+
+/// Turn a markdown document into the list of candidate rule *statements*.
+///
+/// # Why this is not `text.lines()`
+///
+/// It used to be, and that was the bug. Prose in a rules file is hard-wrapped, so
+/// a single sentence arrives as several physical lines and each was evaluated as
+/// a rule on its own. Drifterr's own `CLAUDE.md` contains the paragraph
+///
+/// ```text
+/// drift scores are never sent there. When adding to the backend, keep that line
+/// bright — if it touches chat content, it does not belong in Supabase.
+/// ```
+///
+/// whose first physical line matched "backend" and "keep" and became a hard,
+/// RED-capable "server-side only" constraint. Nobody wrote that rule. It then
+/// fired on any reply containing `document.getElementById` — in a repository that
+/// ships a browser extension and a panel UI.
+///
+/// Two changes follow from that. Wrapped lines are joined back into the block they
+/// belong to, and blocks are split into **sentences**, so a clause is judged with
+/// the sentence it lives in rather than with whatever happened to share its line.
+///
+/// # What counts as a block
+///
+/// A block ends at a blank line, at the start of the next list item, and at a
+/// heading. Headings themselves are dropped: "Architecture rules (don't break
+/// these)" is a section label, not a rule, and treating labels as rules is what
+/// filled the *unchecked* list with table-of-contents noise.
+fn statements(text: &str) -> Vec<Candidate> {
+    let prose = strip_code_blocks(text);
+    let mut blocks: Vec<Candidate> = Vec::new();
+    let mut current = String::new();
+
+    let flush = |cur: &mut String, out: &mut Vec<Candidate>| {
+        let t = cur.trim();
+        if !t.is_empty() {
+            out.push(Candidate {
+                text: t.to_string(),
+                heading: false,
+            });
+        }
+        cur.clear();
+    };
+
+    for raw in prose.lines() {
+        let trimmed = raw.trim();
+
+        // A blank line always ends a block.
+        if trimmed.is_empty() {
+            flush(&mut current, &mut blocks);
+            continue;
+        }
+        // A heading ends the previous block and stands alone — it never joins the
+        // paragraph beneath it. It stays a candidate, because a heading is
+        // sometimes genuinely the rule ("## Never use `any`"), but it is marked so
+        // the recall-oriented `unchecked_statements` can drop it: a section label
+        // like "Architecture rules (don't break these)" reported as an unverifiable
+        // rule is table-of-contents noise, and that list is read by a human.
+        if is_heading(trimmed) {
+            flush(&mut current, &mut blocks);
+            let text = statement(trimmed);
+            if !text.is_empty() {
+                blocks.push(Candidate {
+                    text: text.to_string(),
+                    heading: true,
+                });
+            }
+            continue;
+        }
+        // A table row is a cell grid, not a sentence; each cell is its own
+        // candidate so a one-rule-per-row table still imports.
+        if is_table_row(trimmed) {
+            flush(&mut current, &mut blocks);
+            for cell in trimmed.split('|') {
+                let cell = cell.trim();
+                if !cell.is_empty() {
+                    blocks.push(Candidate {
+                        text: cell.to_string(),
+                        heading: false,
+                    });
+                }
+            }
+            continue;
+        }
+        // A new list item starts a new block; a continuation line joins the
+        // current one. This is the join that makes wrapped prose whole again.
+        if starts_list_item(trimmed) {
+            flush(&mut current, &mut blocks);
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(trimmed);
+    }
+    flush(&mut current, &mut blocks);
+
+    blocks
+        .iter()
+        .flat_map(|b| {
+            let heading = b.heading;
+            split_sentences(&b.text)
+                .into_iter()
+                .map(move |s| Candidate {
+                    text: statement(&s).to_string(),
+                    heading,
+                })
+        })
+        .filter(|c| !c.text.is_empty() && c.text.chars().count() <= MAX_LINE_CHARS)
+        .collect()
+}
+
+/// One candidate rule statement, plus whether it came from a heading.
+struct Candidate {
+    text: String,
+    /// Headings can be rules, but they are also section labels — see
+    /// [`unchecked_statements`], which is the one caller that must tell them apart.
+    heading: bool,
+}
+
+/// ATX (`## x`) and setext (`---` / `===`) headings.
+fn is_heading(line: &str) -> bool {
+    let l = line.trim_start_matches('>').trim_start();
+    if l.starts_with('#') {
+        return true;
+    }
+    let bare = l.trim();
+    !bare.is_empty()
+        && (bare.chars().all(|c| c == '=') || (bare.chars().all(|c| c == '-') && bare.len() >= 3))
+}
+
+fn is_table_row(line: &str) -> bool {
+    let l = line.trim();
+    l.starts_with('|') && l.matches('|').count() >= 2
+}
+
+/// Does this line begin a new list item (bullet, numbered, or task)?
+fn starts_list_item(line: &str) -> bool {
+    let l = line.trim_start_matches('>').trim_start();
+    if l.starts_with("- ") || l.starts_with("* ") || l.starts_with("+ ") {
+        return true;
+    }
+    let digits = l.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digits > 0 && digits <= 3 {
+        let rest = &l[digits..];
+        return rest.starts_with(". ") || rest.starts_with(") ");
+    }
+    false
+}
+
+/// Split a block into sentences.
+///
+/// Deliberately simple — `. `, `! `, `? ` and the end of the block — because the
+/// alternative is a sentence tokenizer, and every one of them has opinions about
+/// abbreviations that would be wrong here in a different way. The failure mode of
+/// splitting too eagerly is a shorter statement, which under-claims; the failure
+/// mode of not splitting is the bug this replaced.
+///
+/// A period inside an inline code span or immediately between word characters
+/// (`console.log`, `package.json`, `e.g.`) is not a break, because those are the
+/// exact tokens the rules depend on.
+fn split_sentences(block: &str) -> Vec<String> {
+    let chars: Vec<char> = block.chars().collect();
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let mut in_code = false;
+    for i in 0..chars.len() {
+        let c = chars[i];
+        if c == '`' {
+            in_code = !in_code;
+            continue;
+        }
+        if in_code || !matches!(c, '.' | '!' | '?') {
+            continue;
+        }
+        // Must be followed by whitespace (or end) to be a sentence end.
+        let next = chars.get(i + 1);
+        let ends = match next {
+            None => true,
+            Some(n) => n.is_whitespace(),
+        };
+        if !ends {
+            continue;
+        }
+        // `console.log` and `v1.2` keep their dots: a break needs a non-alnum or
+        // a whitespace-separated word before it.
+        if c == '.' {
+            let prev = if i == 0 { None } else { Some(chars[i - 1]) };
+            // A single letter before the period is almost always an initialism
+            // or an abbreviation ("e.g.", "i.e."), not a sentence end.
+            let two_back = if i >= 2 { Some(chars[i - 2]) } else { None };
+            if matches!(prev, Some(p) if p.is_alphanumeric())
+                && matches!(two_back, Some(t) if t == '.')
+            {
+                continue;
+            }
+        }
+        let piece: String = chars[start..=i].iter().collect();
+        if !piece.trim().is_empty() {
+            out.push(piece.trim().to_string());
+        }
+        start = i + 1;
+    }
+    let tail: String = chars[start..].iter().collect();
+    if !tail.trim().is_empty() {
+        out.push(tail.trim().to_string());
+    }
+    if out.is_empty() {
+        out.push(block.to_string());
+    }
+    out
 }
 
 /// Remove fenced code blocks, keeping the surrounding prose.
@@ -306,6 +516,103 @@ Only the line below is an actual rule.
             assert_eq!(cs.len(), 1, "should parse a rule out of {line:?}");
             assert_eq!(cs[0].text, "No TODOs", "clean text from {line:?}");
         }
+    }
+
+    /// The regression that motivated sentence-level parsing.
+    ///
+    /// This is a verbatim paragraph from Drifterr's own `CLAUDE.md`. Hard-wrapped,
+    /// its first physical line reads "…never sent there. When adding to the
+    /// backend, keep that line" — which the old line-based importer turned into a
+    /// hard "server-side only" constraint that then fired RED on any reply
+    /// containing `document.getElementById`, in a repository that ships a browser
+    /// extension and a panel UI.
+    ///
+    /// Nobody wrote that rule. Importing nothing here is the correct answer.
+    #[test]
+    fn wrapped_prose_never_becomes_a_rule() {
+        let md = "\
+- **Local-first.** Conversations live in local SQLite; **no chat content ever
+  leaves the machine.** Model calls (judge) go through the user's own provider.
+  The one server-side component is **accounts & billing** (Supabase + Stripe,
+  see `supabase/` and `docs/ACCOUNTS.md`): it holds identity (email, plan,
+  subscription status) and nothing else. Conversations, prompts, signals and
+  drift scores are never sent there. When adding to the backend, keep that line
+  bright — if it touches chat content, it does not belong in Supabase.
+";
+        let cs = constraints_from_text(md, "claude-md");
+        assert!(
+            cs.is_empty(),
+            "prose about a backend is not a layer constraint, got: {:#?}",
+            texts(&cs)
+        );
+    }
+
+    /// Wrapped lines are joined before anything is inferred, so a rule that spans
+    /// two physical lines still imports as one statement — and a clause is never
+    /// judged with whatever happened to share its line.
+    #[test]
+    fn wrapped_lines_are_joined_into_one_statement() {
+        let md = "\
+- Never leave a TODO
+  in committed code.
+";
+        let cs = constraints_from_text(md, "x");
+        assert_eq!(cs.len(), 1, "{:#?}", texts(&cs));
+        assert_eq!(cs[0].text, "Never leave a TODO in committed code");
+    }
+
+    /// Two rules in one paragraph are two statements, not one run-on.
+    #[test]
+    fn a_paragraph_splits_into_sentences() {
+        let md = "Never use `any` types. Also keep functions under 30 lines.\n";
+        let cs = constraints_from_text(md, "x");
+        assert_eq!(cs.len(), 2, "{:#?}", texts(&cs));
+        assert!(texts(&cs).iter().any(|t| t.contains("any")));
+        assert!(texts(&cs).iter().any(|t| t.contains("30 lines")));
+    }
+
+    /// A period inside a token is not a sentence boundary — the tokens the rules
+    /// are built from would not survive being split there.
+    #[test]
+    fn dotted_tokens_do_not_split_sentences() {
+        let cs = constraints_from_text("No console.log in committed code.\n", "x");
+        assert_eq!(cs.len(), 1, "{:#?}", texts(&cs));
+        assert_eq!(cs[0].text, "No console.log in committed code");
+    }
+
+    /// Everything imported is a *proposal*. The rule check stays deterministic, but
+    /// whether the user asked for the rule was decided by reading English, and a
+    /// signal that may drive RED must not rest on that.
+    #[test]
+    fn imported_constraints_are_proposed_not_enforced() {
+        let cs = constraints_from_text("- No console.log in committed code\n", "claude-md");
+        assert_eq!(cs.len(), 1);
+        assert!(
+            cs[0].proposed,
+            "an imported rule must start as a proposal, not a red-capable constraint"
+        );
+    }
+
+    /// Section labels are not rules the user is owed a warning about. This list is
+    /// read by a person, and filling it with headings and wrapped fragments is how
+    /// it stops being read.
+    #[test]
+    fn unchecked_statements_skip_headings_and_wrapped_fragments() {
+        let md = "\
+## Architecture rules (don't break these)
+
+- **The engine is channel-agnostic.** It only ever sees the normalized
+  `Conversation`.
+";
+        let un = unchecked_statements(md);
+        assert!(
+            !un.iter().any(|s| s.contains("Architecture rules")),
+            "a section heading is not an unverifiable rule: {un:#?}"
+        );
+        assert!(
+            !un.iter().any(|s| s.ends_with("normalized")),
+            "a wrapped fragment must never be reported as a rule: {un:#?}"
+        );
     }
 
     #[test]

@@ -141,6 +141,7 @@ impl Pack {
                         kind,
                         checkable: Checkable::Deterministic,
                         active: true,
+                        proposed: false,
                         rule: Some(rule),
                     });
                 }
@@ -155,6 +156,7 @@ impl Pack {
                         kind: ConstraintType::Other,
                         checkable: Checkable::Judge,
                         active: true,
+                        proposed: false,
                         rule: None,
                     });
                 }

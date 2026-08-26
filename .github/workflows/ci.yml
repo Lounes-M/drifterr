@@ -176,6 +176,22 @@ jobs:
   # states for its agents become an enforced gate on the diff. If the check is not good
   # enough to run here, it is not good enough to sell.
   #
+  # Two sources, deliberately.
+  #
+  # `--rules CLAUDE.md` is the dogfooding proper: whatever this repo states for its
+  # agents becomes a gate on the diff. On its own it currently verifies *nothing* —
+  # CLAUDE.md is architectural prose, and none of it is deterministically checkable.
+  # That used to be hidden: the old line-based importer manufactured a bogus
+  # "server-side only" rule out of a wrapped sentence, so the job reported "1 rule
+  # checked" and looked healthy while checking a rule nobody wrote. With the importer
+  # fixed the honest count is zero, and `check` exits 2 rather than pretend that is a
+  # pass.
+  #
+  # So the job also carries `--pack security-basics`, one of our own shipped packs.
+  # Its no-hardcoded-secrets rule is real value on every PR, and it means the step
+  # verifies something rather than reporting an empty run. As CLAUDE.md gains
+  # checkable rules they simply join in.
+  #
   # `--warn-only` for now: the rule set is small and the repo predates it, so blocking
   # every PR on day one would just get the job deleted. Drop the flag once the rules have
   # earned it.
@@ -206,4 +222,7 @@ jobs:
           # Fenced, because the engine scopes code rules to fenced blocks — a filename in
           # prose must never count as touching that file.
           { echo '```diff'; cat diff.patch; echo '```'; } \
-            | ./target/release/drifterr-proxy check --rules CLAUDE.md --warn-only
+            | ./target/release/drifterr-proxy check \
+                --rules CLAUDE.md \
+                --pack security-basics \
+                --warn-only

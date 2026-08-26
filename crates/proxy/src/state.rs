@@ -27,6 +27,11 @@ pub struct ConstraintView {
     /// "deterministic" (can drive RED) | "judge" (fuzzy, AMBER-only).
     pub checkable: String,
     pub active: bool,
+    /// True for a rule Drifterr imported from a project rules file rather than one
+    /// the user stated. It is checked and flagged, but caps at AMBER until the user
+    /// confirms it — so the panel must show it as a proposal with a way to accept.
+    #[serde(default)]
+    pub proposed: bool,
 }
 
 /// A user-reported false positive ("this wasn't drift"), captured locally so it
@@ -96,6 +101,7 @@ impl IntentView {
                     }
                     .into(),
                     active: c.active,
+                    proposed: c.proposed,
                 })
                 .collect(),
             pending: false,
@@ -361,6 +367,32 @@ impl AppCore {
         Some(IntentView::from_baseline(&session.baseline))
     }
 
+    /// Confirm a proposed constraint: the user has read the rule Drifterr imported
+    /// and accepts it, so it stops being advisory and may drive RED like any rule
+    /// they typed themselves.
+    ///
+    /// The inverse of [`Self::retire_constraint`] — together they are the two
+    /// answers to a proposal, and a proposal with no way to accept it would just be
+    /// a nag the user learns to ignore.
+    pub fn confirm_constraint(&mut self, session: Option<&str>, id: &str) -> Option<IntentView> {
+        let target = session
+            .map(str::to_string)
+            .or_else(|| self.last_updated.clone())?;
+        let session = self.sessions.get_mut(&target)?;
+        let found = session
+            .baseline
+            .constraints
+            .iter_mut()
+            .find(|c| c.id == id && c.active)?;
+        found.proposed = false;
+        if let Some(store) = &self.store {
+            if let Ok(mut s) = store.lock() {
+                let _ = s.save_baseline(&target, &session.baseline);
+            }
+        }
+        Some(IntentView::from_baseline(&session.baseline))
+    }
+
     /// The current declared/inferred intent for a session (or the current one, or
     /// a pending not-yet-applied intent). `None` only when there is nothing at all
     /// to show.
@@ -436,6 +468,8 @@ impl AppCore {
                     kind: "other".into(),
                     checkable: "judge".into(),
                     active: true,
+                    // Typed by the user into the intent form, so never a proposal.
+                    proposed: false,
                 })
                 .collect(),
             pending: true,
@@ -1000,6 +1034,7 @@ impl AppCore {
                     kind,
                     checkable,
                     active: true,
+                    proposed: false,
                     rule,
                 }
             })
@@ -1453,9 +1488,16 @@ mod tests {
     }
 
     #[test]
-    fn imported_rules_constraints_are_enforced_from_the_first_turn() {
+    fn imported_rules_constraints_are_live_but_only_advisory_until_confirmed() {
         // The point of the rules-file import: the user typed nothing, but a rule
         // they had already written in CLAUDE.md is live on turn one.
+        //
+        // Live, and AMBER. Drifterr inferred this rule from a document the user
+        // never addressed to it, so it names the cause and points at the file while
+        // deliberately declining to raise a red alert until the user confirms it.
+        // The importer got this exact judgement wrong once, on Drifterr\'s own
+        // CLAUDE.md, and the parser fix alone would leave the next such mistake
+        // costing a red alert instead of a glance.
         let imported = drifterr_engine::rules_file::constraints_from_text(
             "- Never use `console.log`\n",
             "claude-md",
@@ -1471,13 +1513,22 @@ mod tests {
 
         let mut core = AppCore::new(None);
         core.stage_imported_constraints(&conv.session_id, imported.clone());
-        assert_eq!(core.record_conversation(&conv), State::Red);
+        assert_eq!(
+            core.record_conversation(&conv),
+            State::Amber,
+            "an imported rule flags the turn, but must not drive RED unconfirmed"
+        );
         let trigger = core.current().unwrap().triggering.unwrap();
         assert_eq!(trigger.signal, "constraint");
         assert_eq!(
             trigger.constraint_id.as_deref(),
             Some("claude-md-1"),
             "the flag names the imported rule, so the cause is traceable to the file"
+        );
+        assert!(
+            trigger.detail.contains("confirm"),
+            "and tells the user how to make it enforced: {}",
+            trigger.detail
         );
 
         // Staging after the session exists must NOT re-add anything: that would

@@ -524,6 +524,7 @@ pub fn control_router(state: AppState) -> Router {
         .route("/reanchor", get(reanchor_handler))
         .route("/intent", get(get_intent_handler).post(set_intent_handler))
         .route("/intent/retire", post(retire_constraint_handler))
+        .route("/intent/confirm", post(confirm_constraint_handler))
         .route("/anchor", get(anchor_handler))
         .route("/judge", get(get_judge_handler).post(set_judge_handler))
         .route(
@@ -1259,6 +1260,27 @@ async fn retire_constraint_handler(
         .lock()
         .ok()
         .and_then(|mut c| c.retire_constraint(body.session.as_deref(), &body.id))
+    {
+        Some(view) => Json(view).into_response(),
+        None => (StatusCode::NOT_FOUND, "unknown constraint").into_response(),
+    }
+}
+
+/// Confirm a proposed (imported) constraint, so it is enforced like a stated one.
+///
+/// The other half of the proposal contract. An imported rule flags at AMBER and
+/// says "confirm it to enforce"; this is where that sentence leads. Without it the
+/// safety net would just be a permanent downgrade, and users would learn to ignore
+/// a class of warning that can never be resolved.
+async fn confirm_constraint_handler(
+    State(app): State<AppState>,
+    Json(body): Json<RetireConstraint>,
+) -> Response {
+    match app
+        .core
+        .lock()
+        .ok()
+        .and_then(|mut c| c.confirm_constraint(body.session.as_deref(), &body.id))
     {
         Some(view) => Json(view).into_response(),
         None => (StatusCode::NOT_FOUND, "unknown constraint").into_response(),

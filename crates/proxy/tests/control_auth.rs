@@ -68,6 +68,7 @@ const PROTECTED_POSTS: &[&str] = &[
     "/entitlement",
     "/intent",
     "/intent/retire",
+    "/intent/confirm",
     "/judge",
     "/auto-reanchor",
     "/auto-intent",

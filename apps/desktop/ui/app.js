@@ -1245,8 +1245,28 @@ export async function loadReanchor(doc, fetchImpl) {
 let currentIntent = null;
 
 /// Badge text for a constraint's enforcement strength.
+///
+/// "Proposed" outranks hard/soft, because it answers a different and more urgent
+/// question: this rule was read out of your CLAUDE.md, not typed by you, and it
+/// is only advisory until you say otherwise.
 function checkableBadge(c) {
+  if (c && c.proposed) return "Proposed";
   return c && c.checkable === "deterministic" ? "Hard" : "Soft";
+}
+
+/// Confirm a proposed (imported) constraint so it is enforced, then refresh.
+export async function confirmConstraint(doc, id, fetchImpl) {
+  const f = fetchImpl || fetch;
+  try {
+    const res = await f(apiBase() + "/intent/confirm", withAuth({
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id }),
+    }));
+    if (res.ok) renderIntent(doc, await res.json());
+  } catch (_e) {
+    /* Proxy unreachable — the status poll reports it. */
+  }
 }
 
 /// Render the intent payload (or null → empty state) into the view. Pure w.r.t.
@@ -1279,13 +1299,33 @@ export function renderIntent(doc, data) {
       const li = doc.createElement("li");
       li.className = "intent-constraint";
       const badge = doc.createElement("span");
-      badge.className = "intent-badge " + (c.checkable === "deterministic" ? "hard" : "soft");
+      badge.className =
+        "intent-badge " +
+        (c.proposed ? "proposed" : c.checkable === "deterministic" ? "hard" : "soft");
       badge.textContent = checkableBadge(c);
+      if (c.proposed) {
+        li.classList.add("proposed");
+        badge.title =
+          "Imported from your rules file. Advisory until you enforce it, so a " +
+          "misread line can never raise a red alert.";
+      }
       const text = doc.createElement("span");
       text.className = "intent-constraint-text";
       text.textContent = c.text;
       li.appendChild(badge);
       li.appendChild(text);
+      // A proposal needs a way to say yes, or it is just a warning the user
+      // learns to scroll past. Retire below is the way to say no.
+      if (c.id && c.proposed) {
+        const ok = doc.createElement("button");
+        ok.type = "button";
+        ok.className = "intent-confirm";
+        ok.textContent = "Enforce";
+        ok.title = "Treat this imported rule as one you set";
+        ok.setAttribute("aria-label", "Enforce this proposed constraint");
+        ok.addEventListener("click", () => confirmConstraint(doc, c.id));
+        li.appendChild(ok);
+      }
       // Retire (remove) a constraint the user no longer wants enforced.
       if (c.id) {
         const rm = doc.createElement("button");

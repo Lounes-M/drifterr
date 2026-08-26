@@ -424,6 +424,25 @@ code { font-family: var(--mono); }
 }
 .intent-badge.hard { background: rgba(255, 61, 129, 0.16); color: var(--blue-deep); }
 .intent-badge.soft { background: rgba(255, 178, 62, 0.16); color: var(--amber); }
+/* Proposed: read out of a rules file, not typed by the user. Deliberately the
+   quietest of the three — it is a suggestion awaiting a decision, not a finding. */
+.intent-badge.proposed {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink-soft);
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+}
+.intent-constraint.proposed .intent-constraint-text { color: var(--ink-soft); }
+.intent-confirm {
+  flex: 0 0 auto; margin-left: auto;
+  border-radius: 999px; padding: 3px 10px;
+  font-size: 10.5px; font-weight: 700; cursor: pointer;
+  color: var(--ink-soft);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.intent-confirm:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.intent-confirm:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .intent-constraint-text { font-size: 12px; color: var(--ink-soft); overflow-wrap: anywhere; }
 .intent-editor { display: flex; flex-direction: column; gap: 9px; }
 .intent-field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--ink-soft); }

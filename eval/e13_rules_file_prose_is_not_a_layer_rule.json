@@ -1,0 +1,53 @@
+{
+  "name": "Prose about a backend is not a layer constraint — the rules-file import regression (false-positive guard)",
+  "note": "The constraint below is what Drifterr's own line-based importer produced from a hard-wrapped paragraph in this repository's CLAUDE.md: 'drift scores are never sent there. When adding to the backend, keep that line'. Nobody wrote that rule. It fired RED on any reply containing document.getElementById, in a repo that ships a browser extension and a panel UI. Two fixes keep it green: the importer now parses sentences and binds the pinning cue to the layer phrase, so this never becomes a constraint at all; and anything it does import is marked proposed, which caps at AMBER. This case pins the second half — even if a future parser change resurrects the rule, an imported rule must never reach RED.",
+  "baseline": {
+    "goal": "Fix the drift indicator in the menubar panel",
+    "constraints": [
+      {
+        "id": "claude-md-1",
+        "text": "drift scores are never sent there. When adding to the backend, keep that line",
+        "type": "tech",
+        "checkable": "deterministic",
+        "proposed": true,
+        "rule": {
+          "kind": "forbid_layer_markers",
+          "label": "server-side only",
+          "pattern": "(?:\\buse(?:State|Effect|Ref|Memo|Callback|Context)\\s*\\(|\\bdocument\\.(?:getElementById|querySelector|createElement|addEventListener)\\b|\\bwindow\\.(?:location|localStorage|sessionStorage|alert|addEventListener)\\b|\\blocalStorage\\.\\w+|\\bsessionStorage\\.\\w+|\\bonClick\\s*=|\\bonChange\\s*=|\"use client\"|'use client')"
+        }
+      }
+    ],
+    "decisions": []
+  },
+  "conversation": {
+    "sessionId": "eval-e13",
+    "model": "claude-opus-4-x",
+    "turns": [
+      {
+        "index": 0,
+        "role": "user",
+        "content": "The drift dot stays grey when the session goes red. Fix it.",
+        "tokens": 14,
+        "timestamp": 1000
+      },
+      {
+        "index": 1,
+        "role": "assistant",
+        "content": "The class was never reapplied after the poll. One line:\n\n```js\ndocument.getElementById(\"dot\").className = \"dot red\";\n```",
+        "tokens": 32,
+        "timestamp": 2000
+      }
+    ],
+    "context": {
+      "windowSize": 200000,
+      "usedTokens": 5200,
+      "exact": true,
+      "toolCallCount": 0
+    },
+    "source": "proxy"
+  },
+  "expect": {
+    "state": "amber",
+    "triggeringSignal": "constraint"
+  }
+}
