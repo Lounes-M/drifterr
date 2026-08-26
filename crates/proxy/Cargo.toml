@@ -3,6 +3,8 @@ name = "drifterr-proxy"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# Proprietary: never publishable to crates.io. Inherited from the workspace.
+publish.workspace = true
 
 [[bin]]
 name = "drifterr-proxy"

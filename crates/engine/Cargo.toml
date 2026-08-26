@@ -3,6 +3,8 @@ name = "drifterr-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# Proprietary: never publishable to crates.io. Inherited from the workspace.
+publish.workspace = true
 
 [features]
 # Off by default. Forwards to the semantic (ONNX) embedder so the eval harness

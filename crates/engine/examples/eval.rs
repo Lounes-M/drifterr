@@ -575,17 +575,33 @@ fn print_corpus_maturity(dir: &Path, evaluated: usize, thr: &Thresholds) -> usiz
     println!("\n{}", "-".repeat(66));
     println!("CORPUS MATURITY  — what these numbers may be used to claim");
     println!("{}", "-".repeat(66));
+    // Provenance, not just volume.
+    //
+    // The count alone is gameable by the one person most motivated to game it —
+    // the engine's author can write thirty more cases in an afternoon and switch
+    // the statistical gates on without learning anything. What makes a number
+    // publishable is that somebody other than the engine's author decided what the
+    // right answer was, so the maturity check reads `provenance` from each case and
+    // reports how many are independent.
+    let (independent, unlabelled) = count_provenance(dir);
     println!("  cases evaluated (this set)   {evaluated}");
+    // Counted over case *files*, which includes any the run skipped (judge cases
+    // are evaluated separately), so this denominator can exceed `evaluated`.
+    println!("  case files: independent      {independent}");
+    println!("  case files: no provenance    {unlabelled}");
     println!("  blind holdout cases          {blind_count}");
     println!("  statistical gates enable at  {}", thr.min_cases);
 
-    if evaluated < thr.min_cases || blind_count == 0 {
+    if evaluated < thr.min_cases || blind_count == 0 || independent == 0 {
         println!(
             "\n  \x1b[1mNOT PUBLISHABLE.\x1b[0m Use these numbers for regression detection only.\n\
              \x20 A percentage from a small, self-authored set with no holdout is not evidence\n\
              \x20 of accuracy — do not put one in the README, on the site, or in a changelog.\n\
              \x20 To change that: `cargo run -p drifterr-store --example annotate` over real\n\
-             \x20 sessions, annotate them, and split ~70/30 into eval/ and eval/blind/."
+             \x20 sessions, annotate them, and split ~70/30 into eval/ and eval/blind/.\n\
+             \x20 Cases need `\"provenance\": \"real-session\"` or \"third-party\" to count as\n\
+             \x20 evidence: a set the engine\'s own author both wrote and graded measures\n\
+             \x20 agreement with themselves, however large it gets."
         );
     } else {
         println!(
@@ -595,6 +611,38 @@ fn print_corpus_maturity(dir: &Path, evaluated: usize, thr: &Thresholds) -> usiz
         );
     }
     blind_count
+}
+
+/// Count how many cases in `dir` were annotated by someone other than the engine's
+/// author, and how many say nothing either way.
+///
+/// `provenance` is one of `engine-author` (the default reading when the field is
+/// absent — assume the least, not the most), `third-party`, or `real-session`. Only
+/// the latter two count as independent. See `eval/SCHEMA.md`.
+fn count_provenance(dir: &Path) -> (usize, usize) {
+    let mut independent = 0;
+    let mut unlabelled = 0;
+    let Ok(entries) = fs::read_dir(dir) else {
+        return (0, 0);
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.extension().and_then(|x| x.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(&p) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        match v.get("provenance").and_then(|x| x.as_str()) {
+            Some("third-party") | Some("real-session") => independent += 1,
+            Some(_) => {}
+            None => unlabelled += 1,
+        }
+    }
+    (independent, unlabelled)
 }
 
 fn print_cases(rows: &[Row]) {

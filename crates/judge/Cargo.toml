@@ -3,6 +3,8 @@ name = "drifterr-judge"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# Proprietary: never publishable to crates.io. Inherited from the workspace.
+publish.workspace = true
 
 [dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

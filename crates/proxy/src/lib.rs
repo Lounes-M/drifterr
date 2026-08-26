@@ -573,6 +573,7 @@ pub fn control_router(state: AppState) -> Router {
         .route("/intent-shift", post(resolve_intent_shift_handler))
         .route("/prefs", get(get_prefs_handler).post(set_prefs_handler))
         .route("/data/forget", post(forget_handler))
+        .route("/diagnostics", get(diagnostics_handler))
         .route("/history", get(history_handler))
         .route("/journal", get(journal_handler))
         .route("/report", get(report_handler))
@@ -1358,6 +1359,94 @@ async fn forget_handler(State(app): State<AppState>, Json(body): Json<ForgetReq>
         stored_sessions: stored,
     })
     .into_response()
+}
+
+/// `GET /diagnostics` — everything a support conversation needs, and nothing else.
+///
+/// Drifterr has no crash reporting and no telemetry, by design. The cost of that
+/// is that a launch failure on one OS version is invisible to us and a user's bug
+/// report is "it doesn't work". This is the honest way to close that gap without
+/// touching the privacy position: the user presses a button, sees exactly what it
+/// contains, and decides whether to paste it anywhere.
+///
+/// So the shape is the point. Counts, states, versions and configuration —
+/// never a goal, a constraint text, a span, a prompt, a file path or a session id.
+/// `tests/egress.rs` asserts that, because a diagnostics endpoint is exactly where
+/// conversation content would end up leaking by accident.
+#[derive(Serialize)]
+struct Diagnostics {
+    version: String,
+    /// Target triple, so "only on Windows" stops being a guess.
+    platform: String,
+    provider: String,
+    persisted: bool,
+    judge: String,
+    #[serde(rename = "autoReanchor")]
+    auto_reanchor: bool,
+    #[serde(rename = "autoIntent")]
+    auto_intent: bool,
+    #[serde(rename = "watchingClaudeCode")]
+    watching_claude_code: bool,
+    plan: String,
+    #[serde(rename = "entitlementVerified")]
+    entitlement_verified: bool,
+    #[serde(rename = "liveSessions")]
+    live_sessions: usize,
+    #[serde(rename = "storedSessions")]
+    stored_sessions: usize,
+    #[serde(rename = "retentionDays")]
+    retention_days: Option<u32>,
+    /// How many sessions are in each state right now — enough to tell "it never
+    /// fires" from "it fires constantly" without seeing a single one of them.
+    #[serde(rename = "stateCounts")]
+    state_counts: std::collections::BTreeMap<String, usize>,
+    #[serde(rename = "embedderSemantic")]
+    embedder_semantic: bool,
+}
+
+async fn diagnostics_handler(State(app): State<AppState>) -> Json<Diagnostics> {
+    let ent = app.entitlement();
+    let (live, counts) = app
+        .core
+        .lock()
+        .map(|c| {
+            let all = c.all();
+            let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+            for s in &all {
+                *counts
+                    .entry(format!("{:?}", s.state).to_lowercase())
+                    .or_default() += 1;
+            }
+            (all.len(), counts)
+        })
+        .unwrap_or_default();
+    Json(Diagnostics {
+        version: app.meta.version.clone(),
+        platform: format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
+        provider: app.meta.provider.clone(),
+        persisted: app.meta.persisted,
+        judge: app
+            .judge
+            .read()
+            .map(|j| j.label())
+            .unwrap_or_else(|_| "unknown".into()),
+        auto_reanchor: app.auto_reanchor_on(),
+        auto_intent: app.auto_intent_on(),
+        watching_claude_code: app.watching_files.load(Ordering::Relaxed),
+        plan: format!("{:?}", ent.plan).to_lowercase(),
+        entitlement_verified: ent.verified,
+        live_sessions: live,
+        stored_sessions: app
+            .core
+            .lock()
+            .map(|c| c.stored_session_count())
+            .unwrap_or(0),
+        retention_days: app.retention_days.read().ok().and_then(|d| *d),
+        state_counts: counts,
+        embedder_semantic: std::env::var("DRIFTERR_EMBED_MODEL")
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false),
+    })
 }
 
 /// Retention window from the environment, for the standalone proxy and as the

@@ -1,0 +1,61 @@
+# cargo-deny: the dependency audit CI never had.
+#
+# 300+ crates reach the shipped binary and nothing checked them for advisories,
+# for licences we cannot ship, or for a source other than crates.io. That is a
+# gap for any product; for one that sells a privacy guarantee it is the wrong gap
+# to have.
+
+[advisories]
+# Fail on any known vulnerability. `unmaintained` is a warning rather than an
+# error: it is a signal to plan a migration, not a reason to block today's PR.
+yanked = "deny"
+ignore = [
+    # `paste` is archived and unmaintained, with no safe upgrade and no known
+    # vulnerability. It reaches us four levels down (tokenizers → macro_rules_attribute
+    # → paste) and only under the `onnx` feature, so it is absent from the default
+    # build entirely. Ignored deliberately and with the reason written down, which is
+    # the point of having a policy file rather than a CI flag: revisit when
+    # `tokenizers` moves to `pastey`.
+    "RUSTSEC-2024-0436",
+]
+
+[bans]
+multiple-versions = "warn"
+# A third-party wildcard dependency is a real hazard — it means an unreviewed
+# version can arrive on any build. Our own path dependencies are pinned by the
+# workspace and are not that, so they are exempted rather than silencing the check.
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[licenses]
+# Permissive licences plus the two weak-copyleft ones that only bind the file
+# they cover, which is compatible with shipping a proprietary binary. Anything
+# outside this list is a deliberate decision, not a default.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+    "BSL-1.0",
+    # `notify` (the Claude Code file watcher) is CC0 — a public-domain dedication,
+    # so it imposes nothing on what we ship.
+    "CC0-1.0",
+]
+confidence-threshold = 0.8
+
+[licenses.private]
+# Our own crates carry a proprietary licence, which is the point of the repo, not
+# a finding. This skips workspace members rather than listing each by name, so a
+# new crate does not silently fail the audit on the day it is added.
+ignore = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

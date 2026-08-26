@@ -253,3 +253,40 @@ jobs:
           if [ "${{ matrix.platform }}" = "macos-latest" ]; then
             security delete-keychain "$RUNNER_TEMP/drifterr-signing.keychain-db" 2>/dev/null || true
           fi
+
+  # Publish SHA256SUMS for the release's assets.
+  #
+  # `install.sh` downloads a DMG or AppImage over HTTPS and runs it. TLS proves it
+  # came from GitHub; it proves nothing about whether the bytes are the ones we
+  # built. `packaging/checksums.sh` already existed to hash assets by hand for the
+  # Homebrew and winget manifests, so the digests were computed and then not
+  # published — which meant the installer had nothing to verify against.
+  #
+  # Runs after every platform has uploaded, and needs the release to still be a
+  # draft so the file lands before anyone can download from it.
+  checksums:
+    name: Publish SHA256SUMS
+    needs: release
+    if: always() && needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Hash every asset and attach the manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist && cd dist
+          # `--pattern '*'` would also pull latest.json and any .sig; those are part
+          # of the release too, and hashing them costs nothing and documents more.
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --clobber
+          # Never hash a previous manifest into the new one.
+          rm -f SHA256SUMS
+          sha256sum * > SHA256SUMS
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+          gh release upload "$TAG" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber

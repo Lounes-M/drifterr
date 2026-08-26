@@ -5,7 +5,10 @@
 // Stripe checkout / billing are hosted web flows, so plan changes open the
 // browser at the site's /account and /#pricing — we never embed Stripe in-app.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
+// Vendored, not fetched. See apps/desktop/ui/scripts/vendor-supabase.sh for why a
+// desktop app must not pull executable code from a CDN at runtime, and how to
+// rebuild this bundle.
+import { createClient } from "./vendor/supabase.js";
 
 const URL = (typeof window !== "undefined" && window.DRIFTERR_SUPABASE_URL) || "";
 const ANON = (typeof window !== "undefined" && window.DRIFTERR_SUPABASE_ANON_KEY) || "";

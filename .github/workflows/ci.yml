@@ -170,6 +170,53 @@ jobs:
       - name: Run landing tests
         run: npm test
 
+  # The dependency audit CI never had.
+  #
+  # 300+ crates and three npm trees reach the shipped product, and nothing checked
+  # any of them for advisories, for a licence we cannot ship, or for a source other
+  # than crates.io. That is a gap for any project; for one that sells a privacy
+  # guarantee it is the wrong gap to have — a compromised transitive dependency in
+  # the proxy is a compromised proxy, and the proxy sees every request.
+  #
+  # Policy lives in `deny.toml`, next to the code, so a decision to accept a licence
+  # or an advisory is a reviewed diff rather than a CI flag somebody added at 2am.
+  supply-chain:
+    name: Dependencies (advisories · licences · sources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # `--all-features` on purpose: the `onnx` semantic embedder pulls a large
+      # native tree that the default build does not, and auditing only the default
+      # build would mean the feature we actually ship in release binaries goes
+      # unchecked. Duplicate-version findings are warnings (see deny.toml); an
+      # advisory, a disallowed licence or an unexpected source fails the build.
+      - name: cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # The npm trees are devDependencies (Playwright, esbuild) plus the vendored
+      # Supabase bundle, so a high-severity finding is worth knowing about even
+      # though none of it is shipped to a user. `--omit=dev` would report nothing
+      # at all and read as a clean audit.
+      - name: npm audit
+        run: |
+          set -uo pipefail
+          fail=0
+          for dir in apps/desktop/ui apps/extension apps/landing; do
+            echo "--- $dir"
+            ( cd "$dir" && npm audit --audit-level=high ) || fail=1
+          done
+          exit "$fail"
+
   # Drifterr checking its own pull requests against its own CLAUDE.md.
   #
   # This is the CI mode (`drifterr-proxy check`) dogfooded: the rules the repo already

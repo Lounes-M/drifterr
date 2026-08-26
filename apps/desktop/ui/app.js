@@ -1435,6 +1435,76 @@ function setupIntent(doc) {
 }
 
 /**
+ * Diagnostics: copy, or read first.
+ *
+ * "Show" exists because a user should be able to see what they are about to paste
+ * into a public issue. A support blob you cannot inspect is one people reasonably
+ * refuse to send, and then the bug report is "it doesn't work" again.
+ */
+export function setupDiagnostics(doc, fetchImpl) {
+  const f = fetchImpl || fetch;
+  const copy = doc.getElementById("diag-copy");
+  const show = doc.getElementById("diag-show");
+  const out = doc.getElementById("diag-out");
+  if (!copy && !show) return;
+
+  const fetchText = async () => {
+    const res = await f(apiBase() + "/diagnostics", withAuth({ cache: "no-store" }));
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return JSON.stringify(await res.json(), null, 2);
+  };
+
+  if (show) {
+    show.addEventListener("click", async () => {
+      const open = show.getAttribute("aria-expanded") === "true";
+      if (open) {
+        if (out) out.hidden = true;
+        show.setAttribute("aria-expanded", "false");
+        show.textContent = "Show";
+        return;
+      }
+      try {
+        if (out) {
+          out.textContent = await fetchText();
+          out.hidden = false;
+        }
+        show.setAttribute("aria-expanded", "true");
+        show.textContent = "Hide";
+      } catch (_e) {
+        if (out) {
+          out.textContent = "Couldn't read diagnostics — is Drifterr running?";
+          out.hidden = false;
+        }
+      }
+    });
+  }
+
+  if (copy) {
+    copy.addEventListener("click", async () => {
+      try {
+        const text = await fetchText();
+        await navigator.clipboard.writeText(text);
+        copy.textContent = "Copied";
+      } catch (_e) {
+        // No clipboard, or the proxy is down. Show it instead of claiming success.
+        try {
+          if (out) {
+            out.textContent = await fetchText();
+            out.hidden = false;
+          }
+          copy.textContent = "Select it below";
+        } catch (_e2) {
+          copy.textContent = "Couldn't read it";
+        }
+      }
+      window.setTimeout(() => {
+        copy.textContent = "Copy diagnostics";
+      }, 1800);
+    });
+  }
+}
+
+/**
  * The "Your data" controls: retention window, and delete-everything.
  *
  * Delete is two-step rather than a `confirm()` dialog: the first click arms the
@@ -2145,6 +2215,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined" && !window.
   ensureToken().then(() => {
     setupPairingToken(document);
     setupDataControls(document);
+    setupDiagnostics(document);
     initAccounts(document);
     maybeOnboard(document);
     poll(document);

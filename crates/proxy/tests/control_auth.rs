@@ -58,6 +58,7 @@ const PROTECTED_GETS: &[&str] = &[
     "/packs/export",
     "/team/share-preview",
     "/standing-orders",
+    "/diagnostics",
 ];
 
 /// The mutating routes. These are the ones a wildcard CORS policy left open to

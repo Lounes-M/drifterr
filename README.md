@@ -39,7 +39,10 @@ click. It runs as a quiet menubar app alongside the tools you already use.
   rule counts **you explicitly choose to share** — never a span, a goal, a prompt,
   a session id or a file path, and the panel prints the exact payload first. Not a
   promise —
-  [enforced in CI](crates/proxy/tests/egress.rs) and laid out at
+  [enforced in CI](crates/proxy/tests/egress.rs) — including the local control
+  API, which is **authenticated** so that a website you have open cannot read your
+  sessions out of it ([`crates/proxy/tests/control_auth.rs`](crates/proxy/tests/control_auth.rs))
+  — and laid out at
   [drifterr.app/proof](https://drifterr.app/proof). (The marketing website does
   count its own page views — first-party, cookieless, no visitor id. The boundary
   is spelled out on that page.)
@@ -199,6 +202,11 @@ on every push and PR.
 
 Honest state of each capability — no claim here overshoots what actually runs.
 
+**✅ shipped** means it is in the latest published release. **🟡 on `main`** means
+it is built, tested and merged, but not in a binary you can download yet — see
+[`CHANGELOG.md`](CHANGELOG.md) for what is waiting on the next tag. The two used to
+be conflated, which made a reader assume a downloadable feature that wasn't.
+
 | Area | State | Notes |
 |---|---|---|
 | Proxy channel (relay + exact saturation) | ✅ shipped | Byte-for-byte SSE passthrough, detection off the response path |
@@ -210,17 +218,21 @@ Honest state of each capability — no claim here overshoots what actually runs.
 | Decision-coherence judge (soft) | ✅ shipped | Opt-in, BYOK (your OpenRouter key); fail-safe (degrades, never blocks) |
 | Auto-intent (AI infers goal + constraints) | ✅ shipped | Opt-in, BYOK; continuous re-baseline |
 | Re-anchor (snapshot + preamble) | ✅ shipped | Copy anywhere; auto-inject on the proxy channel, or on Claude Code via `drifterr-proxy hook` (a `UserPromptSubmit` hook, so the reminder lands *before* the reply). Automatic injection is Pro |
-| Re-anchor outcome tracking | ✅ shipped | Records whether the same cause stayed quiet afterwards — "held for 3 turns" / "broke again on turn 7". Undecided stays undecided |
-| Weekly report | ✅ shipped | `GET /report`, or the panel's **Last 7 days**. Flags grouped by cause; generated locally, offline |
+| Re-anchor outcome tracking | 🟡 on `main` | Records whether the same cause stayed quiet afterwards — "held for 3 turns" / "broke again on turn 7". Undecided stays undecided |
+| Weekly report | 🟡 on `main` | `GET /report`, or the panel's **Last 7 days**. Flags grouped by cause; generated locally, offline |
 | Standing orders (cross-session rules) | ✅ shipped | |
-| MCP server (agent self-checks) | ✅ shipped | `drifterr-proxy mcp` gives the agent `drifterr_anchor` + `drifterr_check`, so a violation can be prevented rather than reported. Same rule objects as the engine — a self-check, a menubar warning and a CI failure cannot disagree ([`crates/proxy/src/mcp.rs`](crates/proxy/src/mcp.rs)) |
-| Rule packs (portable, shareable) | ✅ shipped | Natural-language rules, never compiled regexes, so a pack stays reviewable and improves as inference does. Apply to a session, or splice into `CLAUDE.md` so the agent is told too. Shipped packs live in [`packs/`](packs/) under CC BY ([`crates/engine/src/pack.rs`](crates/engine/src/pack.rs)) |
-| CI mode (`drifterr-proxy check`) | ✅ shipped | Same deterministic rules over a diff, with GitHub annotations. Exits 2 — never 0 — when nothing was verifiable, so a misconfigured check can't read as a passing one ([`.github/actions/drifterr-check`](.github/actions/drifterr-check)) |
-| Team sharing (packs + rule counts) | ✅ shipped | Shared packs and per-rule counts, gated on the Team plan. Rule names and counts only: no spans, goals, prompts, session ids, file paths or model names, and a session-inferred rule id is withheld because publishing even the id reveals that the user said something. Enforced in the client filter, a database `CHECK`, and CI ([`crates/proxy/src/team.rs`](crates/proxy/src/team.rs)) |
+| MCP server (agent self-checks) | 🟡 on `main` | `drifterr-proxy mcp` gives the agent `drifterr_anchor` + `drifterr_check`, so a violation can be prevented rather than reported. Same rule objects as the engine — a self-check, a menubar warning and a CI failure cannot disagree ([`crates/proxy/src/mcp.rs`](crates/proxy/src/mcp.rs)) |
+| Rule packs (portable, shareable) | 🟡 on `main` | Natural-language rules, never compiled regexes, so a pack stays reviewable and improves as inference does. Apply to a session, or splice into `CLAUDE.md` so the agent is told too. Shipped packs live in [`packs/`](packs/) under CC BY ([`crates/engine/src/pack.rs`](crates/engine/src/pack.rs)) |
+| CI mode (`drifterr-proxy check`) | 🟡 on `main` | Same deterministic rules over a diff, with GitHub annotations. Exits 2 — never 0 — when nothing was verifiable, so a misconfigured check can't read as a passing one ([`.github/actions/drifterr-check`](.github/actions/drifterr-check)) |
+| Team sharing (packs + rule counts) | 🟡 on `main` | Shared packs and per-rule counts, gated on the Team plan. Rule names and counts only: no spans, goals, prompts, session ids, file paths or model names, and a session-inferred rule id is withheld because publishing even the id reveals that the user said something. Enforced in the client filter, a database `CHECK`, and CI ([`crates/proxy/src/team.rs`](crates/proxy/src/team.rs)) |
 | Menubar app (tray + panel) | ✅ shipped | Auto-hide on blur, resumes state |
 | Rules-file import (`CLAUDE.md`, `.cursor/rules`) | ✅ shipped | Checkable rules imported automatically from the project's own rules file — nothing to retype ([`crates/engine/src/rules_file.rs`](crates/engine/src/rules_file.rs)) |
 | Exact saturation on non-proxy channels | ❌ **not possible** | Investigated and rejected with measurements. A Claude Code transcript's `usage` records are cumulative billing counters (one real session: 679,390 "prompt" tokens against a 200k window, 676/851 records over it), and the transcript itself outlives context compaction with no marker for where. Occupancy is unknowable from a file, so the channel reports a **lower bound** and the hard signal abstains from RED rather than crying wolf. Exactness stays proxy-only |
 | Detection eval harness + release gate | ✅ shipped | Metrics + zero-hard-FP gate, tunable thresholds ([`eval/thresholds.conf`](eval/thresholds.conf), [`eval/SCHEMA.md`](eval/SCHEMA.md)) |
+| Control-API access boundary | ✅ shipped | The local control API is authenticated (per-install token, mode `0600`) and answers only first-party origins, so a page you have open cannot read your goals, spans or re-anchor snapshots out of it. Replayed as tests in [`crates/proxy/tests/control_auth.rs`](crates/proxy/tests/control_auth.rs) |
+| Data controls (retention, delete) | 🟡 on `main` | A retention window that actually **deletes**, per-session and delete-everything controls in the panel, and mode `0600` on the database. Previously the plan's "7 days of history" was a display filter and the text stayed on disk forever |
+| Verified entitlements | 🟡 on `main` | The accounts backend signs a short-lived plan assertion and the proxy verifies it, instead of being told which plan to apply. [`docs/ACCOUNTS.md`](docs/ACCOUNTS.md) states plainly what that does *not* buy — local software cannot be tamper-proof |
+| Dependency audit | 🟡 on `main` | `cargo-deny` (advisories, licences, sources) and `npm audit` on every PR, policy in [`deny.toml`](deny.toml). It found and fixed two real advisories on its first run |
 | Egress guarantee (CI-enforced) | ✅ shipped | [`crates/proxy/tests/egress.rs`](crates/proxy/tests/egress.rs) |
 | Browser extension (MV3) | 🚧 partial | Built and working; **not store-published**, so it's a manual install |
 | Signed / notarized desktop builds | 🚧 partial | Pipeline is in place ([`.github/workflows/release.yml`](.github/workflows/release.yml)); **certificates not yet provisioned**, so releases still ship unsigned and the OS warns on first launch |

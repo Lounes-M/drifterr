@@ -34,9 +34,12 @@ function check(name, cond, detail) {
   const csp = conf?.app?.security?.csp || "";
   // Each host the panel + accounts flow depend on at runtime. If any is missing
   // the feature silently dies inside the webview (as fonts + login once did).
+  //
+  // esm.sh used to be on this list, for the Supabase SDK. It is deliberately gone:
+  // the SDK is vendored now, and the "no remote script" block below asserts the
+  // opposite invariant — that no third-party script host is reachable at all.
   const required = [
     "http://127.0.0.1:8788", // control API
-    "https://esm.sh", // Supabase SDK (dynamic import in auth.js)
     "supabase.co", // auth + edge functions (connect-src)
     "fonts.googleapis.com", // font stylesheet
     "fonts.gstatic.com", // font files
@@ -161,6 +164,39 @@ function check(name, cond, detail) {
     "utf8",
   );
   check("dashboard.rs substitutes that same placeholder", dashboardRs.includes("__DRIFTERR_CONTROL_TOKEN__"));
+}
+
+// --- no shipped script is fetched from a third party ------------------------
+//
+// The panel imported the Supabase SDK from esm.sh at runtime, and the CSP was
+// widened to allow it. That is a third-party CDN inside the trust boundary of a
+// desktop app: a compromise there runs arbitrary code in a webview holding the
+// user's session, with reach into the local control API. It is also, for a
+// product that promises nothing leaves your machine, a request to someone else's
+// server on every launch.
+{
+  const files = ["app.js", "auth.js", "config.js"];
+  for (const f of files) {
+    const src = await readFile(join(UI_DIR, f), "utf8");
+    const remote = [...src.matchAll(/(?:import|from)\s*\(?\s*["'](https?:\/\/[^"']+)["']/g)].map(
+      (m) => m[1],
+    );
+    check(`${f} imports no remote script${remote.length ? ` (found ${remote[0]})` : ""}`, remote.length === 0);
+  }
+
+  const conf = JSON.parse(await readFile(TAURI_CONF, "utf8"));
+  const csp = conf.app?.security?.csp || "";
+  const scriptSrc = (csp.match(/script-src ([^;]*)/) || [])[1] || "";
+  check(
+    `CSP script-src allows only 'self' (got: ${scriptSrc.trim() || "unset"})`,
+    scriptSrc.trim() === "'self'",
+  );
+
+  // And the vendored bundle really is self-contained, or the CSP above would
+  // simply break the login instead of protecting it.
+  const vendored = await readFile(join(UI_DIR, "vendor", "supabase.js"), "utf8");
+  check("the vendored Supabase bundle has no remote imports", !/(?:import|from)\s*["']https?:\/\//.test(vendored));
+  check("the vendored Supabase bundle exports createClient", /createClient/.test(vendored));
 }
 
 if (failures) {

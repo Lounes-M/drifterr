@@ -3,6 +3,8 @@ name = "drifterr-tokenizer"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# Proprietary: never publishable to crates.io. Inherited from the workspace.
+publish.workspace = true
 
 [dependencies]
 serde.workspace = true
