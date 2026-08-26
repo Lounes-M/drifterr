@@ -92,12 +92,37 @@ async fn bring_up() -> (SocketAddr, SocketAddr) {
     };
     let state = AppState::new(cfg, None);
     let proxy_addr = spawn(proxy_router(state.clone())).await;
-    let control_addr = spawn(control_router(state)).await;
+    let control_addr = spawn(control_router(pin(state))).await;
     (proxy_addr, control_addr)
 }
 
+/// The control API is authenticated, so the test client carries the token by
+/// default. Attaching it here rather than at each call site means a new test
+/// cannot accidentally assert against an unauthenticated request; the refusal
+/// path is covered on purpose in `tests/control_auth.rs`.
 fn client() -> reqwest::Client {
-    reqwest::Client::builder().no_proxy().build().unwrap()
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        drifterr_proxy::auth::TOKEN_HEADER,
+        reqwest::header::HeaderValue::from_static(TEST_TOKEN),
+    );
+    reqwest::Client::builder()
+        .no_proxy()
+        .default_headers(headers)
+        .build()
+        .unwrap()
+}
+
+/// A fixed token for these tests.
+const TEST_TOKEN: &str = "test-control-token";
+
+/// Pin the control token on a state before serving it.
+///
+/// `Token` resolves lazily, so pinning here guarantees no test ever reads or
+/// writes the real state directory — a test suite that leaves a token file in the
+/// developer's home directory is a test suite with a side effect.
+fn pin(state: AppState) -> AppState {
+    state.with_token(drifterr_proxy::auth::Token::from_value(TEST_TOKEN))
 }
 
 /// Poll the control API until a session status appears, then return it.
@@ -262,7 +287,7 @@ async fn judge_extracts_and_flags_fuzzy_constraint() {
     let judge = Judge::Stub(StubJudge::new(&["lol"]).with_extracts(&["Keep the tone formal"]));
     let state = AppState::with_judge(cfg, None, judge);
     let proxy = spawn(proxy_router(state.clone())).await;
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
 
     client
@@ -325,7 +350,7 @@ async fn judge_flags_reintroduced_rejected_decision() {
     // Stub judge says "yes" when the context mentions bcrypt — no network.
     let state = AppState::with_judge(cfg, None, Judge::Stub(StubJudge::new(&["bcrypt"])));
     let proxy = spawn(proxy_router(state.clone())).await;
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
 
     // The user explicitly rejected bcrypt; the (mocked) reply reintroduces it.
@@ -451,7 +476,7 @@ async fn standing_order_recurs_promotes_and_reappears() {
         ProxyConfig::default(),
         Some(drifterr_store::Store::open_in_memory().unwrap()),
     );
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
 
     async fn ingest(
@@ -568,7 +593,7 @@ async fn auto_reanchor_injects_preamble_when_drifting() {
         .with_auto_reanchor(true)
         .with_plan(drifterr_proxy::entitlement::Plan::Pro);
     let proxy = spawn(proxy_router(state.clone())).await;
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
 
     let body = serde_json::json!({
@@ -655,22 +680,41 @@ async fn browser_ingest_feeds_the_engine() {
 }
 
 #[tokio::test]
-async fn control_serves_dashboard_with_cors() {
+async fn control_serves_the_dashboard_to_itself_and_to_nobody_else() {
     let (_proxy, control) = bring_up().await;
     let client = client();
 
     let page = client
         .get(format!("http://{control}/"))
+        .header("origin", "https://evil.example")
         .send()
         .await
         .unwrap();
     assert_eq!(page.status(), 200);
+    // The dashboard has to be loadable before it can authenticate, so this route
+    // is reachable without a token. It carries no `Access-Control-Allow-Origin`,
+    // which is what stops a foreign page reading the token out of the HTML.
+    assert!(
+        page.headers().get("access-control-allow-origin").is_none(),
+        "the dashboard must never be readable cross-origin — it carries the token"
+    );
     assert_eq!(
-        page.headers().get("access-control-allow-origin").unwrap(),
-        "*"
+        page.headers().get("x-frame-options").unwrap(),
+        "DENY",
+        "and must never be framable"
     );
     let html = page.text().await.unwrap();
     assert!(html.contains("id=\"panel\""), "dashboard HTML served");
+    // The placeholder is substituted for the live token, so a same-origin
+    // dashboard is paired the moment it loads.
+    assert!(
+        !html.contains("__DRIFTERR_CONTROL_TOKEN__"),
+        "the token placeholder must be substituted when the server serves the page"
+    );
+    assert!(
+        html.contains(TEST_TOKEN),
+        "the served dashboard must carry the live control token"
+    );
 
     let js = client
         .get(format!("http://{control}/app.js"))
@@ -730,7 +774,7 @@ async fn plan_gates_drift_map_and_sessions() {
         openai_strip_v1: false,
     };
     let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled);
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
     let ingest = format!("http://{control}/ingest");
     let status = format!("http://{control}/status");
@@ -831,7 +875,7 @@ async fn local_trial_grants_pro_then_lapses() {
     // Fresh install, nobody signed in, trial started today.
     let state = AppState::with_judge(cfg.clone(), None, drifterr_judge::Judge::Disabled)
         .with_trial_started(Some(now));
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
     let v: serde_json::Value = client
         .get(format!("http://{control}/entitlement"))
@@ -849,7 +893,7 @@ async fn local_trial_grants_pro_then_lapses() {
     // Same install, 20 days later: back to Free, no server involved.
     let lapsed = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled)
         .with_trial_started(Some(now - 20 * DAY));
-    let control = spawn(control_router(lapsed)).await;
+    let control = spawn(control_router(pin(lapsed))).await;
     let v: serde_json::Value = client
         .get(format!("http://{control}/entitlement"))
         .send()
@@ -875,7 +919,7 @@ async fn provider_selector_switches_upstream() {
         openai_strip_v1: false,
     };
     let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled);
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
 
     // The registry lists the major providers (incl. Gemini) + a current id.
@@ -943,7 +987,7 @@ async fn auto_intent_infers_goal_through_the_proxy() {
     }));
     let state = AppState::with_judge(cfg, None, judge).with_auto_intent(true);
     let proxy = spawn(proxy_router(state.clone())).await;
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
 
     // Two turns of the SAME session (identical first user message = the anchor),
@@ -1002,7 +1046,7 @@ async fn judge_can_be_configured_at_runtime() {
         None,
         drifterr_judge::Judge::Disabled,
     );
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
 
     // Disabled by default.
@@ -1070,9 +1114,16 @@ async fn mcp_tools_read_the_live_anchor_and_agree_with_the_engine() {
         openai_strip_v1: false,
     };
     let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled);
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
     let api = format!("http://{control}");
+
+    // `mcp::fetch_anchor` runs as a separate process in real life and finds the
+    // token through the shared state dir. In-process, `DRIFTERR_TOKEN` is the same
+    // lookup's first branch — so this exercises the authenticated path, not a
+    // bypass, which matters because an MCP server that silently got an empty
+    // anchor would tell the agent "no rules apply".
+    std::env::set_var("DRIFTERR_TOKEN", TEST_TOKEN);
 
     // A session with a rejected decision stated in it, which is exactly the thing an agent
     // reintroduces a dozen turns later having forgotten.
@@ -1195,7 +1246,7 @@ async fn claude_code_hook_injects_only_on_a_drifting_pro_session() {
     // Pro, so automatic injection is entitled.
     let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled)
         .with_plan(drifterr_proxy::entitlement::Plan::Pro);
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
     let api = format!("http://{control}");
 
@@ -1290,7 +1341,7 @@ async fn rule_packs_apply_and_export() {
         openai_strip_v1: false,
     };
     let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled);
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
     let api = format!("http://{control}");
 

@@ -21,6 +21,7 @@
 //! Keeping them on separate ports means the status contract can never collide
 //! with a proxied path.
 
+pub mod auth;
 pub mod check;
 pub mod dashboard;
 pub mod entitlement;
@@ -33,8 +34,8 @@ pub mod upstreams;
 
 use axum::body::Body;
 use axum::extract::{Path as AxPath, Query, Request, State};
-use axum::http::{header, Method, StatusCode};
-use axum::middleware::{self, Next};
+use axum::http::{header, StatusCode};
+use axum::middleware;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -206,6 +207,10 @@ pub struct AppState {
     /// When the local first-run Pro trial started (ms since epoch), if it has.
     /// Read from `app_meta` on startup — no account and no network involved.
     pub trial_started_ms: Arc<RwLock<Option<i64>>>,
+    /// The control API's access token. Every route but `/health` and the
+    /// dashboard's own assets requires it; see [`auth`] for why localhost alone
+    /// was never a boundary.
+    pub token: auth::Token,
     /// The active upstream provider — runtime-switchable via `POST /provider`.
     pub upstream: Arc<RwLock<ActiveUpstream>>,
 }
@@ -352,7 +357,14 @@ impl AppState {
             account_plan: Arc::new(RwLock::new(Plan::default())),
             trial_started_ms: Arc::new(RwLock::new(None)),
             upstream: Arc::new(RwLock::new(upstream)),
+            token: auth::Token::lazy(),
         }
+    }
+
+    /// Replace the control token (tests, and any embedder that wants to pin one).
+    pub fn with_token(mut self, token: auth::Token) -> Self {
+        self.token = token;
+        self
     }
 
     /// The entitlement actually in force: the account plan, upgraded to
@@ -537,7 +549,10 @@ pub fn control_router(state: AppState) -> Router {
         .route("/ingest", post(ingest_handler))
         .route("/public/{*path}", get(public_handler))
         .route("/health", get(|| async { "ok" }))
-        .layer(middleware::from_fn(add_cors))
+        .layer(middleware::from_fn_with_state(
+            state.token.clone(),
+            auth::guard,
+        ))
         .with_state(state)
 }
 
@@ -1442,24 +1457,6 @@ async fn set_auto_reanchor_handler(
 ) -> Json<AutoReanchorState> {
     app.auto_reanchor.store(body.on, Ordering::Relaxed);
     Json(AutoReanchorState::of(&app))
-}
-
-/// Add permissive CORS headers and short-circuit preflight requests.
-async fn add_cors(req: Request, next: Next) -> Response {
-    let is_preflight = req.method() == Method::OPTIONS;
-    let mut res = if is_preflight {
-        Response::new(Body::empty())
-    } else {
-        next.run(req).await
-    };
-    let h = res.headers_mut();
-    h.insert("access-control-allow-origin", "*".parse().unwrap());
-    h.insert(
-        "access-control-allow-methods",
-        "GET, POST, OPTIONS".parse().unwrap(),
-    );
-    h.insert("access-control-allow-headers", "*".parse().unwrap());
-    res
 }
 
 /// Run both listeners until shutdown. Convenience entry point for the binary.

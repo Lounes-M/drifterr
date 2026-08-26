@@ -22,7 +22,7 @@ function set(id, text) {
 
 async function refresh() {
   try {
-    const res = await fetch("http://localhost:8788/status", { cache: "no-store" });
+    const res = await drifterrFetch("/status", { cache: "no-store" });
     if (!res.ok) throw new Error("http " + res.status);
     const data = await res.json();
     const cur = data && data.current;
@@ -52,15 +52,43 @@ async function refresh() {
       }
     }
     if (off) off.hidden = true;
-  } catch (_e) {
+  } catch (e) {
     document.getElementById("dot").className = "dot";
-    set("state", "App not running");
-    set("sub", "");
-    const off = document.getElementById("off");
-    if (off) off.hidden = false;
     const detail = document.getElementById("detail");
     if (detail) detail.hidden = true;
+    const off = document.getElementById("off");
+    const pair = document.getElementById("pair");
+    // Two different failures that used to look identical. "Not paired" is the
+    // user's to fix in ten seconds; "not running" is not. Saying the wrong one
+    // sends them to the wrong place.
+    if (drifterrIsUnpaired(e)) {
+      set("state", "Not paired yet");
+      set("sub", "");
+      if (off) off.hidden = true;
+      if (pair) pair.hidden = false;
+      return;
+    }
+    set("state", "App not running");
+    set("sub", "");
+    if (off) off.hidden = false;
+    if (pair) pair.hidden = true;
   }
+}
+
+/// Wire the pairing form: paste the token from the panel, save, retry.
+function setupPairing() {
+  const form = document.getElementById("pair");
+  const input = document.getElementById("pair-token");
+  if (!form || !input) return;
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    await drifterrSetToken(input.value);
+    input.value = "";
+    const pair = document.getElementById("pair");
+    if (pair) pair.hidden = true;
+    set("state", "Connecting…");
+    refresh();
+  });
 }
 
 /// Explain the scraper's health on this page.
@@ -78,6 +106,7 @@ function renderHealth(el, health) {
     return;
   }
   const MESSAGES = {
+    unpaired: "Drifterr isn't paired with this browser yet — paste the token above.",
     unsupported_host: "Drifterr doesn't watch this site.",
     not_a_chat_page: "No chat on this page yet.",
     no_conversation_yet: "Chat is open — send a message and Drifterr will start watching.",
@@ -108,5 +137,6 @@ async function refreshHealth() {
 
 if (typeof module !== "undefined") module.exports = { renderHealth };
 
+setupPairing();
 refresh();
 refreshHealth();

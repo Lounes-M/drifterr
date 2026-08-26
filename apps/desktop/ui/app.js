@@ -69,6 +69,67 @@ export function saturationClass(pct) {
 /// `startsWith("http")` check wrongly treats `http://tauri.localhost` as a
 /// servable origin, which is why the panel failed to connect on Windows/Linux.)
 /// A `window.DRIFTERR_API` override wins over both.
+/**
+ * The control-API pairing token, or "" when the panel has not been paired.
+ *
+ * Read live rather than cached: the Tauri shell injects it before page scripts
+ * run, a browser dashboard served straight from the control server gets it from
+ * the substituted placeholder in index.html, and a test harness sets it later.
+ * One accessor keeps all three paths identical.
+ */
+export function apiToken() {
+  const t = typeof window !== "undefined" ? window.DRIFTERR_TOKEN : "";
+  return typeof t === "string" ? t : "";
+}
+
+/**
+ * Add the control token to a fetch init.
+ *
+ * Every call into the control API goes through this. It exists as one function
+ * rather than a header spelled out at each call site so a new endpoint cannot
+ * quietly ship unauthenticated - tests/config.test.mjs scans this file and fails
+ * if any apiBase() request skips it.
+ *
+ * Sending it as a custom header (not a cookie, not a query parameter) is
+ * deliberate: a custom header makes every cross-origin request non-simple, so
+ * the browser must preflight it and the server's origin allowlist answers that
+ * preflight. A token in the URL would leak into logs and history instead.
+ */
+export function withAuth(init) {
+  const base = init || {};
+  const tok = apiToken();
+  if (!tok) return base;
+  return { ...base, headers: { ...(base.headers || {}), "X-Drifterr-Token": tok } };
+}
+
+/**
+ * Make sure the pairing token is available before the first control-API call.
+ *
+ * Under the Tauri shell the panel is cross-origin to the control server, so the
+ * token cannot be inlined in the HTML — the shell exposes it as a command and
+ * this awaits it once at boot. Awaiting a command rather than reading a global
+ * an injected script may or may not have set yet is what keeps the first poll
+ * from rendering a spurious "not reachable" while the token is still in flight.
+ *
+ * Idempotent and never throws: a failure leaves the token empty, the first call
+ * gets a 401, and the panel says it needs pairing — which is the truth.
+ */
+export async function ensureToken() {
+  if (typeof window === "undefined") return "";
+  if (apiToken()) return apiToken();
+  const tauri = window.__TAURI__ || window.__TAURI_INTERNALS__;
+  if (!tauri) return "";
+  try {
+    const invoke = window.__TAURI__?.core?.invoke || window.__TAURI_INTERNALS__?.invoke;
+    if (!invoke) return "";
+    const t = await invoke("control_token");
+    if (typeof t === "string" && t) window.DRIFTERR_TOKEN = t;
+  } catch (_e) {
+    /* Shell too old, or the command is unavailable — the 401 path explains it. */
+  }
+  return apiToken();
+}
+
 export function apiBase() {
   if (typeof window !== "undefined" && window.DRIFTERR_API) return window.DRIFTERR_API;
   const isTauri =
@@ -457,7 +518,7 @@ export function renderJournal(doc, items) {
 export async function loadJournal(doc, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
-    const res = await f(apiBase() + "/journal", { cache: "no-store" });
+    const res = await f(apiBase() + "/journal", withAuth({ cache: "no-store" }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderJournal(doc, await res.json());
   } catch (_e) {
@@ -532,7 +593,7 @@ export function renderHistory(doc, items, nowMs) {
 export async function loadHistory(doc, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
-    const res = await f(apiBase() + "/history", { cache: "no-store" });
+    const res = await f(apiBase() + "/history", withAuth({ cache: "no-store" }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderHistory(doc, await res.json());
   } catch (_e) {
@@ -543,7 +604,7 @@ export async function loadHistory(doc, fetchImpl) {
 export async function loadConfig(doc, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
-    const res = await f(apiBase() + "/config", { cache: "no-store" });
+    const res = await f(apiBase() + "/config", withAuth({ cache: "no-store" }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderConfig(doc, await res.json());
   } catch (_e) {
@@ -568,7 +629,7 @@ export function renderJudge(doc, data) {
 export async function loadJudge(doc, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
-    const res = await f(apiBase() + "/judge", { cache: "no-store" });
+    const res = await f(apiBase() + "/judge", withAuth({ cache: "no-store" }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderJudge(doc, await res.json());
   } catch (_e) {
@@ -585,11 +646,11 @@ export async function saveJudge(doc, fetchImpl) {
   const model = modelEl ? modelEl.value.trim() : "";
   if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
   try {
-    const res = await f(apiBase() + "/judge", {
+    const res = await f(apiBase() + "/judge", withAuth({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ apiKey, model }),
-    });
+    }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderJudge(doc, await res.json());
     if (keyEl) keyEl.value = ""; // never keep the secret sitting in the DOM
@@ -623,7 +684,7 @@ export function renderAutoIntent(doc, data) {
 export async function loadAutoIntent(doc, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
-    const res = await f(apiBase() + "/auto-intent", { cache: "no-store" });
+    const res = await f(apiBase() + "/auto-intent", withAuth({ cache: "no-store" }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderAutoIntent(doc, await res.json());
   } catch (_e) {
@@ -634,11 +695,11 @@ export async function loadAutoIntent(doc, fetchImpl) {
 async function setAutoIntent(doc, on, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
-    const res = await f(apiBase() + "/auto-intent", {
+    const res = await f(apiBase() + "/auto-intent", withAuth({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ on }),
-    });
+    }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderAutoIntent(doc, await res.json());
   } catch (_e) {
@@ -652,11 +713,11 @@ export async function resolveIntentShift(doc, accept, fetchImpl) {
   const el = doc.getElementById("intent-shift");
   if (el) el.hidden = true; // optimistic — the next poll confirms
   try {
-    await f(apiBase() + "/intent-shift", {
+    await f(apiBase() + "/intent-shift", withAuth({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ accept }),
-    });
+    }));
     await loadIntent(doc, f);
   } catch (_e) { /* proxy unreachable — next poll re-surfaces if still pending */ }
 }
@@ -683,7 +744,7 @@ export function renderPrefs(doc, data) {
 export async function loadPrefs(doc, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
-    const res = await f(apiBase() + "/prefs", { cache: "no-store" });
+    const res = await f(apiBase() + "/prefs", withAuth({ cache: "no-store" }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderPrefs(doc, await res.json());
   } catch (_e) {
@@ -694,11 +755,11 @@ export async function loadPrefs(doc, fetchImpl) {
 async function setDnd(doc, muted, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
-    const res = await f(apiBase() + "/prefs", {
+    const res = await f(apiBase() + "/prefs", withAuth({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ notificationsMuted: muted }),
-    });
+    }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderPrefs(doc, await res.json());
   } catch (_e) {
@@ -758,7 +819,7 @@ export async function copySessionReport(doc, fetchImpl) {
   const f = fetchImpl || fetch;
   const btn = doc.getElementById("report-copy");
   const get = async (path) => {
-    try { const r = await f(apiBase() + path, { cache: "no-store" }); return r.ok ? await r.json() : null; }
+    try { const r = await f(apiBase() + path, withAuth({ cache: "no-store" })); return r.ok ? await r.json() : null; }
     catch (_e) { return null; }
   };
   const [status, intent, journal] = await Promise.all([get("/status"), get("/intent"), get("/journal")]);
@@ -807,11 +868,11 @@ export async function reportNotDrift(doc, fetchImpl) {
     if (btn) { btn.textContent = "Not a drift"; btn.disabled = false; }
   };
   try {
-    const res = await f(apiBase() + "/feedback", {
+    const res = await f(apiBase() + "/feedback", withAuth({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
-    });
+    }));
     if (btn) {
       if (res.ok) { btn.textContent = "Thanks — noted"; btn.disabled = true; }
       else { btn.textContent = "Couldn't save"; }
@@ -850,7 +911,7 @@ export async function setupPacks(doc, fetchImpl) {
   const f = fetchImpl || fetch;
   let packs = [];
   try {
-    const res = await f(apiBase() + "/packs", { cache: "no-store" });
+    const res = await f(apiBase() + "/packs", withAuth({ cache: "no-store" }));
     if (!res.ok) return;
     packs = await res.json();
   } catch (_e) {
@@ -888,11 +949,11 @@ export async function setupPacks(doc, fetchImpl) {
     apply.addEventListener("click", async () => {
       apply.disabled = true;
       try {
-        const res = await f(apiBase() + "/packs/apply", {
+        const res = await f(apiBase() + "/packs/apply", withAuth({
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ id: p.id }),
-        });
+        }));
         apply.textContent = res.ok ? "Applied ✓" : "Couldn't apply";
       } catch (_e) {
         apply.textContent = "Drifterr not reachable";
@@ -934,9 +995,7 @@ export function setupTeamShare(doc, fetchImpl) {
       .join(",");
     try {
       const res = await f(
-        apiBase() + "/team/share-preview?days=14" + (ids ? "&packs=" + ids : ""),
-        { cache: "no-store" }
-      );
+        apiBase() + "/team/share-preview?days=14" + (ids ? "&packs=" + ids : ""), withAuth({ cache: "no-store" }));
       const data = await res.json();
       if (!data.entitled) {
         if (locked) locked.hidden = false;
@@ -1051,7 +1110,7 @@ function setupWeekly(doc, fetchImpl) {
     panel.hidden = false;
     const f = fetchImpl || fetch;
     try {
-      const res = await f(apiBase() + "/report?days=7", { cache: "no-store" });
+      const res = await f(apiBase() + "/report?days=7", withAuth({ cache: "no-store" }));
       if (!res.ok) {
         // 503 means there is no local database — say that plainly instead of
         // showing an empty report, which would read as "nothing drifted".
@@ -1106,7 +1165,7 @@ export function renderProviders(doc, data, containerId = "provider-select") {
 export async function loadProviders(doc, fetchImpl, containerId = "provider-select") {
   const f = fetchImpl || fetch;
   try {
-    const res = await f(apiBase() + "/providers", { cache: "no-store" });
+    const res = await f(apiBase() + "/providers", withAuth({ cache: "no-store" }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderProviders(doc, await res.json(), containerId);
   } catch (_e) {
@@ -1119,11 +1178,11 @@ export async function loadProviders(doc, fetchImpl, containerId = "provider-sele
 /// group in the document (settings + onboarding share the same state).
 async function selectProvider(doc, id) {
   try {
-    const res = await fetch(apiBase() + "/provider", {
+    const res = await fetch(apiBase() + "/provider", withAuth({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
-    });
+    }));
     if (!res.ok) return;
     try { localStorage.setItem("drifterr_provider", id); } catch (_e) { /* private mode */ }
     for (const el of doc.querySelectorAll(".provider-pill")) {
@@ -1140,11 +1199,11 @@ export async function applySavedProvider() {
   try { id = localStorage.getItem("drifterr_provider"); } catch (_e) { /* ignore */ }
   if (!id) return;
   try {
-    await fetch(apiBase() + "/provider", {
+    await fetch(apiBase() + "/provider", withAuth({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
-    });
+    }));
   } catch (_e) { /* best effort */ }
 }
 
@@ -1160,7 +1219,7 @@ export async function loadReanchor(doc, fetchImpl) {
   const section = doc.getElementById("reanchor");
   const textEl = doc.getElementById("reanchor-text");
   try {
-    const res = await f(apiBase() + "/reanchor", { cache: "no-store" });
+    const res = await f(apiBase() + "/reanchor", withAuth({ cache: "no-store" }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     currentReanchor = data;
@@ -1246,7 +1305,7 @@ export function renderIntent(doc, data) {
 export async function loadIntent(doc, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
-    const res = await f(apiBase() + "/intent", { cache: "no-store" });
+    const res = await f(apiBase() + "/intent", withAuth({ cache: "no-store" }));
     if (res.status === 404) {
       renderIntent(doc, null); // no session and nothing pending yet
       return null;
@@ -1295,11 +1354,11 @@ export async function saveIntent(doc, fetchImpl) {
   const btn = doc.getElementById("intent-save");
   if (btn) btn.disabled = true;
   try {
-    const res = await f(apiBase() + "/intent", {
+    const res = await f(apiBase() + "/intent", withAuth({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ goal, constraints }),
-    });
+    }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderIntent(doc, await res.json());
     closeIntentEditor(doc);
@@ -1314,11 +1373,11 @@ export async function saveIntent(doc, fetchImpl) {
 export async function retireConstraint(doc, id, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
-    const res = await f(apiBase() + "/intent/retire", {
+    const res = await f(apiBase() + "/intent/retire", withAuth({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
-    });
+    }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderIntent(doc, await res.json());
   } catch (_e) {
@@ -1333,6 +1392,58 @@ function setupIntent(doc) {
   if (cancel) cancel.addEventListener("click", () => closeIntentEditor(doc));
   const save = doc.getElementById("intent-save");
   if (save) save.addEventListener("click", () => saveIntent(doc));
+}
+
+/**
+ * Show the extension pairing token, masked until asked for.
+ *
+ * The token is a local capability, but it is still a credential: leaving it in
+ * plain sight in a panel that sits open all day - and so in every screenshot and
+ * screen share of it - is the kind of small carelessness that undoes the work of
+ * requiring it at all. Revealing is one click, and nothing needs it at a glance.
+ */
+export function setupPairingToken(doc) {
+  const out = doc.getElementById("pair-token");
+  const reveal = doc.getElementById("pair-reveal");
+  const copy = doc.getElementById("pair-copy");
+  if (!out) return;
+
+  const MASK = "\u2022".repeat(16);
+  const paint = (shown) => {
+    const t = apiToken();
+    out.textContent = t ? (shown ? t : MASK) : "Not available - restart Drifterr";
+    if (reveal) {
+      reveal.textContent = shown ? "Hide" : "Reveal";
+      reveal.setAttribute("aria-expanded", shown ? "true" : "false");
+      reveal.disabled = !t;
+    }
+    if (copy) copy.disabled = !t;
+  };
+  paint(false);
+
+  if (reveal) {
+    reveal.addEventListener("click", () => {
+      paint(reveal.getAttribute("aria-expanded") !== "true");
+    });
+  }
+  if (copy) {
+    copy.addEventListener("click", async () => {
+      const t = apiToken();
+      if (!t) return;
+      try {
+        await navigator.clipboard.writeText(t);
+        copy.textContent = "Copied";
+      } catch (_e) {
+        // No clipboard permission - reveal it so the user can select it by hand,
+        // rather than being offered "Copy" and handed nothing.
+        paint(true);
+        copy.textContent = "Select it";
+      }
+      window.setTimeout(() => {
+        copy.textContent = "Copy";
+      }, 1600);
+    });
+  }
 }
 
 /// Is the intent editor currently open? (So the poll loop doesn't clobber edits.)
@@ -1428,7 +1539,7 @@ export function renderAutoReanchor(doc, data) {
 export async function loadAutoReanchor(doc, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
-    const res = await f(apiBase() + "/auto-reanchor", { cache: "no-store" });
+    const res = await f(apiBase() + "/auto-reanchor", withAuth({ cache: "no-store" }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderAutoReanchor(doc, await res.json());
   } catch (_e) {
@@ -1439,11 +1550,11 @@ export async function loadAutoReanchor(doc, fetchImpl) {
 async function setAutoReanchor(doc, on, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
-    const res = await f(apiBase() + "/auto-reanchor", {
+    const res = await f(apiBase() + "/auto-reanchor", withAuth({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ on }),
-    });
+    }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderAutoReanchor(doc, await res.json());
   } catch (_e) {
@@ -1580,11 +1691,11 @@ export async function refreshAuth(doc, mod) {
 /// The proxy derives the capability flags from the plan id itself.
 async function pushPlan(planId) {
   try {
-    await fetch(apiBase() + "/entitlement", {
+    await fetch(apiBase() + "/entitlement", withAuth({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ plan: planId }),
-    });
+    }));
   } catch (_e) { /* proxy not reachable yet — the status poll still reflects Free */ }
 }
 
@@ -1703,11 +1814,11 @@ export function finishOnboarding(doc) {
   const constraints = (doc.getElementById("onb-constraints-input")?.value || "")
     .split("\n").map((s) => s.trim()).filter(Boolean);
   if (goal || constraints.length) {
-    fetch(apiBase() + "/intent", {
+    fetch(apiBase() + "/intent", withAuth({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ goal, constraints }),
-    }).then(() => loadIntent(doc)).catch(() => { /* proxy not up yet */ });
+    })).then(() => loadIntent(doc)).catch(() => { /* proxy not up yet */ });
   }
   const o = doc.getElementById("onboarding");
   if (o) o.hidden = true;
@@ -1841,7 +1952,7 @@ export function setupUpdater(doc) {
 export async function poll(doc, fetchImpl) {
   const f = fetchImpl || fetch;
   try {
-    const res = await f(apiBase() + "/status", { cache: "no-store" });
+    const res = await f(apiBase() + "/status", withAuth({ cache: "no-store" }));
     if (!res.ok) throw new Error("HTTP " + res.status);
     render(doc, await res.json());
     // Keep the intent card fresh (goal/constraints can change mid-session), but
@@ -1872,8 +1983,14 @@ if (typeof document !== "undefined" && typeof window !== "undefined" && !window.
   setupOnboarding(document);
   setupUpdater(document);
   applySavedProvider();
-  initAccounts(document);
-  maybeOnboard(document);
-  poll(document);
-  window.setInterval(() => poll(document), 1500);
+  // Pair first, then poll. Everything after this line talks to an authenticated
+  // control API, so the token has to be in hand before the first request rather
+  // than one render later.
+  ensureToken().then(() => {
+    setupPairingToken(document);
+    initAccounts(document);
+    maybeOnboard(document);
+    poll(document);
+    window.setInterval(() => poll(document), 1500);
+  });
 }

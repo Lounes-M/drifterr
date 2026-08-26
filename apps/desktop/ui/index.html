@@ -6,6 +6,22 @@
     <title>Drifterr</title>
     <link rel="stylesheet" href="styles.css" />
     <script src="config.js"></script>
+    <script>
+      // Control-API pairing token.
+      //
+      // Three ways this gets a value, in precedence order:
+      //   1. The Tauri shell injects it before any page script runs, because the
+      //      webview is cross-origin to the control server and cannot be handed
+      //      the token in the HTML.
+      //   2. The control server substitutes the placeholder below when it serves
+      //      this page itself (the browser dashboard). Safe because that route
+      //      sends no CORS headers, so only a same-origin document ever reads it.
+      //   3. Neither — the file was opened directly, or by a test harness. The
+      //      regex collapses the untouched placeholder to "", which the panel
+      //      reads as "not paired" and reports as such rather than sending a
+      //      literal placeholder as a credential.
+      window.DRIFTERR_TOKEN ??= "__DRIFTERR_CONTROL_TOKEN__".replace(/^__.*__$/, "");
+    </script>
   </head>
   <body>
     <!-- Launch splash — replays each time the panel opens; self-removes. -->
@@ -82,6 +98,19 @@
         <p class="muted">Point your agent at the proxy, then watch here.</p>
         <code class="env-line">OPENAI_BASE_URL=http://localhost:8787/v1</code>
         <code class="env-line">ANTHROPIC_BASE_URL=http://localhost:8787</code>
+
+        <!--
+          Extension pairing. The control API is authenticated so a website cannot
+          read your sessions out of it; the extension is the one consumer Drifterr
+          does not launch itself, so it is paired by hand, once.
+        -->
+        <h2 class="section-title" style="margin-top:12px">Browser extension</h2>
+        <p class="muted">Paste this pairing token into the extension's popup to connect it. It stays on this machine.</p>
+        <div class="token-row">
+          <code id="pair-token" class="env-line token-value">••••••••</code>
+          <button id="pair-reveal" type="button" class="ghost-btn" aria-expanded="false">Reveal</button>
+          <button id="pair-copy" type="button" class="ghost-btn">Copy</button>
+        </div>
 
         <h2 class="section-title" style="margin-top:12px">Provider</h2>
         <p class="muted">Where requests are relayed. Use that provider's own API key in your tool.</p>

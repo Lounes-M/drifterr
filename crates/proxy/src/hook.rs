@@ -143,13 +143,29 @@ pub async fn run(api_base: &str, input: &HookInput, explain: bool) -> String {
         Err(_) => return String::new(),
     };
 
+    // The control API is authenticated (see `auth`), and the hook is a separate
+    // short-lived process, so it reads the token from the shared state dir. No
+    // token means Drifterr is not running — which is already a quiet path, so it
+    // costs nothing to take it early rather than after two refused requests.
+    let Some(token) = crate::auth::read_token() else {
+        if explain {
+            eprintln!("drifterr hook: no control token found — is Drifterr running?");
+        }
+        return String::new();
+    };
+
     let q = if input.session_id.is_empty() {
         String::new()
     } else {
         format!("?session={}", urlencode(&input.session_id))
     };
 
-    let status: serde_json::Value = match client.get(format!("{api_base}/status")).send().await {
+    let status: serde_json::Value = match client
+        .get(format!("{api_base}/status"))
+        .header(crate::auth::TOKEN_HEADER, &token)
+        .send()
+        .await
+    {
         Ok(r) => r.json().await.unwrap_or(serde_json::Value::Null),
         // Drifterr isn't running. Not an error worth reporting into someone's prompt.
         Err(_) => {
@@ -162,7 +178,11 @@ pub async fn run(api_base: &str, input: &HookInput, explain: bool) -> String {
 
     // Fetching the re-anchor also opens the "did it hold?" verification window, so
     // automatic re-anchors are measured exactly like manual ones.
-    let preamble: Option<String> = match client.get(format!("{api_base}/reanchor{q}")).send().await
+    let preamble: Option<String> = match client
+        .get(format!("{api_base}/reanchor{q}"))
+        .header(crate::auth::TOKEN_HEADER, &token)
+        .send()
+        .await
     {
         Ok(r) => r.json::<serde_json::Value>().await.ok().and_then(|v| {
             v.get("preamble")

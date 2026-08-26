@@ -48,6 +48,23 @@ fn rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// The control API is authenticated (see `drifterr_proxy::auth`); these tests pin
+/// a known token so they exercise the real, gated path rather than a bypass.
+const TEST_TOKEN: &str = "egress-test-token";
+
+fn control_client() -> reqwest::Client {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        drifterr_proxy::auth::TOKEN_HEADER,
+        reqwest::header::HeaderValue::from_static(TEST_TOKEN),
+    );
+    reqwest::Client::builder()
+        .no_proxy()
+        .default_headers(headers)
+        .build()
+        .unwrap()
+}
+
 // ---- A. chat-content crates have zero network dependencies -------------------
 
 /// The crates that construct, parse, store, or score conversation content. None
@@ -153,8 +170,11 @@ async fn the_team_share_payload_never_carries_conversation_content() {
         drifterr_judge::Judge::Disabled,
     )
     .with_plan(Plan::Team);
-    let control = spawn(control_router(state)).await;
-    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let control = spawn(control_router(
+        state.with_token(drifterr_proxy::auth::Token::from_value(TEST_TOKEN)),
+    ))
+    .await;
+    let client = control_client();
     let api = format!("http://{control}");
 
     // The canary is placed inside the *violating code*, so it lands in the evidence span.
@@ -241,8 +261,11 @@ async fn team_sharing_is_gated_on_the_plan() {
     };
     let state =
         AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled).with_plan(Plan::Free);
-    let control = spawn(control_router(state)).await;
-    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let control = spawn(control_router(
+        state.with_token(drifterr_proxy::auth::Token::from_value(TEST_TOKEN)),
+    ))
+    .await;
+    let client = control_client();
 
     let preview: serde_json::Value = client
         .get(format!(

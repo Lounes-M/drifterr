@@ -106,6 +106,24 @@ fn control_addr() -> std::net::SocketAddr {
 /// Start the embedded Drifterr proxy in-process. Persists to the app's data dir
 /// when available. Best-effort: if the ports are taken (an external proxy is
 /// already running), the menubar simply attaches to that one.
+/// Hand the panel the control-API token.
+///
+/// The webview's origin is `tauri://localhost`, which is cross-origin to the
+/// control server on `127.0.0.1:8788`, so the panel cannot be given the token in
+/// its HTML the way the browser dashboard is.
+///
+/// This is a command rather than an injected script on purpose: an injected
+/// global races the page's own scripts, and a panel that renders one 401 before
+/// the token lands looks broken. A command the panel awaits during boot has no
+/// ordering to get wrong.
+///
+/// Nothing crosses a trust boundary here — the token never leaves the machine,
+/// and the only caller is a webview we build and ship.
+#[tauri::command]
+fn control_token() -> String {
+    drifterr_proxy::auth::read_token().unwrap_or_default()
+}
+
 fn start_embedded_proxy(app: &tauri::App) {
     // Point the embedder at a semantic model if one is present — a bundled resource
     // first, then one the user downloaded on demand into app-data. A no-op when
@@ -123,6 +141,18 @@ fn start_embedded_proxy(app: &tauri::App) {
             d.join("drifterr.sqlite")
         })
         .and_then(|p| p.to_str().map(str::to_string));
+
+    // Pin the state directory before anything resolves a path from it.
+    //
+    // The control token lives here, and `drifterr-proxy hook` / `mcp` run as
+    // separate processes launched by the agent, not by us — they find the token by
+    // resolving this same directory. Exporting Tauri's own `app_data_dir()` rather
+    // than letting each side guess is what makes the two impossible to disagree
+    // about, on every platform and under every packaging layout.
+    if let Ok(dir) = app.path().app_data_dir() {
+        let _ = std::fs::create_dir_all(&dir);
+        std::env::set_var("DRIFTERR_STATE_DIR", &dir);
+    }
 
     // Tell the embedded proxy our real app version so /config (and the settings
     // view) reports the installed app's version, not the proxy crate's 0.0.1.
@@ -316,11 +346,13 @@ pub fn run() {
             install_update,
             check_update_now,
             semantic_model_status,
-            download_semantic_model
+            download_semantic_model,
+            control_token
         ])
         .setup(|app| {
             // Start the bundled proxy first so the panel has data to show.
             start_embedded_proxy(app);
+
 
             // Check for updates on launch and every few hours after; the panel
             // shows a banner and (unless muted) the OS gets a notification.

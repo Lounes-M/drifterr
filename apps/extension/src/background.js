@@ -7,20 +7,29 @@
 // engine reports the session is drifting (red), it fetches the re-anchor
 // preamble and tells the content script to offer a one-click inject.
 
-const BASE = "http://localhost:8788";
+// Base URL, pairing token and the 401 path all live in api.js so the popup and
+// this worker cannot disagree about them.
+importScripts("api.js");
+
 
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (!msg || msg.type !== "drifterr-ingest") return;
   const tabId = sender && sender.tab && sender.tab.id;
-  fetch(BASE + "/ingest", {
+  drifterrFetch("/ingest", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(msg.payload),
   })
     .then((r) => (r.ok ? r.json() : null))
     .then((status) => forwardReanchor(tabId, status))
-    .catch(() => {
-      // Proxy not running / unreachable — ignore silently.
+    .catch((e) => {
+      // Unpaired is a real, fixable state, not a transient one — record it so the
+      // popup can say "paste the token" instead of "app not running", which would
+      // send the user to fix the wrong thing. Anything else (proxy down, network)
+      // stays silent as before.
+      if (drifterrIsUnpaired(e)) {
+        chrome.storage.local.set({ drifterrHealth: { reason: "unpaired" } }).catch(() => {});
+      }
     });
 });
 
@@ -34,7 +43,7 @@ function forwardReanchor(tabId, status) {
     return;
   }
   const detail = cur.triggering ? cur.triggering.detail || "" : "";
-  fetch(BASE + "/reanchor", { cache: "no-store" })
+  drifterrFetch("/reanchor", { cache: "no-store" })
     .then((r) => (r.ok ? r.json() : null))
     .then((re) => {
       if (!re || !re.preamble) return;
