@@ -72,7 +72,10 @@ function postgresLedger(): Ledger {
       // billing path, and PostgREST's `or` syntax has escaping rules nothing here
       // was applying.
       for (const column of ["stripe_price_monthly", "stripe_price_yearly"]) {
-        const { data } = await admin.from("plans").select("id").eq(column, priceId).maybeSingle();
+        const { data } = await admin.from("plans").select("id").eq(
+          column,
+          priceId,
+        ).maybeSingle();
         if (data?.id) return data.id as string;
       }
       return null;
@@ -94,7 +97,9 @@ function postgresLedger(): Ledger {
 }
 
 Deno.serve(async (req) => {
-  if (req.method !== "POST") return new Response("method not allowed", { status: 405 });
+  if (req.method !== "POST") {
+    return new Response("method not allowed", { status: 405 });
+  }
 
   const signature = req.headers.get("stripe-signature");
   if (!signature) return new Response("missing signature", { status: 400 });
@@ -102,7 +107,11 @@ Deno.serve(async (req) => {
   const raw = await req.text();
   let event: Stripe.Event;
   try {
-    event = await stripe.webhooks.constructEventAsync(raw, signature, WEBHOOK_SECRET);
+    event = await stripe.webhooks.constructEventAsync(
+      raw,
+      signature,
+      WEBHOOK_SECRET,
+    );
   } catch (e) {
     console.error("webhook signature verification failed", e);
     return new Response("bad signature", { status: 400 });

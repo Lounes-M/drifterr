@@ -8,8 +8,13 @@
 // buy a plan for yourself. The actual plan grant happens later, in the webhook,
 // once Stripe confirms payment.
 
-import { preflight, json } from "../_shared/cors.ts";
-import { getUser, userClient, ensureStripeCustomer, stripe } from "../_shared/clients.ts";
+import { json, preflight } from "../_shared/cors.ts";
+import {
+  ensureStripeCustomer,
+  getUser,
+  stripe,
+  userClient,
+} from "../_shared/clients.ts";
 
 const SITE_URL = Deno.env.get("SITE_URL") ?? "https://drifterr.app";
 
@@ -18,7 +23,9 @@ Deno.serve(async (req) => {
   if (pre) return pre;
   const origin = req.headers.get("origin");
 
-  if (req.method !== "POST") return json({ error: "method not allowed" }, 405, origin);
+  if (req.method !== "POST") {
+    return json({ error: "method not allowed" }, 405, origin);
+  }
 
   const user = await getUser(req);
   if (!user) return json({ error: "unauthorized" }, 401, origin);
@@ -34,7 +41,9 @@ Deno.serve(async (req) => {
   const interval = body.interval === "year" ? "year" : "month";
   const quantity = Math.max(1, Math.min(500, Number(body.quantity) || 1));
 
-  if (plan !== "pro" && plan !== "team") return json({ error: "unknown plan" }, 400, origin);
+  if (plan !== "pro" && plan !== "team") {
+    return json({ error: "unknown plan" }, 400, origin);
+  }
 
   // Resolve the Stripe price from the public catalog (plans are RLS-readable),
   // so the price ids live in the database, not in function secrets.
@@ -43,8 +52,12 @@ Deno.serve(async (req) => {
     .select("stripe_price_monthly, stripe_price_yearly")
     .eq("id", plan)
     .single();
-  const priceId = interval === "year" ? planRow?.stripe_price_yearly : planRow?.stripe_price_monthly;
-  if (!priceId) return json({ error: "price not configured for this plan" }, 500, origin);
+  const priceId = interval === "year"
+    ? planRow?.stripe_price_yearly
+    : planRow?.stripe_price_monthly;
+  if (!priceId) {
+    return json({ error: "price not configured for this plan" }, 500, origin);
+  }
 
   try {
     const customer = await ensureStripeCustomer(user.id, user.email);
@@ -52,7 +65,10 @@ Deno.serve(async (req) => {
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer,
-      line_items: [{ price: priceId, quantity: plan === "team" ? quantity : 1 }],
+      line_items: [{
+        price: priceId,
+        quantity: plan === "team" ? quantity : 1,
+      }],
       allow_promotion_codes: true,
       client_reference_id: user.id,
       subscription_data: { metadata: { supabase_user_id: user.id, plan } },

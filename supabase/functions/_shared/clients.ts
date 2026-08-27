@@ -7,7 +7,10 @@
 //     user isn't allowed to make directly (granting a plan after Stripe says so).
 
 import Stripe from "npm:stripe@17.5.0";
-import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.47.10";
+import {
+  createClient,
+  type SupabaseClient,
+} from "npm:@supabase/supabase-js@2.47.10";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -46,7 +49,10 @@ export async function getUser(req: Request) {
  * Return the Stripe customer id for a user, creating the customer (and saving
  * the id on their profile) on first use. Idempotent enough for our needs.
  */
-export async function ensureStripeCustomer(userId: string, email: string | undefined): Promise<string> {
+export async function ensureStripeCustomer(
+  userId: string,
+  email: string | undefined,
+): Promise<string> {
   const admin = adminClient();
   const { data: profile } = await admin
     .from("profiles")
@@ -61,6 +67,9 @@ export async function ensureStripeCustomer(userId: string, email: string | undef
     metadata: { supabase_user_id: userId },
   });
 
-  await admin.from("profiles").update({ stripe_customer_id: customer.id }).eq("id", userId);
+  await admin.from("profiles").update({ stripe_customer_id: customer.id }).eq(
+    "id",
+    userId,
+  );
   return customer.id;
 }

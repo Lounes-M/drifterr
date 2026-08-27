@@ -56,16 +56,39 @@ async function signingKey(): Promise<CryptoKey | null> {
     // Wrap the raw 32-byte seed in the minimal PKCS#8 envelope WebCrypto wants.
     const seed = b64urlDecode(SEED_B64.trim());
     if (seed.length !== 32) {
-      console.error("plan_token: ENTITLEMENT_SIGNING_KEY must decode to 32 bytes");
+      console.error(
+        "plan_token: ENTITLEMENT_SIGNING_KEY must decode to 32 bytes",
+      );
       return null;
     }
     const pkcs8 = new Uint8Array([
-      0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70,
-      0x04, 0x22, 0x04, 0x20, ...seed,
+      0x30,
+      0x2e,
+      0x02,
+      0x01,
+      0x00,
+      0x30,
+      0x05,
+      0x06,
+      0x03,
+      0x2b,
+      0x65,
+      0x70,
+      0x04,
+      0x22,
+      0x04,
+      0x20,
+      ...seed,
     ]);
-    cachedKey = await crypto.subtle.importKey("pkcs8", pkcs8, { name: "Ed25519" }, false, [
-      "sign",
-    ]);
+    cachedKey = await crypto.subtle.importKey(
+      "pkcs8",
+      pkcs8,
+      { name: "Ed25519" },
+      false,
+      [
+        "sign",
+      ],
+    );
     return cachedKey;
   } catch (e) {
     console.error("plan_token: could not import signing key", e);
@@ -80,7 +103,10 @@ async function signingKey(): Promise<CryptoKey | null> {
  * a proxy that receives no token reports the plan as unverified, which is the
  * honest state rather than a silent downgrade or a fake signature.
  */
-export async function signPlanToken(userId: string, planId: string): Promise<string | null> {
+export async function signPlanToken(
+  userId: string,
+  planId: string,
+): Promise<string | null> {
   const key = await signingKey();
   if (!key) return null;
   const payload = JSON.stringify({
@@ -93,7 +119,11 @@ export async function signPlanToken(userId: string, planId: string): Promise<str
   // Sign the *encoded* payload, so verification never depends on two JSON
   // writers agreeing byte for byte.
   const sig = new Uint8Array(
-    await crypto.subtle.sign({ name: "Ed25519" }, key, new TextEncoder().encode(encodedPayload)),
+    await crypto.subtle.sign(
+      { name: "Ed25519" },
+      key,
+      new TextEncoder().encode(encodedPayload),
+    ),
   );
   return `${encodedPayload}.${b64urlEncode(sig)}`;
 }

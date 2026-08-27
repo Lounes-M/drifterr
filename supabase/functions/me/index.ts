@@ -5,7 +5,7 @@
 // shape the desktop app and account page render. RLS-respecting (uses the
 // caller's JWT), so it can only ever return the caller's own data.
 
-import { preflight, json } from "../_shared/cors.ts";
+import { json, preflight } from "../_shared/cors.ts";
 import { getUser, userClient } from "../_shared/clients.ts";
 import { signPlanToken } from "../_shared/plan_token.ts";
 
@@ -19,7 +19,9 @@ Deno.serve(async (req) => {
 
   const supa = userClient(req);
   const [{ data: profile }, { data: ent }] = await Promise.all([
-    supa.from("profiles").select("email, full_name, stripe_customer_id, created_at").eq("id", user.id).single(),
+    supa.from("profiles").select(
+      "email, full_name, stripe_customer_id, created_at",
+    ).eq("id", user.id).single(),
     supa.from("my_entitlement").select("*").maybeSingle(),
   ]);
 
@@ -36,7 +38,10 @@ Deno.serve(async (req) => {
   //
   // Absent when no signing key is configured — the proxy then reports the
   // entitlement as unverified rather than pretending otherwise.
-  const planToken = await signPlanToken(user.id, String(entitlement.plan_id ?? "free"));
+  const planToken = await signPlanToken(
+    user.id,
+    String(entitlement.plan_id ?? "free"),
+  );
 
   return json(
     {

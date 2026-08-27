@@ -93,20 +93,30 @@ function subscription(opts: {
     id: opts.id ?? "sub_1",
     status: opts.status ?? "active",
     customer: opts.customer ?? "cus_1",
-    metadata: opts.user === undefined ? { supabase_user_id: "user-1" } : { supabase_user_id: opts.user },
+    metadata: opts.user === undefined
+      ? { supabase_user_id: "user-1" }
+      : { supabase_user_id: opts.user },
     cancel_at_period_end: false,
     current_period_end: 1_800_000_000,
     items: {
       data: [{
         quantity: opts.quantity ?? 1,
-        price: { id: opts.price ?? "price_pro_m", recurring: { interval: opts.interval ?? "month" } },
+        price: {
+          id: opts.price ?? "price_pro_m",
+          recurring: { interval: opts.interval ?? "month" },
+        },
       }],
     },
   };
 }
 
 // deno-lint-ignore no-explicit-any
-function event(type: string, created: number, object: unknown, id = "evt_1"): any {
+function event(
+  type: string,
+  created: number,
+  object: unknown,
+  id = "evt_1",
+): any {
   return { id, type, created, data: { object } };
 }
 
@@ -119,7 +129,11 @@ Deno.test("an out-of-order event never downgrades a customer", async () => {
 
   // The upgrade lands first: Free → Team at t=200.
   await handleEvent(
-    event("customer.subscription.updated", 200, subscription({ price: "price_team_m" })),
+    event(
+      "customer.subscription.updated",
+      200,
+      subscription({ price: "price_team_m" }),
+    ),
     ledger,
   );
   assertEquals(ledger.rows.get("user-1")?.plan_id, "team");
@@ -127,7 +141,12 @@ Deno.test("an out-of-order event never downgrades a customer", async () => {
   // Then the OLDER event for the plan they upgraded away from arrives late.
   // Stripe does this; last-write-wins would silently undo the purchase.
   const result = await handleEvent(
-    event("customer.subscription.updated", 100, subscription({ price: "price_pro_m" }), "evt_2"),
+    event(
+      "customer.subscription.updated",
+      100,
+      subscription({ price: "price_pro_m" }),
+      "evt_2",
+    ),
     ledger,
   );
 
@@ -143,9 +162,17 @@ Deno.test("an event at the same timestamp still applies", async () => {
   // `>` not `>=`: two events can share a second, and refusing the second would
   // drop a real change rather than an out-of-order one.
   const ledger = fakeLedger({ prices: PRICES });
-  await handleEvent(event("customer.subscription.updated", 500, subscription()), ledger);
+  await handleEvent(
+    event("customer.subscription.updated", 500, subscription()),
+    ledger,
+  );
   const result = await handleEvent(
-    event("customer.subscription.updated", 500, subscription({ price: "price_team_m" }), "evt_2"),
+    event(
+      "customer.subscription.updated",
+      500,
+      subscription({ price: "price_team_m" }),
+      "evt_2",
+    ),
     ledger,
   );
   assertEquals(result.kind, "applied");
@@ -168,7 +195,11 @@ Deno.test("a redelivered event is claimed once and applied once", async () => {
     "duplicate",
     "a redelivery must lose the claim race",
   );
-  assertEquals(ledger.upserts, 1, "and must not apply the change a second time");
+  assertEquals(
+    ledger.upserts,
+    1,
+    "and must not apply the change a second time",
+  );
 });
 
 Deno.test("a failed handler releases its claim so the retry can retry", async () => {
@@ -203,7 +234,10 @@ Deno.test("a failed handler releases its claim so the retry can retry", async ()
 
 Deno.test("cancellation moves the customer to free, not to a stale plan", async () => {
   const ledger = fakeLedger({ prices: PRICES });
-  await handleEvent(event("customer.subscription.updated", 100, subscription()), ledger);
+  await handleEvent(
+    event("customer.subscription.updated", 100, subscription()),
+    ledger,
+  );
   await handleEvent(
     event(
       "customer.subscription.deleted",
@@ -225,7 +259,10 @@ Deno.test("a declined card marks past_due and keeps the plan", async () => {
     prices: PRICES,
     subscriptions: { sub_1: subscription({ status: "past_due" }) },
   });
-  await handleEvent(event("customer.subscription.updated", 100, subscription()), ledger);
+  await handleEvent(
+    event("customer.subscription.updated", 100, subscription()),
+    ledger,
+  );
 
   const result = await handleEvent(
     event("invoice.payment_failed", 200, { subscription: "sub_1" }, "evt_2"),
@@ -235,13 +272,19 @@ Deno.test("a declined card marks past_due and keeps the plan", async () => {
   assertEquals(result.kind, "applied");
   const row = ledger.rows.get("user-1")!;
   assertEquals(row.status, "past_due");
-  assertEquals(row.plan_id, "pro", "a declined card must not strip the plan mid-dunning");
+  assertEquals(
+    row.plan_id,
+    "pro",
+    "a declined card must not strip the plan mid-dunning",
+  );
 });
 
 Deno.test("checkout completion applies the plan immediately", async () => {
   const ledger = fakeLedger({
     prices: PRICES,
-    subscriptions: { sub_9: subscription({ id: "sub_9", price: "price_team_m", quantity: 5 }) },
+    subscriptions: {
+      sub_9: subscription({ id: "sub_9", price: "price_team_m", quantity: 5 }),
+    },
   });
   const result = await handleEvent(
     event("checkout.session.completed", 100, { subscription: "sub_9" }),
@@ -260,7 +303,11 @@ Deno.test("an unknown price never grants a paid plan", async () => {
   // Free is the only safe answer; guessing would grant a plan nobody paid for.
   const ledger = fakeLedger({ prices: PRICES });
   await handleEvent(
-    event("customer.subscription.updated", 100, subscription({ price: "price_unknown" })),
+    event(
+      "customer.subscription.updated",
+      100,
+      subscription({ price: "price_unknown" }),
+    ),
     ledger,
   );
   assertEquals(ledger.rows.get("user-1")?.plan_id, "free");

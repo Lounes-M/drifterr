@@ -4,8 +4,8 @@
 // Returns a Stripe Billing Portal URL so the user can manage / cancel their
 // subscription and update payment details. No body needed.
 
-import { preflight, json } from "../_shared/cors.ts";
-import { getUser, adminClient, stripe } from "../_shared/clients.ts";
+import { json, preflight } from "../_shared/cors.ts";
+import { adminClient, getUser, stripe } from "../_shared/clients.ts";
 
 const SITE_URL = Deno.env.get("SITE_URL") ?? "https://drifterr.app";
 
@@ -14,7 +14,9 @@ Deno.serve(async (req) => {
   if (pre) return pre;
   const origin = req.headers.get("origin");
 
-  if (req.method !== "POST") return json({ error: "method not allowed" }, 405, origin);
+  if (req.method !== "POST") {
+    return json({ error: "method not allowed" }, 405, origin);
+  }
 
   const user = await getUser(req);
   if (!user) return json({ error: "unauthorized" }, 401, origin);

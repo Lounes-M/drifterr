@@ -60,7 +60,10 @@ export interface Ledger {
 /** What `handleEvent` decided, so a caller (and a test) can assert on it. */
 export type HandleResult =
   | { kind: "applied"; userId: string }
-  | { kind: "skipped"; reason: "stale" | "no-user" | "ignored-type" | "no-subscription" };
+  | {
+    kind: "skipped";
+    reason: "stale" | "no-user" | "ignored-type" | "no-subscription";
+  };
 
 /** Pull the Supabase user id off the subscription, falling back to the customer. */
 export async function resolveUserId(
@@ -69,7 +72,9 @@ export async function resolveUserId(
 ): Promise<string | null> {
   const fromSub = sub.metadata?.supabase_user_id;
   if (fromSub) return fromSub;
-  const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
+  const customerId = typeof sub.customer === "string"
+    ? sub.customer
+    : sub.customer?.id;
   if (!customerId) return null;
   return await ledger.userForCustomer(customerId);
 }
@@ -99,7 +104,8 @@ export async function syncSubscription(
   const item = sub.items.data[0];
   const priceId = item?.price?.id ?? null;
   const plan = (await ledger.planForPrice(priceId)) ?? "free";
-  const canceled = sub.status === "canceled" || sub.status === "incomplete_expired";
+  const canceled = sub.status === "canceled" ||
+    sub.status === "incomplete_expired";
 
   await ledger.upsertSubscription({
     user_id: userId,
@@ -144,7 +150,9 @@ export async function handleEvent(
       // The subscription arrives in its own event too, but fetching it here means
       // the upgrade is reflected the instant checkout returns.
       const session = event.data.object as Stripe.Checkout.Session;
-      if (!session.subscription) return { kind: "skipped", reason: "no-subscription" };
+      if (!session.subscription) {
+        return { kind: "skipped", reason: "no-subscription" };
+      }
       const subId = typeof session.subscription === "string"
         ? session.subscription
         : session.subscription.id;
