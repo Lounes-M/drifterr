@@ -32,18 +32,25 @@
  * `capacity` tokens, refilled at `perSecond`. Bursts up to capacity are fine —
  * a page that fires a view plus two clicks in a second is normal traffic, and a
  * limiter that punished it would be measuring nothing.
+ *
+ * `now` is injectable so the tests can drive time instead of sleeping through
+ * it. That is not a convenience: the first version of this test slept and then
+ * asserted on how many tokens were left, which made it a race between the refill
+ * rate and how fast the machine executed three lines. It passed locally and
+ * failed on a slower CI runner — a flaky test in the file whose whole job is to
+ * be predictable under load.
  */
-export function bucket({ capacity, perSecond }) {
+export function bucket({ capacity, perSecond, now = Date.now }) {
   let tokens = capacity;
-  let last = Date.now();
+  let last = now();
   let dropped = 0;
 
   return {
     /** Take a token. False means the caller should drop this request. */
     take() {
-      const now = Date.now();
-      tokens = Math.min(capacity, tokens + ((now - last) / 1000) * perSecond);
-      last = now;
+      const t = now();
+      tokens = Math.min(capacity, tokens + ((t - last) / 1000) * perSecond);
+      last = t;
       if (tokens < 1) {
         dropped++;
         return false;
