@@ -23,6 +23,16 @@ Drifterr measures that drift against a ground truth you own: the goal and constr
 **you** stated. When something breaks, it names the cause and shows the offending line,
 then offers a one-click re-anchor that restates your intent in the thread.
 
+**Setup**
+
+Drifterr runs as a small local app; the extension is the browser's window into it.
+After installing both, open the Drifterr panel, copy the pairing token from
+Settings → Browser extension, and paste it into this extension's popup. That is
+the whole setup, and it happens once.
+
+The pairing exists because the local app is authenticated — without it, any
+website you had open could read your sessions out of it.
+
 **What it checks**
 
 - Rules you set, verified deterministically — no new dependencies, no `console.log`, no

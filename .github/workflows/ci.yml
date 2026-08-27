@@ -98,6 +98,16 @@ jobs:
       - name: Clippy the app shell (deny warnings)
         run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
 
+      # The shell was compiled but never *run*, so its logic was unverified.
+      # `notification_for` in particular decides whether a user is interrupted,
+      # and getting it wrong does not crash anything — it just turns a tool people
+      # keep into one they mute, which is a failure nobody files a bug about.
+      - name: Test the app shell
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Format check the app shell
+        run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all -- --check
+
   ui:
     name: Menubar UI (Playwright)
     runs-on: ubuntu-latest
@@ -169,6 +179,34 @@ jobs:
 
       - name: Run landing tests
         run: npm test
+
+  # Coverage, reported and not gated.
+  #
+  # 300+ tests and no idea which signal paths they touch. This codebase tests
+  # invariants rather than lines, which is the better instinct — but "we test the
+  # right things" is a claim, and it was the only claim here with no number behind
+  # it. Reported rather than gated on purpose: a coverage threshold is a target,
+  # and a target gets met by testing whatever is cheapest to cover.
+  coverage:
+    name: Coverage (reported, not gated)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Measure
+        run: cargo llvm-cov --workspace --summary-only
+
+      # A per-crate line so a drop shows up in the job summary rather than only in
+      # a log nobody opens.
+      - name: Summarize
+        if: always()
+        run: |
+          cargo llvm-cov --workspace --summary-only >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
 
   # The billing logic, which sits directly on top of customer money and had no
   # test of any kind — nothing in CI touched supabase/functions/ at all.

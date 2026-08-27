@@ -356,7 +356,6 @@ pub fn run() {
             // Start the bundled proxy first so the panel has data to show.
             start_embedded_proxy(app);
 
-
             // Check for updates on launch and every few hours after; the panel
             // shows a banner and (unless muted) the OS gets a notification.
             tauri::async_runtime::spawn(update_loop(app.handle().clone()));
@@ -387,8 +386,9 @@ pub fn run() {
                             // A tray click that lands right after an auto-hide is
                             // the SAME gesture that blurred (and hid) the panel —
                             // treat it as "dismiss", not "re-open".
-                            let just_auto_hid =
-                                now_ms().saturating_sub(LAST_HIDDEN_MS.load(Ordering::Relaxed)) < 250;
+                            let just_auto_hid = now_ms()
+                                .saturating_sub(LAST_HIDDEN_MS.load(Ordering::Relaxed))
+                                < 250;
                             if win.is_visible().unwrap_or(false) {
                                 let _ = win.hide();
                             } else if !just_auto_hid {
@@ -455,8 +455,8 @@ struct StatusBrief {
 /// fire a **native notification** the moment a session crosses into drift — the
 /// whole point of "warn before the wall" when the panel is closed.
 async fn poll_loop(app: tauri::AppHandle) {
-    let base = std::env::var("DRIFTERR_CONTROL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8788".to_string());
+    let base =
+        std::env::var("DRIFTERR_CONTROL").unwrap_or_else(|_| "http://127.0.0.1:8788".to_string());
     let client = match reqwest::Client::builder().no_proxy().build() {
         Ok(c) => c,
         Err(_) => return,
@@ -487,27 +487,37 @@ async fn poll_loop(app: tauri::AppHandle) {
     }
 }
 
-/// Decide whether a session's current state warrants a native notification, and
-/// send one if so. Fires on escalation into drift, at most once per
-/// (session, state): RED always alerts; AMBER alerts only from a calm state, so
-/// a RED→AMBER de-escalation stays quiet.
-fn maybe_notify(
-    app: &tauri::AppHandle,
+/// What a notification would say, if one is warranted.
+#[derive(Debug, PartialEq, Eq)]
+struct Alert {
+    title: String,
+    body: String,
+}
+
+/// Decide whether a session's current state warrants interrupting the user.
+///
+/// Separated from the sending so it can be tested. This is the code that decides
+/// whether someone is pulled out of what they are doing, and the rules are subtle
+/// enough to get quietly wrong: RED always alerts, AMBER only from a calm state,
+/// and neither re-alerts while the session sits at the same state. A regression
+/// here does not crash anything — it just turns a tool people keep into one they
+/// mute, which is the kind of failure nobody files a bug about.
+///
+/// `last_alert` is updated on every call regardless of the outcome, so the next
+/// tick does not re-fire on a state we have already observed.
+fn notification_for(
     brief: &StatusBrief,
     last_alert: &mut Option<(String, String)>,
-) {
-    use tauri_plugin_notification::NotificationExt;
-
+) -> Option<Alert> {
     // Do Not Disturb suppresses OS notifications (the tray/panel still update).
     if brief.muted {
-        return;
+        return None;
     }
-    let (Some(state), Some(session)) = (brief.state.as_deref(), brief.session.as_deref()) else {
-        return;
-    };
+    let (state, session) = (brief.state.as_deref()?, brief.session.as_deref()?);
+
     // Same session already alerted at this state → nothing new to say.
     if last_alert.as_ref() == Some(&(session.to_string(), state.to_string())) {
-        return;
+        return None;
     }
     let prev_state = last_alert
         .as_ref()
@@ -522,25 +532,42 @@ fn maybe_notify(
     // Track the observed state regardless, so we don't re-alert on the next tick.
     *last_alert = Some((session.to_string(), state.to_string()));
     if !escalating {
-        return;
+        return None;
     }
 
     let signal = brief.signal.as_deref().unwrap_or("your intent");
-    let (title, body) = if state == "red" {
-        (
-            "Drifterr — off track".to_string(),
-            match brief.detail.as_deref() {
+    Some(if state == "red" {
+        Alert {
+            title: "Drifterr — off track".to_string(),
+            body: match brief.detail.as_deref() {
                 Some(d) if !d.is_empty() => format!("{signal}: {d}"),
                 _ => format!("This session is drifting from {signal}."),
             },
-        )
+        }
     } else {
-        (
-            "Drifterr — starting to drift".to_string(),
-            format!("Watch {signal} — the conversation is beginning to stray."),
-        )
+        Alert {
+            title: "Drifterr — starting to drift".to_string(),
+            body: format!("Watch {signal} — the conversation is beginning to stray."),
+        }
+    })
+}
+
+/// Send the notification [`notification_for`] decided on, if any.
+fn maybe_notify(
+    app: &tauri::AppHandle,
+    brief: &StatusBrief,
+    last_alert: &mut Option<(String, String)>,
+) {
+    use tauri_plugin_notification::NotificationExt;
+    let Some(alert) = notification_for(brief, last_alert) else {
+        return;
     };
-    let _ = app.notification().builder().title(title).body(body).show();
+    let _ = app
+        .notification()
+        .builder()
+        .title(alert.title)
+        .body(alert.body)
+        .show();
 }
 
 /// Fetch a compact snapshot of the current session, or `None` if unreachable /
@@ -591,4 +618,165 @@ fn signal_label(id: &str) -> String {
         other => other,
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn brief(state: &str, session: &str) -> StatusBrief {
+        StatusBrief {
+            state: Some(state.to_string()),
+            session: Some(session.to_string()),
+            signal: Some("Constraints".to_string()),
+            detail: Some("constraint c1 violated".to_string()),
+            muted: false,
+        }
+    }
+
+    /// The rule that keeps the app worth leaving running: alert on escalation,
+    /// then stay quiet. A tool that re-notifies every 1.5s poll gets muted, and a
+    /// muted tool detects nothing.
+    #[test]
+    fn a_session_alerts_once_per_escalation_not_once_per_poll() {
+        let mut last = None;
+
+        let first = notification_for(&brief("red", "s1"), &mut last);
+        assert!(first.is_some(), "entering RED must alert");
+        assert!(first.unwrap().body.contains("constraint c1 violated"));
+
+        // The poll loop runs every 1.5 seconds. None of these may alert.
+        for _ in 0..5 {
+            assert!(
+                notification_for(&brief("red", "s1"), &mut last).is_none(),
+                "staying RED must not re-alert"
+            );
+        }
+    }
+
+    /// De-escalation is not news. RED → AMBER means things got *better*, and
+    /// telling someone about it is the definition of crying wolf.
+    #[test]
+    fn falling_back_to_amber_stays_quiet() {
+        let mut last = None;
+        assert!(notification_for(&brief("red", "s1"), &mut last).is_some());
+        assert!(
+            notification_for(&brief("amber", "s1"), &mut last).is_none(),
+            "RED → AMBER is an improvement, not an alert"
+        );
+        // And recovering to green, then drifting again, is genuinely new.
+        assert!(notification_for(&brief("green", "s1"), &mut last).is_none());
+        assert!(
+            notification_for(&brief("amber", "s1"), &mut last).is_some(),
+            "GREEN → AMBER is a fresh escalation"
+        );
+    }
+
+    /// AMBER from a calm start is worth one alert; AMBER while already amber is not.
+    #[test]
+    fn amber_alerts_from_calm_only() {
+        let mut last = None;
+        assert!(notification_for(&brief("amber", "s1"), &mut last).is_some());
+        assert!(notification_for(&brief("amber", "s1"), &mut last).is_none());
+        // Escalating amber → red still alerts: it is worse than before.
+        assert!(notification_for(&brief("red", "s1"), &mut last).is_some());
+    }
+
+    /// Green never interrupts anyone, from any prior state.
+    #[test]
+    fn green_never_alerts() {
+        for prior in ["red", "amber", "green"] {
+            let mut last = None;
+            let _ = notification_for(&brief(prior, "s1"), &mut last);
+            assert!(
+                notification_for(&brief("green", "s1"), &mut last).is_none(),
+                "green must never alert (from {prior})"
+            );
+        }
+    }
+
+    /// A different session drifting is new information even at the same state.
+    #[test]
+    fn a_second_session_alerts_on_its_own() {
+        let mut last = None;
+        assert!(notification_for(&brief("red", "s1"), &mut last).is_some());
+        assert!(
+            notification_for(&brief("red", "s2"), &mut last).is_some(),
+            "a different session's drift is its own event"
+        );
+    }
+
+    /// Do Not Disturb must suppress the notification *and* leave the tracking
+    /// alone — otherwise un-muting would fire a burst for states already passed.
+    #[test]
+    fn do_not_disturb_suppresses_without_swallowing_the_escalation() {
+        let mut last = None;
+        let mut muted = brief("red", "s1");
+        muted.muted = true;
+        assert!(notification_for(&muted, &mut last).is_none());
+        assert!(last.is_none(), "a muted poll must not record state");
+
+        // Un-mute while still red: the user has not been told yet, so they should be.
+        assert!(notification_for(&brief("red", "s1"), &mut last).is_some());
+    }
+
+    /// With no session there is nothing to say, and nothing to remember.
+    #[test]
+    fn an_idle_status_alerts_nothing() {
+        let mut last = None;
+        let idle = StatusBrief {
+            state: None,
+            session: None,
+            signal: None,
+            detail: None,
+            muted: false,
+        };
+        assert!(notification_for(&idle, &mut last).is_none());
+        assert!(last.is_none());
+    }
+
+    /// A red alert with no evidence still has to say something useful.
+    #[test]
+    fn a_missing_detail_falls_back_to_a_readable_sentence() {
+        let mut last = None;
+        let mut b = brief("red", "s1");
+        b.detail = None;
+        let alert = notification_for(&b, &mut last).expect("should alert");
+        assert!(alert.body.contains("Constraints"));
+        assert!(
+            !alert.body.contains("None"),
+            "no debug formatting in a user-facing string"
+        );
+
+        let mut last = None;
+        let mut b = brief("red", "s2");
+        b.signal = None;
+        b.detail = None;
+        let alert = notification_for(&b, &mut last).expect("should alert");
+        assert!(alert.body.contains("your intent"));
+    }
+
+    #[test]
+    fn signal_labels_are_human_and_unknown_ids_pass_through() {
+        assert_eq!(signal_label("goal_alignment"), "Goal alignment");
+        assert_eq!(signal_label("constraint"), "Constraints");
+        // A signal the shell has not been taught about must still render as
+        // something, rather than vanishing from the notification.
+        assert_eq!(signal_label("brand_new_signal"), "brand_new_signal");
+    }
+
+    /// The addresses the shell binds and polls. A bad override should fall back
+    /// to the default rather than panic the app on launch.
+    #[test]
+    fn addresses_come_from_the_environment_and_tolerate_nonsense() {
+        std::env::set_var("DRIFTERR_CONTROL_ADDR", "127.0.0.1:9999");
+        assert_eq!(control_addr().port(), 9999);
+
+        std::env::set_var("DRIFTERR_CONTROL_ADDR", "not an address");
+        assert_eq!(control_addr().port(), 8788, "a bad value must fall back");
+
+        std::env::remove_var("DRIFTERR_CONTROL_ADDR");
+        assert_eq!(control_addr().port(), 8788);
+        assert_eq!(proxy_addr().port(), 8787);
+    }
 }

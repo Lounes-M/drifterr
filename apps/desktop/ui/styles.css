@@ -600,6 +600,21 @@ code { font-family: var(--mono); }
 .ghost-btn.danger:hover { background: rgba(255, 77, 109, 0.16); color: #fff; }
 .ghost-btn.danger.armed { background: var(--red); border-color: var(--red); color: #fff; }
 
+/* Per-session delete: invisible until the row is hovered or the button is
+   focused, so a list of sessions does not read as a row of delete buttons. */
+.history-remove {
+  flex: 0 0 auto; margin-left: auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 7px; cursor: pointer;
+  color: var(--ink-soft); background: transparent; border: 1px solid transparent;
+  opacity: 0; transition: opacity .15s ease, background .15s ease, color .15s ease;
+}
+.history-row:hover .history-remove,
+.history-remove:focus-visible { opacity: 1; }
+.history-remove:hover { background: rgba(255, 77, 109, .16); color: var(--red); }
+.history-remove:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.history-remove.armed { opacity: 1; background: var(--red); color: #fff; }
+
 .cfg-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
 .cfg-row span:first-child { flex: 0 0 auto; }
 .cfg-row span:last-child { font-family: var(--mono); font-size: 11.5px; text-align: right; overflow-wrap: anywhere; min-width: 0; }

@@ -586,6 +586,50 @@ export function renderHistory(doc, items, nowMs) {
     body.appendChild(meta);
     li.appendChild(dot);
     li.appendChild(body);
+
+    // Delete this one session.
+    //
+    // `POST /data/forget` has taken a session id since it existed, and nothing
+    // sent one — the panel only offered delete-everything, so someone who wanted
+    // a single embarrassing session gone had to erase all of it. Two clicks, like
+    // the erase-all control, because there is no undo.
+    if (it.sessionId) {
+      const rm = doc.createElement("button");
+      rm.type = "button";
+      rm.className = "history-remove";
+      rm.title = "Delete this session";
+      rm.setAttribute("aria-label", "Delete this session");
+      rm.innerHTML = icon("x", 14);
+      rm.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        if (rm.dataset.armed !== "1") {
+          rm.dataset.armed = "1";
+          rm.classList.add("armed");
+          rm.title = "Click again to delete";
+          rm.setAttribute("aria-label", "Click again to delete this session");
+          window.setTimeout(() => {
+            rm.dataset.armed = "";
+            rm.classList.remove("armed");
+            rm.title = "Delete this session";
+            rm.setAttribute("aria-label", "Delete this session");
+          }, 4000);
+          return;
+        }
+        try {
+          await fetch(apiBase() + "/data/forget", withAuth({
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ session: it.sessionId }),
+          }));
+          li.remove();
+          if (empty && !list.children.length) empty.hidden = false;
+        } catch (_e) {
+          rm.title = "Couldn't delete";
+        }
+      });
+      li.appendChild(rm);
+    }
+
     list.appendChild(li);
   }
 }
