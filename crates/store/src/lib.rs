@@ -887,8 +887,13 @@ fn vec_to_bytes(v: &[f32]) -> Vec<u8> {
 }
 
 fn bytes_to_vec(b: &[u8]) -> Vec<f32> {
-    b.chunks_exact(4)
-        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+    // `as_chunks::<4>()` rather than `chunks_exact(4)`: the const generic gives
+    // fixed-size arrays, so `from_le_bytes` takes `*c` directly instead of
+    // rebuilding the array by index. Clippy 1.98 added a lint for exactly this.
+    b.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
         .collect()
 }
 
