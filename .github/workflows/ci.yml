@@ -170,6 +170,37 @@ jobs:
       - name: Run landing tests
         run: npm test
 
+  # The billing logic, which sits directly on top of customer money and had no
+  # test of any kind — nothing in CI touched supabase/functions/ at all.
+  #
+  # The two bugs these cover both looked fine on inspection and only appeared
+  # under Stripe's real delivery behaviour: a redelivered event applied twice,
+  # and an out-of-order `subscription.updated` putting a customer back on the plan
+  # they had just upgraded away from. That is precisely the class of defect a test
+  # catches and a review does not, which is why the decisions were extracted from
+  # the I/O to make them drivable.
+  edge-functions:
+    name: Edge functions (Deno)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # Type checking is on: these functions are deployed straight from source,
+      # so a type error here is a runtime error in production rather than a build
+      # failure anywhere.
+      - name: Test
+        run: deno test --allow-env supabase/functions/
+
+      - name: Lint
+        run: deno lint supabase/functions/
+
+      - name: Format check
+        run: deno fmt --check supabase/functions/
+
   # The dependency audit CI never had.
   #
   # 300+ crates and three npm trees reach the shipped product, and nothing checked
