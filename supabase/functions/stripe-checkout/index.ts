@@ -9,7 +9,9 @@
 // once Stripe confirms payment.
 
 import { json, preflight } from "../_shared/cors.ts";
+import { allow } from "../_shared/rate_limit.ts";
 import {
+  adminClient,
   ensureStripeCustomer,
   getUser,
   stripe,
@@ -29,6 +31,16 @@ Deno.serve(async (req) => {
 
   const user = await getUser(req);
   if (!user) return json({ error: "unauthorized" }, 401, origin);
+
+  // Authenticated is not the same as unlimited: every call below reaches Stripe,
+  // against our account and its rate limit, at no cost to the caller.
+  if (!await allow(adminClient(), user.id, "checkout")) {
+    return json(
+      { error: "too many requests — please wait a moment and try again" },
+      429,
+      origin,
+    );
+  }
 
   let body: { plan?: string; interval?: string; quantity?: number };
   try {

@@ -17,6 +17,8 @@
 // your own) to also forward there. Either way the payload is the same handful of
 // enum values assembled below.
 
+import { analytics } from "./_ratelimit.js";
+
 const ALLOWED_EVENTS = new Set([
   "page_view",
   "download_click",
@@ -103,6 +105,20 @@ export default async function handler(req, res) {
 
   const evt = clean(payload);
   if (!evt) return done();
+
+  // Shed load rather than forward it. The bucket is global, not per-visitor —
+  // see _ratelimit.js for why keying on IP would contradict this endpoint's own
+  // no-visitor-id promise. Dropping is silent to the caller (a page view can do
+  // nothing about being throttled) but counted in the log, because a throttle
+  // that leaves no trace turns a traffic cliff into a mystery.
+  if (!analytics.take()) {
+    const dropped = analytics.drainDropped();
+    if (dropped % 100 === 1) {
+      // eslint-disable-next-line no-console -- the platform log IS the sink.
+      console.warn(`analytics rate limit: dropped ${dropped} event(s)`);
+    }
+    return done();
+  }
 
   // Day-of-month granularity only: enough to chart a funnel, too coarse to
   // correlate one visitor's events with another's.

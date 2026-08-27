@@ -308,6 +308,73 @@ async function main() {
     }
   }
 
+  // --- the shipped CSP must cover what the pages actually load ---------------
+  //
+  // A CSP written once and never checked against the markup is worse than none:
+  // it either blocks something real (and the feature silently dies in the
+  // browser, as the fonts and the login once did in the desktop app) or it has
+  // been loosened until it protects nothing. Vercel applies these headers, so the
+  // dev server here cannot enforce them — instead assert that the policy and the
+  // pages agree, statically.
+  {
+    const vercel = JSON.parse(await readFile(join(DIR, "vercel.json"), "utf8"));
+    const all = (vercel.headers || []).find((h) => h.source === "/(.*)");
+    check(!!all, "vercel.json sets headers for every path");
+    const header = (k) => (all?.headers || []).find((h) => h.key === k)?.value || "";
+
+    const csp = header("Content-Security-Policy");
+    check(csp.length > 0, "a Content-Security-Policy is served");
+    check(/script-src 'self'(;|$)/.test(csp), "script-src is 'self', with no unsafe-inline");
+    check(/frame-ancestors 'none'/.test(csp), "frame-ancestors is none");
+    check(/object-src 'none'/.test(csp), "object-src is none");
+    check(/base-uri 'self'/.test(csp), "base-uri is locked to self");
+
+    for (const h of [
+      "X-Frame-Options",
+      "X-Content-Type-Options",
+      "Referrer-Policy",
+      "Strict-Transport-Security",
+      "Permissions-Policy",
+    ]) {
+      check(header(h).length > 0, `${h} is served`);
+    }
+
+    const hsts = header("Strict-Transport-Security");
+    const maxAge = Number((hsts.match(/max-age=(\d+)/) || [0, 0])[1]);
+    check(
+      maxAge >= 31536000 && /includeSubDomains/.test(hsts),
+      `HSTS is at least a year and covers subdomains (max-age=${maxAge})`,
+    );
+
+    // Every page's scripts must be files — an inline <script> would be blocked
+    // outright by the policy above — and every external host they reference must
+    // be permitted, or the page breaks in production and passes here.
+    const pages = [
+      "index.html", "account.html", "login.html", "signup.html",
+      "download.html", "proof.html", "privacy.html", "terms.html",
+    ];
+    for (const page of pages) {
+      let html;
+      try {
+        html = await readFile(join(DIR, page), "utf8");
+      } catch {
+        continue;
+      }
+      const inline = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)]
+        .filter((m) => m[1].trim().length > 0);
+      check(inline.length === 0, `${page} has no inline script (the CSP would block it)`);
+
+      for (const m of html.matchAll(/(?:src|href)="(https?:\/\/[^"]+)"/g)) {
+        const host = new URL(m[1]).host;
+        const wildcard = host.replace(/^[^.]+\./, "*.");
+        check(
+          csp.includes(host) || csp.includes(wildcard),
+          `${page}: CSP permits ${host}`,
+        );
+      }
+    }
+  }
+
   await browser.close();
   server.close();
   if (failures) {

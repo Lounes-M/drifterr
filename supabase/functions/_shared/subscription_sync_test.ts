@@ -10,6 +10,7 @@
 // enough.
 
 import { assertEquals } from "jsr:@std/assert@1";
+import type Stripe from "npm:stripe@17.5.0";
 import {
   type ClaimOutcome,
   handleEvent,
@@ -66,12 +67,10 @@ function fakeLedger(opts: {
     userForCustomer(customerId) {
       return Promise.resolve(opts.customers?.[customerId] ?? null);
     },
-    // deno-lint-ignore no-explicit-any
-    fetchSubscription(id): Promise<any> {
+    fetchSubscription(id): Promise<Stripe.Subscription> {
       const sub = opts.subscriptions?.[id];
       if (!sub) return Promise.reject(new Error(`no such subscription ${id}`));
-      // deno-lint-ignore no-explicit-any
-      return Promise.resolve(sub as any);
+      return Promise.resolve(sub as Stripe.Subscription);
     },
   };
   return f;
@@ -87,8 +86,10 @@ function subscription(opts: {
   status?: string;
   quantity?: number;
   interval?: string;
-  // deno-lint-ignore no-explicit-any
-} = {}): any {
+} = {}): Stripe.Subscription {
+  // The fixtures carry only the fields the logic reads. Casting through
+  // `unknown` says that plainly, rather than widening the helper to `any` and
+  // losing type checking at every call site that uses it.
   return {
     id: opts.id ?? "sub_1",
     status: opts.status ?? "active",
@@ -107,17 +108,16 @@ function subscription(opts: {
         },
       }],
     },
-  };
+  } as unknown as Stripe.Subscription;
 }
 
-// deno-lint-ignore no-explicit-any
 function event(
   type: string,
   created: number,
   object: unknown,
   id = "evt_1",
-): any {
-  return { id, type, created, data: { object } };
+): Stripe.Event {
+  return { id, type, created, data: { object } } as unknown as Stripe.Event;
 }
 
 const PRICES = { price_pro_m: "pro", price_team_m: "team" };
