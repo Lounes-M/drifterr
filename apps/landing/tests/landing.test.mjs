@@ -373,6 +373,63 @@ async function main() {
         );
       }
     }
+
+    // Scanning the markup is not enough, and missing this shipped a real bug:
+    // `download.js` probes api.github.com from the browser to decide whether the
+    // download buttons are live, and the first version of this policy had no
+    // `connect-src` entry for it. Nothing in the HTML mentions the host, so the
+    // scan above passed while the download page would have quietly stopped
+    // working in production — the exact failure mode a CSP is supposed to prevent
+    // rather than cause.
+    //
+    // Only browser-loaded scripts count. `api/` is serverless Node, where CSP
+    // does not apply and a fetch to anywhere is fine.
+    const browserScripts = new Set();
+    for (const page of pages) {
+      let html;
+      try {
+        html = await readFile(join(DIR, page), "utf8");
+      } catch {
+        continue;
+      }
+      for (const m of html.matchAll(/<script[^>]*\bsrc="([^"]+)"/g)) {
+        if (!/^https?:/.test(m[1])) browserScripts.add(m[1].replace(/^\.?\//, ""));
+      }
+    }
+    check(browserScripts.size > 0, "found the browser-loaded scripts to scan");
+
+    // Follow local imports one level, so a host reached from a module a page
+    // pulls in is covered too.
+    for (const rel of [...browserScripts]) {
+      let src;
+      try {
+        src = await readFile(join(DIR, rel), "utf8");
+      } catch {
+        continue;
+      }
+      for (const m of src.matchAll(/from\s+["'](\.[^"']+)["']/g)) {
+        browserScripts.add(m[1].replace(/^\.?\//, ""));
+      }
+    }
+
+    for (const rel of browserScripts) {
+      let src;
+      try {
+        src = await readFile(join(DIR, rel), "utf8");
+      } catch {
+        continue;
+      }
+      const hosts = new Set(
+        [...src.matchAll(/["'`]https?:\/\/([a-zA-Z0-9.-]+)/g)].map((m) => m[1]),
+      );
+      for (const host of hosts) {
+        const wildcard = host.replace(/^[^.]+\./, "*.");
+        check(
+          csp.includes(host) || csp.includes(wildcard),
+          `${rel}: CSP permits ${host}`,
+        );
+      }
+    }
   }
 
   await browser.close();
