@@ -101,3 +101,41 @@ Run the eval harness over the annotated set:
 precision/recall, the hard-signal false-positive rate (must be zero), alert
 delay and the uplift over a naive baseline. Add your own annotated sessions with
 the [annotation helper](../eval/SCHEMA.md).
+
+## Can a website read my sessions from the local Drifterr app?
+
+No. The control API on `127.0.0.1:8788` is authenticated: every route that touches
+a session needs a per-install token, and responses are readable only by the panel
+and the extension. This was not always true — it used to answer any origin with no
+credential, which meant any page you had open could read your goal and the offending
+span of every violation. That is fixed, and
+[`crates/proxy/tests/control_auth.rs`](../crates/proxy/tests/control_auth.rs)
+replays the attack on every build.
+
+## How do I connect the browser extension?
+
+Once, by hand. Open the panel → **Settings → Browser extension**, copy the pairing
+token, and paste it into the extension's popup. The extension is the one part of
+Drifterr the app does not launch itself, so it cannot read the token from disk the
+way the panel and the `hook`/`mcp` commands do.
+
+## How do I delete my history?
+
+**Settings → Your data → Delete all history** removes every stored conversation and
+reclaims the space. The same section sets a retention window (7 / 30 / 90 days or
+forever), which *deletes* older sessions rather than hiding them. To remove a single
+session, use `POST /data/forget` with its id.
+
+Deleting conversations deliberately leaves your trial and your preferences alone —
+a privacy control that also reset the trial would be a licence bypass wearing a
+privacy setting's clothes.
+
+## Something is broken. What should I send?
+
+**Settings → Diagnostics → Copy diagnostics.** It contains versions, counts and
+settings — never a goal, a prompt, a span, a file path or a session id, which
+`crates/proxy/tests/egress.rs` asserts on every build. Press **Show** first if you
+want to read it before pasting it anywhere; you should be able to.
+
+Drifterr has no crash reporting and no telemetry, so this is the only way a problem
+on your machine reaches us.

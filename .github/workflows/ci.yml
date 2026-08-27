@@ -98,6 +98,16 @@ jobs:
       - name: Clippy the app shell (deny warnings)
         run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
 
+      # The shell was compiled but never *run*, so its logic was unverified.
+      # `notification_for` in particular decides whether a user is interrupted,
+      # and getting it wrong does not crash anything — it just turns a tool people
+      # keep into one they mute, which is a failure nobody files a bug about.
+      - name: Test the app shell
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Format check the app shell
+        run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all -- --check
+
   ui:
     name: Menubar UI (Playwright)
     runs-on: ubuntu-latest
@@ -170,11 +180,133 @@ jobs:
       - name: Run landing tests
         run: npm test
 
+  # Coverage, reported and not gated.
+  #
+  # 300+ tests and no idea which signal paths they touch. This codebase tests
+  # invariants rather than lines, which is the better instinct — but "we test the
+  # right things" is a claim, and it was the only claim here with no number behind
+  # it. Reported rather than gated on purpose: a coverage threshold is a target,
+  # and a target gets met by testing whatever is cheapest to cover.
+  coverage:
+    name: Coverage (reported, not gated)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Measure
+        run: cargo llvm-cov --workspace --summary-only
+
+      # A per-crate line so a drop shows up in the job summary rather than only in
+      # a log nobody opens.
+      - name: Summarize
+        if: always()
+        run: |
+          cargo llvm-cov --workspace --summary-only >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+
+  # The billing logic, which sits directly on top of customer money and had no
+  # test of any kind — nothing in CI touched supabase/functions/ at all.
+  #
+  # The two bugs these cover both looked fine on inspection and only appeared
+  # under Stripe's real delivery behaviour: a redelivered event applied twice,
+  # and an out-of-order `subscription.updated` putting a customer back on the plan
+  # they had just upgraded away from. That is precisely the class of defect a test
+  # catches and a review does not, which is why the decisions were extracted from
+  # the I/O to make them drivable.
+  edge-functions:
+    name: Edge functions (Deno)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # Type checking is on: these functions are deployed straight from source,
+      # so a type error here is a runtime error in production rather than a build
+      # failure anywhere.
+      - name: Test
+        run: deno test --allow-env supabase/functions/
+
+      - name: Lint
+        run: deno lint supabase/functions/
+
+      - name: Format check
+        run: deno fmt --check supabase/functions/
+
+  # The dependency audit CI never had.
+  #
+  # 300+ crates and three npm trees reach the shipped product, and nothing checked
+  # any of them for advisories, for a licence we cannot ship, or for a source other
+  # than crates.io. That is a gap for any project; for one that sells a privacy
+  # guarantee it is the wrong gap to have — a compromised transitive dependency in
+  # the proxy is a compromised proxy, and the proxy sees every request.
+  #
+  # Policy lives in `deny.toml`, next to the code, so a decision to accept a licence
+  # or an advisory is a reviewed diff rather than a CI flag somebody added at 2am.
+  supply-chain:
+    name: Dependencies (advisories · licences · sources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # `--all-features` on purpose: the `onnx` semantic embedder pulls a large
+      # native tree that the default build does not, and auditing only the default
+      # build would mean the feature we actually ship in release binaries goes
+      # unchecked. Duplicate-version findings are warnings (see deny.toml); an
+      # advisory, a disallowed licence or an unexpected source fails the build.
+      - name: cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # The npm trees are devDependencies (Playwright, esbuild) plus the vendored
+      # Supabase bundle, so a high-severity finding is worth knowing about even
+      # though none of it is shipped to a user. `--omit=dev` would report nothing
+      # at all and read as a clean audit.
+      - name: npm audit
+        run: |
+          set -uo pipefail
+          fail=0
+          for dir in apps/desktop/ui apps/extension apps/landing; do
+            echo "--- $dir"
+            ( cd "$dir" && npm audit --audit-level=high ) || fail=1
+          done
+          exit "$fail"
+
   # Drifterr checking its own pull requests against its own CLAUDE.md.
   #
   # This is the CI mode (`drifterr-proxy check`) dogfooded: the rules the repo already
   # states for its agents become an enforced gate on the diff. If the check is not good
   # enough to run here, it is not good enough to sell.
+  #
+  # Two sources, deliberately.
+  #
+  # `--rules CLAUDE.md` is the dogfooding proper: whatever this repo states for its
+  # agents becomes a gate on the diff. On its own it currently verifies *nothing* —
+  # CLAUDE.md is architectural prose, and none of it is deterministically checkable.
+  # That used to be hidden: the old line-based importer manufactured a bogus
+  # "server-side only" rule out of a wrapped sentence, so the job reported "1 rule
+  # checked" and looked healthy while checking a rule nobody wrote. With the importer
+  # fixed the honest count is zero, and `check` exits 2 rather than pretend that is a
+  # pass.
+  #
+  # So the job also carries `--pack security-basics`, one of our own shipped packs.
+  # Its no-hardcoded-secrets rule is real value on every PR, and it means the step
+  # verifies something rather than reporting an empty run. As CLAUDE.md gains
+  # checkable rules they simply join in.
   #
   # `--warn-only` for now: the rule set is small and the repo predates it, so blocking
   # every PR on day one would just get the job deleted. Drop the flag once the rules have
@@ -206,4 +338,7 @@ jobs:
           # Fenced, because the engine scopes code rules to fenced blocks — a filename in
           # prose must never count as touching that file.
           { echo '```diff'; cat diff.patch; echo '```'; } \
-            | ./target/release/drifterr-proxy check --rules CLAUDE.md --warn-only
+            | ./target/release/drifterr-proxy check \
+                --rules CLAUDE.md \
+                --pack security-basics \
+                --warn-only

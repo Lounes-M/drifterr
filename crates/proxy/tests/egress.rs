@@ -48,6 +48,23 @@ fn rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// The control API is authenticated (see `drifterr_proxy::auth`); these tests pin
+/// a known token so they exercise the real, gated path rather than a bypass.
+const TEST_TOKEN: &str = "egress-test-token";
+
+fn control_client() -> reqwest::Client {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        drifterr_proxy::auth::TOKEN_HEADER,
+        reqwest::header::HeaderValue::from_static(TEST_TOKEN),
+    );
+    reqwest::Client::builder()
+        .no_proxy()
+        .default_headers(headers)
+        .build()
+        .unwrap()
+}
+
 // ---- A. chat-content crates have zero network dependencies -------------------
 
 /// The crates that construct, parse, store, or score conversation content. None
@@ -153,8 +170,11 @@ async fn the_team_share_payload_never_carries_conversation_content() {
         drifterr_judge::Judge::Disabled,
     )
     .with_plan(Plan::Team);
-    let control = spawn(control_router(state)).await;
-    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let control = spawn(control_router(
+        state.with_token(drifterr_proxy::auth::Token::from_value(TEST_TOKEN)),
+    ))
+    .await;
+    let client = control_client();
     let api = format!("http://{control}");
 
     // The canary is placed inside the *violating code*, so it lands in the evidence span.
@@ -241,8 +261,11 @@ async fn team_sharing_is_gated_on_the_plan() {
     };
     let state =
         AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled).with_plan(Plan::Free);
-    let control = spawn(control_router(state)).await;
-    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let control = spawn(control_router(
+        state.with_token(drifterr_proxy::auth::Token::from_value(TEST_TOKEN)),
+    ))
+    .await;
+    let client = control_client();
 
     let preview: serde_json::Value = client
         .get(format!(
@@ -354,4 +377,82 @@ async fn chat_relays_only_to_the_configured_upstream() {
         0,
         "the proxy contacted a non-provider endpoint — chat egress leak"
     );
+}
+
+/// D. The diagnostics endpoint carries no conversation content.
+///
+/// Drifterr has no telemetry, so a support conversation needs *something* the user
+/// can paste. `/diagnostics` is that something, and it is exactly the place where
+/// a goal or an offending span would end up leaking by accident — someone adds a
+/// field to make one bug easier to chase, and the privacy promise quietly stops
+/// being true. This drives a real violation through the engine and asserts none of
+/// it appears.
+#[tokio::test]
+async fn diagnostics_never_carry_conversation_content() {
+    use drifterr_proxy::control_router;
+
+    const TOKEN: &str = "egress-diagnostics-token";
+    let cfg = drifterr_proxy::ProxyConfig {
+        openai_upstream: "http://unused".into(),
+        anthropic_upstream: "http://unused".into(),
+        openai_strip_v1: false,
+    };
+    let state = drifterr_proxy::AppState::new(cfg, None)
+        .with_token(drifterr_proxy::auth::Token::from_value(TOKEN));
+    let addr = spawn(control_router(state)).await;
+
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        drifterr_proxy::auth::TOKEN_HEADER,
+        reqwest::header::HeaderValue::from_static(TOKEN),
+    );
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .default_headers(headers)
+        .build()
+        .unwrap();
+
+    // A session whose every field is a distinctive marker, so a leak is unmissable.
+    client
+        .post(format!("http://{addr}/ingest"))
+        .json(&serde_json::json!({
+            "sessionId": "SESSIONMARKER",
+            "model": "MODELMARKER",
+            "turns": [
+                { "role": "user", "content": "GOALMARKER: migrate payroll. No console.log." },
+                { "role": "assistant", "content": "```js\nconsole.log('SPANMARKER')\n```" }
+            ]
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    let body = client
+        .get(format!("http://{addr}/diagnostics"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    for marker in [
+        "GOALMARKER",
+        "SPANMARKER",
+        "SESSIONMARKER",
+        "MODELMARKER",
+        "payroll",
+        "console.log",
+    ] {
+        assert!(
+            !body.contains(marker),
+            "/diagnostics leaked {marker}:\n{body}"
+        );
+    }
+    // It still has to be useful, or nobody will ask for it.
+    assert!(
+        body.contains("liveSessions"),
+        "diagnostics must carry counts"
+    );
+    assert!(body.contains("platform"), "and the platform");
 }

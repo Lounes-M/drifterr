@@ -40,6 +40,26 @@ async fn main() {
         return;
     }
 
+    // `drifterr-proxy token` — print the local control-API token.
+    //
+    // The pairing story for anything Drifterr does not launch itself: the browser
+    // extension, a curl in a terminal, a script. Prints the token and nothing else
+    // so it composes (`curl -H "X-Drifterr-Token: $(drifterr-proxy token)" ...`).
+    if std::env::args().nth(1).as_deref() == Some("token") {
+        match drifterr_proxy::auth::read_token() {
+            Some(t) => println!("{t}"),
+            None => {
+                eprintln!(
+                    "drifterr: no control token yet — start Drifterr (or `drifterr-proxy`) once \
+                     to create one at {}",
+                    drifterr_proxy::auth::state_dir().join("token").display()
+                );
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     // `drifterr-proxy check` — CI mode. Reads agent output on stdin (or a file) and exits
     // non-zero on a constraint violation.
     if std::env::args().nth(1).as_deref() == Some("check") {
@@ -87,6 +107,24 @@ async fn main() {
     );
 
     let state = AppState::new(cfg, store);
+
+    // Resolve the control token now rather than on the first request, and say
+    // where it lives. The control API is authenticated, so a developer reaching
+    // for `curl` needs to know both facts up front — discovering them from a 401
+    // is a bad first minute.
+    eprintln!(
+        "drifterr control token → {}  (`drifterr-proxy token` prints it)",
+        drifterr_proxy::auth::state_dir().join("token").display()
+    );
+    let _ = state.token.as_str();
+
+    // Apply the retention window before serving. A window that is only enforced
+    // when the setting changes would let an app that is opened rarely keep months
+    // of history it had already promised to delete.
+    let swept = state.sweep_retention();
+    if swept > 0 {
+        eprintln!("drifterr retention  → deleted {swept} session(s) past the window");
+    }
     if state.auto_reanchor_on() {
         eprintln!("drifterr re-anchor → ON (injects the preamble into drifting requests)");
     }

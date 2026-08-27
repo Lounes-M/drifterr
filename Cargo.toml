@@ -22,6 +22,9 @@ exclude = ["apps/desktop/src-tauri"]
 version = "0.2.5"
 edition = "2021"
 license = "LicenseRef-Proprietary"
+# These crates are proprietary (see LICENSE) and must never reach crates.io. Saying
+# so here means `cargo publish` refuses rather than relying on nobody typing it.
+publish = false
 repository = "https://github.com/lounes-m/drifterr"
 
 [workspace.dependencies]

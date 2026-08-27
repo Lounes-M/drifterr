@@ -92,12 +92,37 @@ async fn bring_up() -> (SocketAddr, SocketAddr) {
     };
     let state = AppState::new(cfg, None);
     let proxy_addr = spawn(proxy_router(state.clone())).await;
-    let control_addr = spawn(control_router(state)).await;
+    let control_addr = spawn(control_router(pin(state))).await;
     (proxy_addr, control_addr)
 }
 
+/// The control API is authenticated, so the test client carries the token by
+/// default. Attaching it here rather than at each call site means a new test
+/// cannot accidentally assert against an unauthenticated request; the refusal
+/// path is covered on purpose in `tests/control_auth.rs`.
 fn client() -> reqwest::Client {
-    reqwest::Client::builder().no_proxy().build().unwrap()
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        drifterr_proxy::auth::TOKEN_HEADER,
+        reqwest::header::HeaderValue::from_static(TEST_TOKEN),
+    );
+    reqwest::Client::builder()
+        .no_proxy()
+        .default_headers(headers)
+        .build()
+        .unwrap()
+}
+
+/// A fixed token for these tests.
+const TEST_TOKEN: &str = "test-control-token";
+
+/// Pin the control token on a state before serving it.
+///
+/// `Token` resolves lazily, so pinning here guarantees no test ever reads or
+/// writes the real state directory — a test suite that leaves a token file in the
+/// developer's home directory is a test suite with a side effect.
+fn pin(state: AppState) -> AppState {
+    state.with_token(drifterr_proxy::auth::Token::from_value(TEST_TOKEN))
 }
 
 /// Poll the control API until a session status appears, then return it.
@@ -262,7 +287,7 @@ async fn judge_extracts_and_flags_fuzzy_constraint() {
     let judge = Judge::Stub(StubJudge::new(&["lol"]).with_extracts(&["Keep the tone formal"]));
     let state = AppState::with_judge(cfg, None, judge);
     let proxy = spawn(proxy_router(state.clone())).await;
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
 
     client
@@ -325,7 +350,7 @@ async fn judge_flags_reintroduced_rejected_decision() {
     // Stub judge says "yes" when the context mentions bcrypt — no network.
     let state = AppState::with_judge(cfg, None, Judge::Stub(StubJudge::new(&["bcrypt"])));
     let proxy = spawn(proxy_router(state.clone())).await;
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
 
     // The user explicitly rejected bcrypt; the (mocked) reply reintroduces it.
@@ -451,7 +476,7 @@ async fn standing_order_recurs_promotes_and_reappears() {
         ProxyConfig::default(),
         Some(drifterr_store::Store::open_in_memory().unwrap()),
     );
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
 
     async fn ingest(
@@ -568,7 +593,7 @@ async fn auto_reanchor_injects_preamble_when_drifting() {
         .with_auto_reanchor(true)
         .with_plan(drifterr_proxy::entitlement::Plan::Pro);
     let proxy = spawn(proxy_router(state.clone())).await;
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
 
     let body = serde_json::json!({
@@ -655,22 +680,41 @@ async fn browser_ingest_feeds_the_engine() {
 }
 
 #[tokio::test]
-async fn control_serves_dashboard_with_cors() {
+async fn control_serves_the_dashboard_to_itself_and_to_nobody_else() {
     let (_proxy, control) = bring_up().await;
     let client = client();
 
     let page = client
         .get(format!("http://{control}/"))
+        .header("origin", "https://evil.example")
         .send()
         .await
         .unwrap();
     assert_eq!(page.status(), 200);
+    // The dashboard has to be loadable before it can authenticate, so this route
+    // is reachable without a token. It carries no `Access-Control-Allow-Origin`,
+    // which is what stops a foreign page reading the token out of the HTML.
+    assert!(
+        page.headers().get("access-control-allow-origin").is_none(),
+        "the dashboard must never be readable cross-origin — it carries the token"
+    );
     assert_eq!(
-        page.headers().get("access-control-allow-origin").unwrap(),
-        "*"
+        page.headers().get("x-frame-options").unwrap(),
+        "DENY",
+        "and must never be framable"
     );
     let html = page.text().await.unwrap();
     assert!(html.contains("id=\"panel\""), "dashboard HTML served");
+    // The placeholder is substituted for the live token, so a same-origin
+    // dashboard is paired the moment it loads.
+    assert!(
+        !html.contains("__DRIFTERR_CONTROL_TOKEN__"),
+        "the token placeholder must be substituted when the server serves the page"
+    );
+    assert!(
+        html.contains(TEST_TOKEN),
+        "the served dashboard must carry the live control token"
+    );
 
     let js = client
         .get(format!("http://{control}/app.js"))
@@ -730,7 +774,7 @@ async fn plan_gates_drift_map_and_sessions() {
         openai_strip_v1: false,
     };
     let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled);
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
     let ingest = format!("http://{control}/ingest");
     let status = format!("http://{control}/status");
@@ -831,7 +875,7 @@ async fn local_trial_grants_pro_then_lapses() {
     // Fresh install, nobody signed in, trial started today.
     let state = AppState::with_judge(cfg.clone(), None, drifterr_judge::Judge::Disabled)
         .with_trial_started(Some(now));
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
     let v: serde_json::Value = client
         .get(format!("http://{control}/entitlement"))
@@ -849,7 +893,7 @@ async fn local_trial_grants_pro_then_lapses() {
     // Same install, 20 days later: back to Free, no server involved.
     let lapsed = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled)
         .with_trial_started(Some(now - 20 * DAY));
-    let control = spawn(control_router(lapsed)).await;
+    let control = spawn(control_router(pin(lapsed))).await;
     let v: serde_json::Value = client
         .get(format!("http://{control}/entitlement"))
         .send()
@@ -875,7 +919,7 @@ async fn provider_selector_switches_upstream() {
         openai_strip_v1: false,
     };
     let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled);
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
 
     // The registry lists the major providers (incl. Gemini) + a current id.
@@ -943,7 +987,7 @@ async fn auto_intent_infers_goal_through_the_proxy() {
     }));
     let state = AppState::with_judge(cfg, None, judge).with_auto_intent(true);
     let proxy = spawn(proxy_router(state.clone())).await;
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
 
     // Two turns of the SAME session (identical first user message = the anchor),
@@ -1002,7 +1046,7 @@ async fn judge_can_be_configured_at_runtime() {
         None,
         drifterr_judge::Judge::Disabled,
     );
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
 
     // Disabled by default.
@@ -1070,9 +1114,16 @@ async fn mcp_tools_read_the_live_anchor_and_agree_with_the_engine() {
         openai_strip_v1: false,
     };
     let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled);
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
     let api = format!("http://{control}");
+
+    // `mcp::fetch_anchor` runs as a separate process in real life and finds the
+    // token through the shared state dir. In-process, `DRIFTERR_TOKEN` is the same
+    // lookup's first branch — so this exercises the authenticated path, not a
+    // bypass, which matters because an MCP server that silently got an empty
+    // anchor would tell the agent "no rules apply".
+    std::env::set_var("DRIFTERR_TOKEN", TEST_TOKEN);
 
     // A session with a rejected decision stated in it, which is exactly the thing an agent
     // reintroduces a dozen turns later having forgotten.
@@ -1195,7 +1246,7 @@ async fn claude_code_hook_injects_only_on_a_drifting_pro_session() {
     // Pro, so automatic injection is entitled.
     let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled)
         .with_plan(drifterr_proxy::entitlement::Plan::Pro);
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
     let api = format!("http://{control}");
 
@@ -1290,7 +1341,7 @@ async fn rule_packs_apply_and_export() {
         openai_strip_v1: false,
     };
     let state = AppState::with_judge(cfg, None, drifterr_judge::Judge::Disabled);
-    let control = spawn(control_router(state)).await;
+    let control = spawn(control_router(pin(state))).await;
     let client = client();
     let api = format!("http://{control}");
 
@@ -1381,4 +1432,136 @@ async fn rule_packs_apply_and_export() {
         "managed markers present: {md}"
     );
     assert!(md.contains("## Mine"));
+}
+
+/// The data controls a local-first product has to have and did not.
+///
+/// Everything Drifterr sees was written to SQLite in full with no retention, no
+/// per-session delete and no wipe. "It never leaves your machine" is only half a
+/// promise if the other half is "and it stays there forever whether you like it or
+/// not". This drives the whole path over HTTP: ingest two sessions, delete one,
+/// then delete the rest.
+#[tokio::test]
+async fn a_user_can_delete_their_own_history() {
+    let dir = std::env::temp_dir().join(format!("drifterr-forget-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let db = dir.join("t.sqlite");
+    let store = drifterr_store::Store::open(db.to_str().unwrap()).unwrap();
+
+    let cfg = ProxyConfig {
+        openai_upstream: "http://unused".into(),
+        anthropic_upstream: "http://unused".into(),
+        openai_strip_v1: false,
+    };
+    let state = AppState::new(cfg, Some(store));
+    let control = spawn(control_router(pin(state))).await;
+    let c = client();
+
+    for id in ["s-one", "s-two"] {
+        let res = c
+            .post(format!("http://{control}/ingest"))
+            .json(&serde_json::json!({
+                "sessionId": id,
+                "model": "gpt-4",
+                "turns": [
+                    { "role": "user", "content": "migrate the payroll database" },
+                    { "role": "assistant", "content": "here is the migration" }
+                ]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert!(res.status().is_success(), "ingest {id}");
+    }
+
+    let prefs: serde_json::Value = c
+        .get(format!("http://{control}/prefs"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        prefs["storedSessions"], 2,
+        "the panel must be able to say what it is about to delete"
+    );
+
+    // Delete one. `/ingest` prefixes browser sessions, so ask /sessions for the id.
+    let sessions: serde_json::Value = c
+        .get(format!("http://{control}/sessions"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let first = sessions[0]["sessionId"].as_str().unwrap().to_string();
+    let one: serde_json::Value = c
+        .post(format!("http://{control}/data/forget"))
+        .json(&serde_json::json!({ "session": first }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(one["deleted"], 1);
+    assert_eq!(one["storedSessions"], 1);
+
+    // A request that names nothing must not be read as "delete everything".
+    let ambiguous = c
+        .post(format!("http://{control}/data/forget"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        ambiguous.status(),
+        400,
+        "a malformed body must never wipe the database"
+    );
+
+    let all: serde_json::Value = c
+        .post(format!("http://{control}/data/forget"))
+        .json(&serde_json::json!({ "all": true }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(all["storedSessions"], 0);
+
+    // And the live view is empty too — clearing SQLite while leaving the session on
+    // screen would be the worst of both.
+    let status: serde_json::Value = c
+        .get(format!("http://{control}/status"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(status["current"].is_null(), "the panel must go empty too");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The database holds the full text of every turn. On a shared machine the ambient
+/// umask made that readable by every other account.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_database_is_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("drifterr-perm-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let db = dir.join("p.sqlite");
+    let _store = drifterr_store::Store::open(db.to_str().unwrap()).unwrap();
+    let mode = std::fs::metadata(&db).unwrap().permissions().mode() & 0o777;
+    assert_eq!(
+        mode, 0o600,
+        "the conversation database must not be group- or world-readable"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

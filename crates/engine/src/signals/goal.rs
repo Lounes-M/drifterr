@@ -376,6 +376,20 @@ mod tests {
     fn env_overrides_parse_and_reject_garbage() {
         // Not using `active()` here — it caches process-wide, and a test must not
         // depend on which test ran first.
+        //
+        // But not reading the cache is only half of it: this test *mutates the
+        // process environment*, and every other test that calls `evaluate()` goes
+        // through `active()`, which reads the environment the first time anyone
+        // asks. If that initialization happened to land inside the window below,
+        // the whole process would run on `min_turns: 6` and the drift tests would
+        // fail — which is exactly what happened under coverage instrumentation,
+        // where the changed timing shifted the interleaving.
+        //
+        // Forcing the cache to resolve *before* touching the environment closes
+        // that window: the OnceLock is already set to the defaults, so no
+        // interleaving can poison it.
+        let _ = GoalThresholds::active();
+
         let d = GoalThresholds::default();
         // A bad value must fall back rather than panic or zero the threshold.
         unsafe {

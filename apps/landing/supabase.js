@@ -4,7 +4,10 @@
 // is protected by Row Level Security on the server. The edge functions
 // (stripe-checkout / stripe-portal / me) live in supabase/functions.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
+// Vendored, not fetched. See apps/desktop/ui/scripts/vendor-supabase.sh for why a
+// desktop app must not pull executable code from a CDN at runtime, and how to
+// rebuild this bundle.
+import { createClient } from "./vendor/supabase.js";
 
 const URL = window.DRIFTERR_SUPABASE_URL || "";
 const ANON = window.DRIFTERR_SUPABASE_ANON_KEY || "";

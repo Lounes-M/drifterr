@@ -87,6 +87,7 @@ mod tests {
             kind: ConstraintType::Other,
             checkable: Checkable::Judge,
             active: true,
+            proposed: false,
             rule: None,
         }
     }

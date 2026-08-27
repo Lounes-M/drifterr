@@ -110,6 +110,15 @@ pub struct Entitlement {
     /// Days left on the local trial, when one is running. Display only.
     #[serde(rename = "trialDaysLeft", skip_serializing_if = "Option::is_none")]
     pub trial_days_left: Option<i64>,
+    /// Whether this build actually *verified* the plan, or merely recorded what it
+    /// was told.
+    ///
+    /// Surfaced rather than assumed, because "Pro" and "Pro, unverified" are
+    /// different facts and a support conversation needs to be able to tell them
+    /// apart without asking which build someone is running. Release builds carry
+    /// the entitlement key; development builds do not, and say so.
+    #[serde(default)]
+    pub verified: bool,
 }
 
 impl Default for Entitlement {
@@ -129,6 +138,7 @@ impl Entitlement {
                 auto_reanchor: false,
                 team_sharing: false,
                 trial_days_left: None,
+                verified: false,
             },
             // The trial is Pro, with a countdown attached by `with_trial_days_left`.
             Plan::Trial | Plan::Pro => Entitlement {
@@ -139,6 +149,7 @@ impl Entitlement {
                 auto_reanchor: true,
                 team_sharing: false,
                 trial_days_left: None,
+                verified: false,
             },
             Plan::Team => Entitlement {
                 plan,
@@ -148,6 +159,7 @@ impl Entitlement {
                 auto_reanchor: true,
                 team_sharing: true,
                 trial_days_left: None,
+                verified: false,
             },
         }
     }

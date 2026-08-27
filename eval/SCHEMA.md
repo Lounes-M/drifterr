@@ -219,3 +219,25 @@ against:
 ```bash
 cargo run -p drifterr-engine --example eval -- eval/blind/ --gate --require-blind 30
 ```
+
+## `provenance` — who decided the right answer
+
+Optional, one of:
+
+| Value | Meaning |
+| --- | --- |
+| `engine-author` | Written and graded by whoever wrote the engine. The default reading when the field is absent. |
+| `third-party` | Someone other than the engine's author decided the expected label. |
+| `real-session` | Drawn from a real session (via `drifterr-store --example annotate`) rather than composed to illustrate a case. |
+
+Only `third-party` and `real-session` count toward the corpus-maturity gate, and the
+statistical gates stay off until at least one exists.
+
+That is the whole point of the field. Case *count* is gameable by exactly the person
+most motivated to game it: the engine's author can write thirty more fixtures in an
+afternoon and switch the gates on without having learned anything about accuracy. A
+set one person both wrote and graded measures their agreement with themselves,
+however large it gets.
+
+Absent is read as `engine-author` on purpose — assume the least, not the most. A case
+that forgets the field cannot quietly promote itself into evidence.

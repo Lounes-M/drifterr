@@ -90,3 +90,43 @@ reachable (top of this doc).
 Still stuck? Open an issue with your OS, version (Settings → About), and what you
 expected vs saw. **Security issues:** don't open a public issue — see
 [SECURITY.md](../SECURITY.md).
+
+## "This endpoint needs the local control token" / 401 from the control API
+
+The control API is authenticated, so a page you have open cannot read your sessions
+out of it. Things that talk to it get the token automatically — the panel, and the
+`hook` and `mcp` subcommands, which read it from the app's state directory.
+
+Two cases need it by hand:
+
+**The browser extension.** Panel → **Settings → Browser extension** → copy, then
+paste into the extension's popup. The popup says "Not paired yet" until you do.
+
+**`curl` or a script.**
+
+```bash
+curl -H "X-Drifterr-Token: $(drifterr-proxy token)" http://127.0.0.1:8788/status
+```
+
+If `drifterr-proxy token` says there is no token yet, the app has not run since it
+was installed — start it once. The token lives at `<state dir>/token` (mode `0600`):
+
+| Platform | Location |
+| --- | --- |
+| macOS | `~/Library/Application Support/com.drifterr.app/token` |
+| Linux | `~/.local/share/com.drifterr.app/token` |
+| Windows | `%APPDATA%\com.drifterr.app\token` |
+
+Deleting that file rotates the token: the app mints a new one on next start, and the
+extension needs re-pairing.
+
+## A rule from my CLAUDE.md shows as "Proposed" and only warns
+
+That is deliberate. Drifterr read the rule out of a file you wrote for your agent,
+not out of something you told Drifterr — so it checks the rule and names it, but
+caps at amber until you confirm. Press **Enforce** on the constraint in the panel and
+it behaves like a rule you typed.
+
+The alternative is worse: an importer reading English will eventually misread a
+sentence, and when it does, the cost should be a proposal you glance at rather than a
+red alert on a rule nobody wrote.

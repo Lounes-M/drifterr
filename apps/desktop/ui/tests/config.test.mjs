@@ -34,9 +34,12 @@ function check(name, cond, detail) {
   const csp = conf?.app?.security?.csp || "";
   // Each host the panel + accounts flow depend on at runtime. If any is missing
   // the feature silently dies inside the webview (as fonts + login once did).
+  //
+  // esm.sh used to be on this list, for the Supabase SDK. It is deliberately gone:
+  // the SDK is vendored now, and the "no remote script" block below asserts the
+  // opposite invariant — that no third-party script host is reachable at all.
   const required = [
     "http://127.0.0.1:8788", // control API
-    "https://esm.sh", // Supabase SDK (dynamic import in auth.js)
     "supabase.co", // auth + edge functions (connect-src)
     "fonts.googleapis.com", // font stylesheet
     "fonts.gstatic.com", // font files
@@ -93,6 +96,107 @@ function check(name, cond, detail) {
     "apiBase honours window.DRIFTERR_API override",
     withEnv({ DRIFTERR_API: "http://example:9" }, { origin: "http://tauri.localhost", hostname: "tauri.localhost" }, apiBase) === "http://example:9",
   );
+}
+
+// --- every control-API call carries the pairing token -----------------------
+//
+// The control API is authenticated because it serves conversation content and a
+// wildcard CORS policy once made every website a reader of it. That guarantee is
+// only as good as the client: one `fetch(apiBase() + "/x")` that forgets the
+// header is a broken feature, and one that *works* because a route was left
+// public is a hole. So rather than trusting a convention, scan the source.
+{
+  const app = await readFile(join(UI_DIR, "app.js"), "utf8");
+
+  // Strip comments so a code sample inside a doc block can't trip the scan.
+  const code = app
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+
+  // Requests look like `f(apiBase() + "...", <init>)` or the same with `fetch`.
+  // Match the call by balancing parentheses rather than by regex: an init can
+  // contain parentheses (a ternary, a nested call), and a regex that stops at the
+  // first `)` reports a false violation on exactly the calls most worth checking.
+  const callAt = (src, open) => {
+    let depth = 0;
+    let str = null;
+    for (let i = open; i < src.length; i++) {
+      const c = src[i];
+      if (str) {
+        if (c === "\\") i++;
+        else if (c === str) str = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") str = c;
+      else if (c === "(") depth++;
+      else if (c === ")") {
+        depth--;
+        if (depth === 0) return src.slice(open, i + 1);
+      }
+    }
+    return src.slice(open);
+  };
+
+  const calls = [];
+  const callStart = /(?:^|[^.\w])(f|fetch)\(\s*apiBase\(\)/g;
+  for (let m; (m = callStart.exec(code)); ) {
+    calls.push(callAt(code, code.indexOf("(", m.index + m[0].indexOf(m[1]))));
+  }
+  check("panel makes control-API calls at all", calls.length > 10);
+  const bare = calls.filter((c) => !c.includes("withAuth("));
+  check(
+    `every control-API call uses withAuth (${calls.length} calls, ${bare.length} bare)`,
+    bare.length === 0,
+  );
+  for (const c of bare.slice(0, 5)) {
+    console.error("      unauthenticated call:", c.replace(/\s+/g, " ").slice(0, 110));
+  }
+
+  check("withAuth() sends the token as a header, not a query parameter", /X-Drifterr-Token/.test(code) && !/[?&]token=/.test(code));
+  check("panel pairs before its first poll", /ensureToken\(\)\s*\.then/.test(code));
+
+  // The served dashboard is paired by substituting this exact literal; a rename
+  // on either side would silently ship an unpairable page.
+  const html = await readFile(join(UI_DIR, "index.html"), "utf8");
+  check("index.html carries the token placeholder the server substitutes", html.includes("__DRIFTERR_CONTROL_TOKEN__"));
+  const dashboardRs = await readFile(
+    join(UI_DIR, "..", "..", "..", "crates", "proxy", "src", "dashboard.rs"),
+    "utf8",
+  );
+  check("dashboard.rs substitutes that same placeholder", dashboardRs.includes("__DRIFTERR_CONTROL_TOKEN__"));
+}
+
+// --- no shipped script is fetched from a third party ------------------------
+//
+// The panel imported the Supabase SDK from esm.sh at runtime, and the CSP was
+// widened to allow it. That is a third-party CDN inside the trust boundary of a
+// desktop app: a compromise there runs arbitrary code in a webview holding the
+// user's session, with reach into the local control API. It is also, for a
+// product that promises nothing leaves your machine, a request to someone else's
+// server on every launch.
+{
+  const files = ["app.js", "auth.js", "config.js"];
+  for (const f of files) {
+    const src = await readFile(join(UI_DIR, f), "utf8");
+    const remote = [...src.matchAll(/(?:import|from)\s*\(?\s*["'](https?:\/\/[^"']+)["']/g)].map(
+      (m) => m[1],
+    );
+    check(`${f} imports no remote script${remote.length ? ` (found ${remote[0]})` : ""}`, remote.length === 0);
+  }
+
+  const conf = JSON.parse(await readFile(TAURI_CONF, "utf8"));
+  const csp = conf.app?.security?.csp || "";
+  const scriptSrc = (csp.match(/script-src ([^;]*)/) || [])[1] || "";
+  check(
+    `CSP script-src allows only 'self' (got: ${scriptSrc.trim() || "unset"})`,
+    scriptSrc.trim() === "'self'",
+  );
+
+  // And the vendored bundle really is self-contained, or the CSP above would
+  // simply break the login instead of protecting it.
+  const vendored = await readFile(join(UI_DIR, "vendor", "supabase.js"), "utf8");
+  check("the vendored Supabase bundle has no remote imports", !/(?:import|from)\s*["']https?:\/\//.test(vendored));
+  check("the vendored Supabase bundle exports createClient", /createClient/.test(vendored));
 }
 
 if (failures) {

@@ -12,7 +12,7 @@ const ALLOWED = new Set([
   "http://localhost:3000",
   "http://localhost:8788", // Drifterr control API / menubar webview
   "http://127.0.0.1:8788",
-  "tauri://localhost",     // Tauri webview origin on macOS/Linux
+  "tauri://localhost", // Tauri webview origin on macOS/Linux
   "https://tauri.localhost", // Tauri webview origin on Windows
 ]);
 
@@ -20,7 +20,8 @@ export function corsHeaders(origin: string | null): Record<string, string> {
   const allow = origin && ALLOWED.has(origin) ? origin : SITE_URL;
   return {
     "Access-Control-Allow-Origin": allow,
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
     "Vary": "Origin",
   };
@@ -28,12 +29,18 @@ export function corsHeaders(origin: string | null): Record<string, string> {
 
 export function preflight(req: Request): Response | null {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders(req.headers.get("origin")) });
+    return new Response("ok", {
+      headers: corsHeaders(req.headers.get("origin")),
+    });
   }
   return null;
 }
 
-export function json(body: unknown, status: number, origin: string | null): Response {
+export function json(
+  body: unknown,
+  status: number,
+  origin: string | null,
+): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders(origin), "Content-Type": "application/json" },

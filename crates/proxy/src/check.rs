@@ -201,9 +201,19 @@ pub fn load(
     let mut out = Vec::new();
     let mut unchecked = Vec::new();
     if let Some(text) = rules_text {
-        out.extend(drifterr_engine::rules_file::constraints_from_text(
-            text, "rules",
-        ));
+        // Rules imported here are ENFORCED, not proposed.
+        //
+        // In the app an imported rule starts as a proposal, because Drifterr read a
+        // file the user never addressed to it and a hard signal must not rest on
+        // that inference. In CI there is no such gap: `drifterr-proxy check --rules
+        // CLAUDE.md` is the user naming the file and asking for it to gate the
+        // build. Running the command *is* the confirmation, and a check that
+        // downgraded every rule to advisory would be a check that never fails.
+        let mut imported = drifterr_engine::rules_file::constraints_from_text(text, "rules");
+        for c in &mut imported {
+            c.proposed = false;
+        }
+        out.extend(imported);
         unchecked.extend(drifterr_engine::rules_file::unchecked_statements(text));
     }
     if let Some(id) = pack_id {

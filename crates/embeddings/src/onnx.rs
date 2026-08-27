@@ -75,7 +75,14 @@ impl OnnxEmbedder {
         let id_arr = Array2::from_shape_vec((1, n), ids)?;
         let mask_arr = Array2::from_shape_vec((1, n), mask.clone())?;
 
-        let mut session = self.session.lock().unwrap();
+        // `unwrap_or_else(into_inner)` rather than `unwrap()`: a panic anywhere in
+        // this function poisons the mutex, and `unwrap()` would then turn one
+        // transient failure into a permanently dead semantic embedder for the rest
+        // of the process — silently, since the caller falls back to the lexical one
+        // and detection keeps working. An ONNX session is not left in an
+        // inconsistent state by a panic here (every call rebuilds its inputs), so
+        // recovering the guard is the correct reading of poisoning, not a bypass.
+        let mut session = self.session.lock().unwrap_or_else(|e| e.into_inner());
         // `ort::inputs!` builds the input vec directly (it is not fallible).
         let outputs = if self.wants_token_types {
             let types = Array2::<i64>::zeros((1, n));

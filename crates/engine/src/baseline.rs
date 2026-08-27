@@ -53,6 +53,40 @@ pub struct Constraint {
     /// Defaults to active.
     #[serde(default = "default_true")]
     pub active: bool,
+    /// True for a constraint Drifterr *inferred* rather than one the user stated
+    /// — today, one imported from a project rules file.
+    ///
+    /// # Why a hard signal needs this
+    ///
+    /// The engine's whole claim on the constraint signal is that a violation is a
+    /// fact, not a guess, which is what earns it the right to drive RED. An
+    /// imported constraint breaks that chain at the first link: the *rule* is still
+    /// checked deterministically, but whether the user ever asked for it was
+    /// decided by reading English.
+    ///
+    /// That inference was wrong on Drifterr's own `CLAUDE.md` — it turned a clause
+    /// of a hard-wrapped paragraph into a "server-side only" rule and fired RED on
+    /// an ordinary DOM edit. The parser bug is fixed, but no parser of natural
+    /// language is ever finished, so the *class* of mistake needs somewhere safe to
+    /// land.
+    ///
+    /// A proposed constraint therefore caps at AMBER until the user confirms it.
+    /// A parser error then costs a proposal they glance at, never a red alert on a
+    /// rule nobody wrote — which is the same "under-claim rather than cry wolf"
+    /// rule the rest of the engine already follows.
+    ///
+    /// # Where the line falls
+    ///
+    /// Proposed means *Drifterr read a document the user did not address to it* —
+    /// today, a project rules file. It does not mean "inferred": a constraint the
+    /// user typed into the intent form, said in a session message, or chose by
+    /// applying a named pack is stated intent, and is enforced immediately even
+    /// though a rule was inferred from its wording. The difference is not how the
+    /// rule was derived but whether the user asked for it at all.
+    ///
+    /// Defaults to false, so nothing already stored changes meaning.
+    #[serde(default)]
+    pub proposed: bool,
     /// Optional explicit rule binding. When present, this names the
     /// deterministic rule used to check the constraint. When absent for a
     /// deterministic constraint, the engine infers a rule from the text.
@@ -174,6 +208,7 @@ impl Baseline {
             kind: ConstraintType::Other,
             checkable: Checkable::Judge,
             active: true,
+            proposed: false,
             rule: None,
         });
         true
@@ -232,6 +267,8 @@ impl Baseline {
             kind,
             checkable,
             active: true,
+            // Stated by the user, not inferred from a document — enforced at once.
+            proposed: false,
             rule,
         });
         true
@@ -307,6 +344,7 @@ impl Baseline {
                     kind,
                     checkable: Checkable::Deterministic,
                     active: true,
+                    proposed: false,
                     rule: Some(rule),
                 });
             }

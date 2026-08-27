@@ -46,6 +46,15 @@ CI (`.github/workflows/ci.yml`) runs all of the above on every push/PR.
 - **The proxy must never break a user's request.** Streaming is byte-for-byte
   passthrough via tee; detection runs off the response path; parsing is
   best-effort and never panics.
+- **The control API is authenticated.** It serves conversation-derived data on
+  localhost, and localhost is not a boundary against the user's own browser. Every
+  route but `/health` and the dashboard's assets requires the per-install token, and
+  only first-party origins may read a response. A new endpoint inherits this; a new
+  *public* one needs a reason in `crates/proxy/src/auth.rs`.
+- **A hard signal must rest on something the user asked for.** A rule inferred from
+  a document they did not address to us is `proposed`: checked, named, and capped at
+  AMBER until confirmed. Deterministic checking is not the same as knowing the rule
+  was wanted.
 - **Local-first.** Conversations live in local SQLite; **no chat content ever
   leaves the machine.** Model calls (judge) go through the user's own provider.
   The one server-side component is **accounts & billing** (Supabase + Stripe,

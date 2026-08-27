@@ -21,6 +21,18 @@ status) and nothing else. Security reports matter to us — privacy is the produ
   and a CI test that drives a real violation through the engine and fails if any
   of it appears. Anything reaching that payload which is not a shared pack or a
   rule count is a **critical** report.
+- **The local control API is a boundary, and is enforced as one.** It serves
+  conversation-derived data (goals, constraint texts, offending spans, re-anchor
+  snapshots) on `127.0.0.1:8788`. Binding to localhost is *not* sufficient: a page
+  in the user's browser is already inside that boundary, and a wildcard CORS policy
+  once let any website read the lot. Every route but `/health` and the dashboard's
+  own assets requires a per-install token (mode `0600`), and responses are readable
+  only by first-party origins. Anything that reads or writes a session without the
+  token is a **critical** report; the invariants are replayed in
+  [`crates/proxy/tests/control_auth.rs`](crates/proxy/tests/control_auth.rs).
+- **Your data is yours to delete.** Conversations live in local SQLite at mode
+  `0600`, a retention window deletes rather than hides, and the panel can erase
+  everything. See "Your data" in the app's settings.
 - Only two components in this repository make network calls: the **proxy**
   (relays your request to the provider you configured) and the **judge** (calls
   your own OpenRouter key, opt-in). Both are covered by an enforced egress test:

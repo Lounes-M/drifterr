@@ -21,6 +21,39 @@ matching private key as repo secrets:
 > **both** the `pubkey` in `tauri.conf.json` and these secrets, or existing
 > installs won't accept updates.
 
+## One-time setup — entitlement signing key
+
+Release builds verify the plan the panel reports instead of trusting it (see
+`docs/ACCOUNTS.md`). That needs an Ed25519 pair: the private half signs assertions
+in the Supabase `/me` function, the public half is compiled into the app.
+
+Generate one:
+
+```bash
+deno eval 'const k = await crypto.subtle.generateKey({name:"Ed25519"}, true, ["sign","verify"]);
+  const pk = new Uint8Array(await crypto.subtle.exportKey("raw", k.publicKey));
+  const sk = new Uint8Array((await crypto.subtle.exportKey("pkcs8", k.privateKey)).slice(-32));
+  const b = (u) => btoa(String.fromCharCode(...u)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  console.log("public :", b(pk)); console.log("private:", b(sk));'
+```
+
+Then:
+
+1. **Supabase** → function secret `ENTITLEMENT_SIGNING_KEY` = the *private* value.
+2. **GitHub** → repo secret `DRIFTERR_ENTITLEMENT_PUBKEY` = the *public* value.
+
+> The public key is read with `option_env!`, so it is baked in at **compile** time.
+> A release built without the secret accepts whatever plan the panel asserts and
+> reports `"verified": false` — a supported state for a fork or a self-hoster, and
+> the wrong one for a shipped build. The workflow prints a loud
+> `Unverified entitlements` warning whenever the secret is missing, exactly like
+> the unsigned-build warning.
+
+**Rotation is additive.** Ship a build that carries the new public key *before*
+switching the Supabase secret, or every signed-in customer is downgraded to Free
+for the window in between.
+
+
 ## Signing and notarization (removes the install warning)
 
 **This is the highest-impact item in the whole install funnel.** Unsigned builds

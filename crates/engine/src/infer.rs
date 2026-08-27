@@ -83,7 +83,9 @@ fn no_todo_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| {
         Regex::new(
-            r"(?i)\b(?:no|not|avoid|don'?t\s+(?:use|leave)|do\s+not\s+(?:use|leave)|never\s+(?:use|leave|commit)|without|pas\s+de|sans|aucun)\s+`?(?:todos?|fixmes?|placeholders?)\b",
+            // An optional article: "never leave a TODO" and "no TODOs" are the same
+            // instruction, and only one of them used to parse.
+            r"(?i)\b(?:no|not|avoid|don'?t\s+(?:use|leave)|do\s+not\s+(?:use|leave)|never\s+(?:use|leave|commit)|without|pas\s+de|sans|aucun)\s+(?:(?:a|an|any|the)\s+)?`?(?:todos?|fixmes?|placeholders?)\b",
         )
         .unwrap()
     })
@@ -225,17 +227,99 @@ fn client_only_re() -> &'static Regex {
     })
 }
 
-/// A cue that the phrase *pins* work to one side rather than merely mentioning it.
-/// "keep it server-side" is a constraint; "the server-side cache is warm" is not.
-/// Without this gate the layer rules would fire on ordinary architecture talk.
-fn pinning_cue_re() -> &'static Regex {
+/// Does `text` *pin* work to a side, rather than merely mention one?
+///
+/// # The bug this replaced
+///
+/// This used to be two independent tests — "is a layer phrase present anywhere"
+/// and "is a pinning cue present anywhere" — combined with `&&`. Co-presence is
+/// not structure, and the gap showed up on Drifterr's own `CLAUDE.md`:
+///
+/// ```text
+/// When adding to the backend, keep that line bright
+/// ```
+///
+/// "backend" matched the layer phrase, the bare word "keep" matched the cue, and
+/// the sentence became a hard "server-side only" constraint that fired RED on any
+/// reply containing `document.getElementById`. The clause pins nothing; the two
+/// matches simply shared a sentence.
+///
+/// # What counts as a pin
+///
+/// The cue has to be *bound* to the layer phrase, in one of the two shapes
+/// English actually uses for this:
+///
+/// * **Prefix** — a pinning verb, then at most a few filler words, then the layer:
+///   "keep it server-side", "must stay on the server", "stick to the backend".
+///   Order matters, which is exactly what the failing example got wrong: there the
+///   layer came first and the verb belonged to a different clause.
+/// * **Postfix** — the layer, then "only", ending the clause: "server-side only",
+///   "backend only.", "server-side only please". Requiring the clause to end there
+///   is what separates a pin from "the backend only handles auth", where "only"
+///   is quantifying a verb rather than restricting a layer.
+///
+/// Anything that pins both sides at once is a description ("keep the server-side
+/// logic and client-side UI separate"), and the caller drops it.
+fn layer_pin(text: &str, layer: Layer) -> bool {
+    let (prefix, postfix) = match layer {
+        Layer::Server => (server_pin_prefix_re(), server_pin_postfix_re()),
+        Layer::Client => (client_pin_prefix_re(), client_pin_postfix_re()),
+    };
+    prefix.is_match(text) || postfix.is_match(text)
+}
+
+#[derive(Clone, Copy)]
+enum Layer {
+    Server,
+    Client,
+}
+
+/// Layer phrases, as regex alternations. Shared by the mention test (used to
+/// detect the both-sides case) and by the pin tests below.
+const SERVER_LAYER: &str =
+    r"(?:server[\s-]?side|back[\s-]?end|on\s+the\s+server|c[ôo]t[ée]\s+serveur)";
+const CLIENT_LAYER: &str =
+    r"(?:client[\s-]?side|front[\s-]?end|in\s+the\s+browser|c[ôo]t[ée]\s+client)";
+
+/// Verbs that pin work somewhere. Deliberately narrow: every entry has to make
+/// "<verb> … <layer>" read as an instruction rather than as description.
+const PIN_VERBS: &str = r"(?:keep|keeps|keeping|stay|stays|stick\s+to|sticks\s+to|remain|remains|put\s+it|do\s+it|write\s+it|implement\s+it|must\s+(?:be|stay|live|run|happen)|should\s+(?:be|stay|live|run|happen)|has\s+to\s+(?:be|stay|live|run)|garde[rz]?|reste[rz]?|met[stz]?)";
+
+/// Words that may sit between the verb and the layer ("keep **all of this**
+/// server-side"). Capped at three so the two stay in the same clause.
+const PIN_FILLER: &str = r"(?:\s+\w+){0,3}";
+
+/// What may follow a postfix "only" and still leave it restricting the layer:
+/// nothing, punctuation, or a short emphasis word.
+const PIN_TAIL: &str =
+    r"(?:$|\s*[.,;:!?)\]—–-]|\s+(?:please|pls|s'il\s+vous\s+pla[îi]t|no\b|jamais\b|never\b))";
+
+fn compile_pin_prefix(layer: &str) -> Regex {
+    Regex::new(&format!(r"(?i)\b{PIN_VERBS}\b{PIN_FILLER}\s+{layer}\b")).unwrap()
+}
+
+fn compile_pin_postfix(layer: &str) -> Regex {
+    Regex::new(&format!(
+        r"(?i)\b{layer}\b[\s,]*(?:only|exclusively|uniquement|seulement)\b{PIN_TAIL}"
+    ))
+    .unwrap()
+}
+
+fn server_pin_prefix_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| {
-        Regex::new(
-            r"(?i)\b(?:only|strictly|purely|keep|stay|stick|must|should|all|entirely|no\s+\w+\s+side|uniquement|seulement|garde|reste|toujours)\b",
-        )
-        .unwrap()
-    })
+    R.get_or_init(|| compile_pin_prefix(SERVER_LAYER))
+}
+fn server_pin_postfix_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| compile_pin_postfix(SERVER_LAYER))
+}
+fn client_pin_prefix_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| compile_pin_prefix(CLIENT_LAYER))
+}
+fn client_pin_postfix_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| compile_pin_postfix(CLIENT_LAYER))
 }
 
 /// Markers that can only appear in **client** code — React hooks and event
@@ -446,15 +530,17 @@ pub fn infer_rules(text: &str) -> Vec<Rule> {
     // unambiguous markers inside code blocks. Requires a pinning cue so ordinary
     // architecture talk ("the server-side cache is warm") can't build a rule, and
     // skips text that pins both sides at once (a description, not a constraint).
-    if pinning_cue_re().is_match(text) {
-        let server = server_only_re().is_match(text);
-        let client = client_only_re().is_match(text);
-        if server && !client {
+    {
+        // A statement that *mentions* both sides is describing an architecture, not
+        // pinning one — so it builds no rule even if one side is also pinned.
+        let mentions_server = server_only_re().is_match(text);
+        let mentions_client = client_only_re().is_match(text);
+        if layer_pin(text, Layer::Server) && !mentions_client {
             rules.push(Rule::ForbidLayerMarkers {
                 label: "server-side only".to_string(),
                 pattern: CLIENT_MARKERS.to_string(),
             });
-        } else if client && !server {
+        } else if layer_pin(text, Layer::Client) && !mentions_server {
             rules.push(Rule::ForbidLayerMarkers {
                 label: "client-side only".to_string(),
                 pattern: SERVER_MARKERS.to_string(),
@@ -1035,6 +1121,7 @@ mod tests {
             kind: ConstraintType::Tech,
             checkable: Checkable::Deterministic,
             active: true,
+            proposed: false,
             rule: Some(rule),
         };
         let check = |content: &str| crate::signals::constraints::check_for_test(&c, content);
@@ -1088,6 +1175,7 @@ mod tests {
             kind: ConstraintType::Tech,
             checkable: Checkable::Deterministic,
             active: true,
+            proposed: false,
             rule: Some(rule),
         };
         let check = |content: &str| crate::signals::constraints::check_for_test(&c, content);
@@ -1113,6 +1201,7 @@ mod tests {
             kind: ConstraintType::Tech,
             checkable: Checkable::Deterministic,
             active: true,
+            proposed: false,
             rule: Some(Rule::ForbidNewFiles),
         };
         let check = |content: &str| crate::signals::constraints::check_for_test(&c, content);

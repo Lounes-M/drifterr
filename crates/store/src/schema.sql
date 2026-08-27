@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS constraints (
   checkable  TEXT NOT NULL,
   active     INTEGER NOT NULL,
   rule_json  TEXT,               -- serialized Rule, NULL when inferred/none
+  -- 1 when Drifterr inferred this from a project rules file rather than the user
+  -- stating it. A proposed constraint caps at AMBER until confirmed, so an
+  -- importer mistake can never produce a red alert. See Constraint::proposed.
+  proposed   INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (session_id, id)
 );
 

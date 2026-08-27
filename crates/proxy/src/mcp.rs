@@ -183,7 +183,16 @@ pub async fn fetch_anchor(api_base: &str) -> Anchor {
         Ok(c) => c,
         Err(_) => return Anchor::default(),
     };
-    match client.get(format!("{api_base}/anchor")).send().await {
+    // Authenticated like every other control-API consumer. A missing token means
+    // Drifterr is not running; the agent then gets an empty anchor, which the tool
+    // reports honestly as "no intent recorded" rather than as "no rules apply".
+    let token = crate::auth::read_token().unwrap_or_default();
+    match client
+        .get(format!("{api_base}/anchor"))
+        .header(crate::auth::TOKEN_HEADER, &token)
+        .send()
+        .await
+    {
         Ok(r) => r
             .json::<Value>()
             .await

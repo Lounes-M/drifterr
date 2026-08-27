@@ -424,6 +424,25 @@ code { font-family: var(--mono); }
 }
 .intent-badge.hard { background: rgba(255, 61, 129, 0.16); color: var(--blue-deep); }
 .intent-badge.soft { background: rgba(255, 178, 62, 0.16); color: var(--amber); }
+/* Proposed: read out of a rules file, not typed by the user. Deliberately the
+   quietest of the three — it is a suggestion awaiting a decision, not a finding. */
+.intent-badge.proposed {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink-soft);
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+}
+.intent-constraint.proposed .intent-constraint-text { color: var(--ink-soft); }
+.intent-confirm {
+  flex: 0 0 auto; margin-left: auto;
+  border-radius: 999px; padding: 3px 10px;
+  font-size: 10.5px; font-weight: 700; cursor: pointer;
+  color: var(--ink-soft);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.intent-confirm:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.intent-confirm:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .intent-constraint-text { font-size: 12px; color: var(--ink-soft); overflow-wrap: anywhere; }
 .intent-editor { display: flex; flex-direction: column; gap: 9px; }
 .intent-field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--ink-soft); }
@@ -557,6 +576,45 @@ code { font-family: var(--mono); }
   display: block; border-radius: 10px; padding: 8px 10px; font-size: 11px;
   color: var(--ink-soft); overflow-x: auto; white-space: nowrap;
 }
+/* Extension pairing token: masked by default, revealed and copied on demand.
+   A credential the user has to read aloud from a screen should not be sitting
+   in plain view of everyone behind them, and it is never needed at a glance. */
+.token-row { display: flex; align-items: center; gap: 6px; }
+.token-row .token-value {
+  flex: 1 1 auto; min-width: 0; font-family: var(--mono);
+  letter-spacing: 0.02em; user-select: all;
+}
+.ghost-btn {
+  flex: 0 0 auto; border-radius: 8px; padding: 7px 10px;
+  font-size: 11px; font-weight: 600; cursor: pointer;
+  color: var(--ink-soft);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.ghost-btn:hover { background: rgba(255, 255, 255, 0.13); color: #fff; }
+.ghost-btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+/* Destructive: red only once the user has committed to it, so the settings view
+   does not read as alarming while they are only passing through. */
+.ghost-btn.danger { color: var(--red); border-color: rgba(255, 77, 109, 0.32); }
+.ghost-btn.danger:hover { background: rgba(255, 77, 109, 0.16); color: #fff; }
+.ghost-btn.danger.armed { background: var(--red); border-color: var(--red); color: #fff; }
+
+/* Per-session delete: invisible until the row is hovered or the button is
+   focused, so a list of sessions does not read as a row of delete buttons. */
+.history-remove {
+  flex: 0 0 auto; margin-left: auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 7px; cursor: pointer;
+  color: var(--ink-soft); background: transparent; border: 1px solid transparent;
+  opacity: 0; transition: opacity .15s ease, background .15s ease, color .15s ease;
+}
+.history-row:hover .history-remove,
+.history-remove:focus-visible { opacity: 1; }
+.history-remove:hover { background: rgba(255, 77, 109, .16); color: var(--red); }
+.history-remove:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.history-remove.armed { opacity: 1; background: var(--red); color: #fff; }
+
 .cfg-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
 .cfg-row span:first-child { flex: 0 0 auto; }
 .cfg-row span:last-child { font-family: var(--mono); font-size: 11.5px; text-align: right; overflow-wrap: anywhere; min-width: 0; }

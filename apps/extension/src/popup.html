@@ -24,6 +24,21 @@
         border-radius: 10px; background: linear-gradient(90deg, #ff7847, #ff3d81);
       }
       .off { color: #86849a; font-size: 12px; margin-top: 8px; }
+      .pair { margin-top: 12px; }
+      .pair-help { margin: 0 0 8px; color: #a3a1b4; font-size: 11.5px; line-height: 1.45; }
+      .pair-row { display: flex; gap: 6px; }
+      .pair-row input {
+        flex: 1 1 auto; min-width: 0; padding: 7px 8px; font: inherit; font-size: 12px;
+        color: #fff; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.16);
+        border-radius: 8px;
+      }
+      .pair-row input:focus-visible { outline: 2px solid #ff7847; outline-offset: 1px; }
+      .pair-row button {
+        flex: 0 0 auto; padding: 7px 12px; font: inherit; font-size: 12px; font-weight: 600;
+        color: #fff; background: #3a3850; border: 0; border-radius: 8px; cursor: pointer;
+      }
+      .pair-row button:hover { background: #494764; }
+      .pair-row button:focus-visible { outline: 2px solid #ff7847; outline-offset: 1px; }
       .health {
         margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; font-size: 11.5px;
         line-height: 1.45; background: rgba(255,255,255,.06); color: #a3a1b4;
@@ -53,8 +68,31 @@
       -->
       <p id="health" class="health" hidden></p>
       <p id="off" class="off" hidden>Start the Drifterr app (or run the proxy) to see live status.</p>
+      <!--
+        Pairing. The control API is authenticated so that a website cannot read
+        the user's sessions out of it; the extension is the one consumer Drifterr
+        does not launch, so it is paired by hand, once.
+      -->
+      <form id="pair" class="pair" hidden>
+        <p class="pair-help">
+          Paste the pairing token from the Drifterr panel
+          (Settings &rarr; Browser extension) to connect.
+        </p>
+        <div class="pair-row">
+          <input
+            id="pair-token"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Pairing token"
+            aria-label="Drifterr pairing token"
+          />
+          <button type="submit">Connect</button>
+        </div>
+      </form>
       <a class="btn" href="http://localhost:8788/" target="_blank" rel="noopener">Open panel</a>
     </div>
+    <script src="api.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

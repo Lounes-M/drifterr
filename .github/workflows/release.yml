@@ -186,6 +186,18 @@ jobs:
           # be empty if the key was generated without one.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # --- entitlement verification ------------------------------------------
+          # The PUBLIC half of the key the accounts backend signs plan assertions
+          # with. `plan_token.rs` reads it via `option_env!`, so it is baked in at
+          # COMPILE time — which means a release built without it verifies nothing
+          # and silently falls back to trusting whatever plan the panel asserts.
+          # That is exactly the state the signing work was meant to end, so the
+          # variable belongs here rather than in a runbook step somebody follows.
+          #
+          # Unset is a supported state (self-hosters, a fork): the build then
+          # reports `"verified": false` at GET /entitlement rather than pretending.
+          # The "Warn when entitlements are unverified" step below makes that loud.
+          DRIFTERR_ENTITLEMENT_PUBKEY: ${{ secrets.DRIFTERR_ENTITLEMENT_PUBKEY }}
           # --- macOS code signing + notarization ---------------------------------
           # The certificate is already in a runner keychain (see "Import macOS
           # signing certificate"), so tauri-action only needs the identity to sign
@@ -231,6 +243,14 @@ jobs:
             echo "::warning::Signed but NOT notarized — macOS will still warn on first launch. Add APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID."
           fi
 
+      # Same principle as the unsigned-build warning below: a release that cannot
+      # verify entitlements is a deliberate choice, not something nobody noticed.
+      - name: Warn when entitlements are unverified
+        if: ${{ secrets.DRIFTERR_ENTITLEMENT_PUBKEY == '' }}
+        shell: bash
+        run: |
+          echo "::warning title=Unverified entitlements::DRIFTERR_ENTITLEMENT_PUBKEY is unset, so this build accepts whatever plan the panel asserts and reports \"verified\": false. See docs/ACCOUNTS.md."
+
       # Make the "we're unsigned" state loud in the build log, so it's a deliberate
       # choice each release rather than something nobody noticed. The matching
       # warning on drifterr.app/download must stay up while this fires.
@@ -253,3 +273,40 @@ jobs:
           if [ "${{ matrix.platform }}" = "macos-latest" ]; then
             security delete-keychain "$RUNNER_TEMP/drifterr-signing.keychain-db" 2>/dev/null || true
           fi
+
+  # Publish SHA256SUMS for the release's assets.
+  #
+  # `install.sh` downloads a DMG or AppImage over HTTPS and runs it. TLS proves it
+  # came from GitHub; it proves nothing about whether the bytes are the ones we
+  # built. `packaging/checksums.sh` already existed to hash assets by hand for the
+  # Homebrew and winget manifests, so the digests were computed and then not
+  # published — which meant the installer had nothing to verify against.
+  #
+  # Runs after every platform has uploaded, and needs the release to still be a
+  # draft so the file lands before anyone can download from it.
+  checksums:
+    name: Publish SHA256SUMS
+    needs: release
+    if: always() && needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Hash every asset and attach the manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist && cd dist
+          # `--pattern '*'` would also pull latest.json and any .sig; those are part
+          # of the release too, and hashing them costs nothing and documents more.
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --clobber
+          # Never hash a previous manifest into the new one.
+          rm -f SHA256SUMS
+          sha256sum * > SHA256SUMS
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+          gh release upload "$TAG" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber

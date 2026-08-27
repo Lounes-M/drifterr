@@ -6,6 +6,7 @@
 // Runs on Vercel (Node serverless). vercel.json rewrites /download/<os> here.
 
 import { Readable } from "node:stream";
+import { downloads } from "./_ratelimit.js";
 
 const REPO = "Lounes-M/drifterr";
 
@@ -50,6 +51,18 @@ function pickAsset(assets, os) {
 }
 
 export default async function handler(req, res) {
+  // Shed load before doing any work. Each hit resolves a release and streams or
+  // redirects to an installer, so this is the endpoint most worth pointing a loop
+  // at. A throttled visitor gets sent to the download page, which is a working
+  // answer rather than an error — see _ratelimit.js for why the bucket is global
+  // rather than per-visitor.
+  if (!downloads.take()) {
+    res.statusCode = 302;
+    res.setHeader("Location", "/#download");
+    res.setHeader("Cache-Control", "no-store");
+    return res.end();
+  }
+
   // /download/<os> is rewritten to /api/download?os=<os>; also accept ?os= directly.
   const os = normalizeOS(req.query?.os ?? req.query?.path);
 

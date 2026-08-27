@@ -29,11 +29,31 @@ pub fn evaluate(baseline: &Baseline, last_assistant: Option<&Turn>) -> Vec<Signa
     let mut events = Vec::new();
     for c in baseline.deterministic_constraints() {
         if let Some(span) = check(c, &turn.content) {
+            // A constraint the user stated is a fact when broken, and may drive RED.
+            // A *proposed* one — inferred from a rules file rather than typed — caps
+            // at AMBER until confirmed: the rule check is equally deterministic, but
+            // whether the user ever asked for the rule was decided by reading
+            // English, and a hard signal must not rest on that. See
+            // `Constraint::proposed`.
+            let (state, detail) = if c.proposed {
+                (
+                    State::Amber,
+                    format!(
+                        "proposed rule {} would be violated: \"{}\" — confirm it to enforce",
+                        c.id, c.text
+                    ),
+                )
+            } else {
+                (
+                    State::Red,
+                    format!("constraint {} violated: \"{}\"", c.id, c.text),
+                )
+            };
             events.push(SignalEvent::new(
                 SignalKind::Constraint,
-                State::Red,
+                state,
                 Evidence {
-                    detail: format!("constraint {} violated: \"{}\"", c.id, c.text),
+                    detail,
                     turn_index: Some(turn.index),
                     constraint_id: Some(c.id.clone()),
                     span,
@@ -258,6 +278,7 @@ mod tests {
             kind: ConstraintType::Tech,
             checkable: Checkable::Deterministic,
             active: true,
+            proposed: false,
             rule,
         }
     }
@@ -403,5 +424,70 @@ mod tests {
             }),
         );
         assert!(check(&c, "anything (").is_none());
+    }
+
+    /// A proposed constraint reports AMBER, never RED — the safety net under the
+    /// importer. A parser mistake then costs a proposal the user glances at, not a
+    /// red alert on a rule nobody wrote.
+    #[test]
+    fn a_proposed_constraint_caps_at_amber() {
+        let stated = Constraint {
+            id: "c1".into(),
+            text: "No console.log".into(),
+            kind: crate::baseline::ConstraintType::Format,
+            checkable: crate::baseline::Checkable::Deterministic,
+            active: true,
+            proposed: false,
+            rule: Some(Rule::ForbidInCode {
+                pattern: r"console\.log".into(),
+            }),
+        };
+        let proposed = Constraint {
+            id: "claude-md-1".into(),
+            proposed: true,
+            ..stated.clone()
+        };
+        let turn = Turn {
+            index: 3,
+            role: crate::conversation::Role::Assistant,
+            content: "```js\nconsole.log(1)\n```".into(),
+            tokens: 5,
+            timestamp: 0,
+        };
+
+        let red = evaluate(
+            &Baseline {
+                goal: "g".into(),
+                constraints: vec![stated],
+                decisions: vec![],
+            },
+            Some(&turn),
+        );
+        assert_eq!(red.len(), 1);
+        assert_eq!(
+            red[0].state,
+            State::Red,
+            "a stated constraint may drive RED"
+        );
+
+        let amber = evaluate(
+            &Baseline {
+                goal: "g".into(),
+                constraints: vec![proposed],
+                decisions: vec![],
+            },
+            Some(&turn),
+        );
+        assert_eq!(amber.len(), 1);
+        assert_eq!(
+            amber[0].state,
+            State::Amber,
+            "an imported, unconfirmed rule must never drive RED"
+        );
+        assert!(
+            amber[0].evidence.detail.contains("confirm"),
+            "and must say how to enforce it: {}",
+            amber[0].evidence.detail
+        );
     }
 }
