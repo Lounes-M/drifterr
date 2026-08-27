@@ -73,6 +73,37 @@ told readers a feature was available when it wasn't.
   `invoice.payment_failed` marks `past_due` instead of leaving a customer to
   discover a declined card weeks later.
 
+### Testing what was only reviewed
+
+- **The billing logic has tests.** Nothing in CI touched `supabase/functions/`,
+  so the webhook's idempotency and ordering fixes sat on top of customer money
+  unverified. The decisions are now separated from the I/O behind a `Ledger`
+  interface, and eleven tests drive the sequences Stripe actually produces — an
+  out-of-order update that must not downgrade, a redelivery that must lose the
+  claim race, a handler that throws and must release its claim so the retry can
+  retry.
+- **The desktop shell has tests.** It was compiled and clippy-checked but never
+  run, so `notification_for` — the code deciding whether to interrupt you — was
+  unverified. Twelve tests cover the escalation rules, including that a red
+  session must not re-notify on every 1.5-second poll and that Do Not Disturb
+  suppresses an alert without swallowing the escalation behind it.
+- Coverage is measured and reported in CI, deliberately not gated.
+
+### The web surface
+
+- **Security headers on the marketing site**, which had none: no CSP, no
+  HSTS, no frame or content-type protection, on the pages that hold a Supabase
+  session. `script-src` is now `'self'`, which meant moving the inline module
+  blocks out of account/login/signup into files. A test asserts the policy and the
+  markup still agree, since Vercel applies the headers and nothing else could
+  catch a drift between them.
+- **Rate limits.** `stripe-checkout` was authenticated but unbounded — a signed-in
+  caller could create unlimited Checkout Sessions against our Stripe account.
+  That budget is now per-user and durable in Postgres, incremented in a single
+  statement so two concurrent calls cannot both read the old count. The marketing
+  endpoints get a *global* bucket instead: keying on IP would create exactly the
+  per-visitor identifier `/api/event` promises does not exist.
+
 ### Also
 
 - Releases publish `SHA256SUMS`, and `install.sh` verifies against it — it
@@ -82,6 +113,12 @@ told readers a feature was available when it wasn't.
 - The self-check CI job checks something real. It was reporting "1 rule checked"
   because of the phantom rule above; with that gone the honest count from
   `CLAUDE.md` is zero, so the job also carries the shipped `security-basics` pack.
+- Sessions can be deleted one at a time from the history view, not only all at
+  once. `POST /data/forget` had accepted a session id since it existed and nothing
+  in the UI ever sent one.
+- The extension's README and store listing explain the pairing step, which they
+  predated — a first-time user would otherwise install both halves and meet "Not
+  paired yet" with no explanation.
 - The extension packaging script ships all of `src/` and verifies every referenced
   script is in the zip. The enumerated list would have shipped a bundle that broke
   on first load.
