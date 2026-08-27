@@ -186,6 +186,18 @@ jobs:
           # be empty if the key was generated without one.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # --- entitlement verification ------------------------------------------
+          # The PUBLIC half of the key the accounts backend signs plan assertions
+          # with. `plan_token.rs` reads it via `option_env!`, so it is baked in at
+          # COMPILE time — which means a release built without it verifies nothing
+          # and silently falls back to trusting whatever plan the panel asserts.
+          # That is exactly the state the signing work was meant to end, so the
+          # variable belongs here rather than in a runbook step somebody follows.
+          #
+          # Unset is a supported state (self-hosters, a fork): the build then
+          # reports `"verified": false` at GET /entitlement rather than pretending.
+          # The "Warn when entitlements are unverified" step below makes that loud.
+          DRIFTERR_ENTITLEMENT_PUBKEY: ${{ secrets.DRIFTERR_ENTITLEMENT_PUBKEY }}
           # --- macOS code signing + notarization ---------------------------------
           # The certificate is already in a runner keychain (see "Import macOS
           # signing certificate"), so tauri-action only needs the identity to sign
@@ -230,6 +242,14 @@ jobs:
           else
             echo "::warning::Signed but NOT notarized — macOS will still warn on first launch. Add APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID."
           fi
+
+      # Same principle as the unsigned-build warning below: a release that cannot
+      # verify entitlements is a deliberate choice, not something nobody noticed.
+      - name: Warn when entitlements are unverified
+        if: ${{ secrets.DRIFTERR_ENTITLEMENT_PUBKEY == '' }}
+        shell: bash
+        run: |
+          echo "::warning title=Unverified entitlements::DRIFTERR_ENTITLEMENT_PUBKEY is unset, so this build accepts whatever plan the panel asserts and reports \"verified\": false. See docs/ACCOUNTS.md."
 
       # Make the "we're unsigned" state loud in the build log, so it's a deliberate
       # choice each release rather than something nobody noticed. The matching
