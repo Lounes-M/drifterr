@@ -64,23 +64,13 @@ jobs:
           - platform: ubuntu-22.04
             os: linux
             args: ""
-          # Pinned, NOT `windows-latest`. That label moved to a Visual Studio 18
-          # image, and the release link then fails with
-          #   LNK1181: cannot open input file 'bcryptprimitives.lib'
-          # while nothing in our dependency set changed and v0.2.5 shipped from
-          # the older image. The library is required by the app's dependency
-          # graph (it shows up right after ole32.lib, so most likely getrandom's
-          # ProcessPrng) and is not resolvable in that image's library path.
-          #
-          # Note this is NOT a blanket SDK breakage: CI's "ONNX embedder (Windows
-          # link check)" job links an executable on `windows-latest` and passes.
-          # It is this dependency set on that image.
-          #
-          # Pinning restores the configuration that demonstrably produced a
-          # working Windows installer. Revisit when the image settles — and if
-          # this label is ever retired, the job fails immediately with a clear
-          # "image not found" rather than a link error nobody can read.
-          - platform: windows-2022
+          # `windows-latest`, deliberately not pinned. An earlier attempt pinned
+          # windows-2022 on the theory that the image had moved to Visual Studio
+          # 18 and broken the link; that was wrong. `LNK1181: cannot open input
+          # file 'bcryptprimitives.lib'` reproduced identically on VS 2022, so the
+          # image was never the variable. The real cause was a dependency —
+          # see the getrandom note in apps/desktop/src-tauri/Cargo.lock's history.
+          - platform: windows-latest
             os: windows
             args: ""
     runs-on: ${{ matrix.platform }}
