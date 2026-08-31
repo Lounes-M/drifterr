@@ -72,19 +72,45 @@ jobs:
         run: cargo build -p drifterr-embeddings --features onnx --example embed_bench
 
   desktop-app:
-    name: Desktop app (Tauri build check)
-    runs-on: ubuntu-latest
+    name: Desktop app (${{ matrix.os }})
+    # Both platforms, because "compiles on Linux" was being read as "builds", and
+    # it is not. The app's Windows link is otherwise exercised for the first time
+    # during a release — which is how `LNK1181: cannot open input file
+    # 'bcryptprimitives.lib'` cost three release runs to find instead of one PR.
+    # A ~9-minute job here replaces a ~30-minute release cycle as the feedback loop.
+    #
+    # macOS is deliberately not in this matrix: it bundles rather than merely
+    # links, and the release job already proved that path. Windows is the one
+    # whose failure mode is invisible until release.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux
+          - os: windows-latest
+            name: windows
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Linux GUI deps
+        if: matrix.name == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
+      # Pinned, unlike every other job here, which stays on `stable` on purpose so
+      # toolchain drift still surfaces early (that is how clippy 1.98's new lint was
+      # found). This one job is different because the app's Windows link broke on a
+      # toolchain bump and nothing else in the graph explains it: no crate declares
+      # bcryptprimitives without `raw-dylib`, a bare cdylib does not request it, and
+      # neither does a cdylib using getrandom. 1.97.0 (2026-07-09) is what v0.2.5
+      # shipped a working Windows installer on; every failure has been on 1.98.0
+      # (2026-08-18). Bump deliberately, with this job green, not by drifting.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.97.0
         with:
           components: clippy
 
@@ -95,7 +121,15 @@ jobs:
       # The tray shell is excluded from the workspace (needs platform GUI libs),
       # so nothing else in CI compiles it — this job is what catches Rust-level
       # breakage in the app before a release build would hit it.
+      # THE point of the Windows leg: link the cdylib the release actually builds.
+      # `cargo build` is enough — the failure is at link, not at codegen — and it
+      # is far cheaper than a full `tauri build`.
+      - name: Link the app on Windows
+        if: matrix.name == 'windows'
+        run: cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml
+
       - name: Clippy the app shell (deny warnings)
+        if: matrix.name == 'linux'
         run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
 
       # The shell was compiled but never *run*, so its logic was unverified.
@@ -103,9 +137,11 @@ jobs:
       # and getting it wrong does not crash anything — it just turns a tool people
       # keep into one they mute, which is a failure nobody files a bug about.
       - name: Test the app shell
+        if: matrix.name == 'linux'
         run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 
       - name: Format check the app shell
+        if: matrix.name == 'linux'
         run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all -- --check
 
   ui:
