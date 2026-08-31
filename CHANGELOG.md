@@ -8,7 +8,7 @@ is merged and tested on `main` but is **not** in a binary you can download — t
 README's status table marks those rows 🟡 rather than ✅, because conflating the two
 told readers a feature was available when it wasn't.
 
-## Unreleased
+## 0.3.0 — 2026-08-31
 
 ### Security
 

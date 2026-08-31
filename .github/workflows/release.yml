@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release tag to build (e.g. v0.2.5)"
+        description: "Release tag to build (e.g. v0.3.0)"
         required: true
-        default: "v0.2.5"
+        default: "v0.3.0"
       bundle_semantic:
         description: "Bundle the ~127MB semantic ONNX model in the installer. Normally OFF — the app fetches it on demand when the user asks."
         type: boolean
