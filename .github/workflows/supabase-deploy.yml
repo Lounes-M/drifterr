@@ -1,0 +1,130 @@
+name: Deploy Supabase
+
+# Apply migrations and deploy the edge functions from CI, so shipping the backend
+# never requires a local checkout, a linked project, or a database password on
+# somebody's laptop. The credentials live in repo secrets and are never typed.
+#
+# Manual only. This is the one workflow that writes to the production database
+# and replaces live functions, so it must not fire on a push: a person decides,
+# then clicks Run. There is deliberately no `on: push` here.
+#
+# ## Required secrets
+#
+#   SUPABASE_ACCESS_TOKEN   Account → Access Tokens (a personal access token)
+#   SUPABASE_PROJECT_ID     the project ref, e.g. abcdefghijklmnopqrst
+#   SUPABASE_DB_PASSWORD    the database password, used by `db push`
+#
+# ## Why the order is enforced rather than documented
+#
+# The webhook claims every Stripe event id in `stripe_events` before doing any
+# work — that claim is what stops a redelivered event being applied twice. Deploy
+# the functions against a database without that table and every claim errors, the
+# handler returns 500, and Stripe retries the same event indefinitely while
+# subscriptions quietly stop updating.
+#
+# So `migrations` and `functions` are separate jobs, and `functions` waits on
+# `migrations`. A failed migration cannot be followed by a function deploy,
+# because the job will not start. Encoding it here means the rule holds even when
+# whoever clicks Run has never read RELEASING.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      what:
+        description: "What to deploy"
+        type: choice
+        default: "migrations and functions"
+        options:
+          - "migrations and functions"
+          - "migrations only"
+          - "functions only"
+      dry_run:
+        description: "List pending migrations without applying anything"
+        type: boolean
+        default: false
+
+concurrency:
+  # Two concurrent deploys would race on the same database. Queue instead, and
+  # never cancel one in flight — a half-applied migration is worse than a wait.
+  group: supabase-deploy
+  cancel-in-progress: false
+
+jobs:
+  migrations:
+    name: Migrations
+    if: inputs.what != 'functions only'
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the secrets exist
+        # Fail here with a readable message rather than letting the CLI fail
+        # later with something about an empty project ref.
+        run: |
+          missing=""
+          [ -n "$SUPABASE_ACCESS_TOKEN" ] || missing="$missing SUPABASE_ACCESS_TOKEN"
+          [ -n "$PROJECT_ID" ] || missing="$missing SUPABASE_PROJECT_ID"
+          [ -n "$SUPABASE_DB_PASSWORD" ] || missing="$missing SUPABASE_DB_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error title=Missing secrets::Set these repository secrets first:$missing"
+            exit 1
+          fi
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link the project
+        run: supabase link --project-ref "$PROJECT_ID"
+
+      - name: List pending migrations
+        # Printed on every run, so the log records what the run was about to do
+        # even when it goes on to apply them.
+        run: supabase migration list --linked
+
+      - name: Apply migrations
+        if: ${{ !inputs.dry_run }}
+        run: supabase db push
+
+      - name: Confirm what landed
+        if: ${{ !inputs.dry_run }}
+        run: supabase migration list --linked
+
+  functions:
+    name: Edge functions
+    needs: migrations
+    # Referencing `needs.migrations.result` explicitly is required: without it
+    # GitHub implies `success()`, and a "functions only" run — where `migrations`
+    # is skipped rather than run — would silently skip this job too.
+    if: >-
+      ${{ !inputs.dry_run
+          && inputs.what != 'migrations only'
+          && (needs.migrations.result == 'success' || needs.migrations.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy
+        # Run from the repo root so supabase/config.toml is honoured — that file
+        # is what sets `verify_jwt = false` on stripe-webhook (Stripe does not
+        # send a Supabase JWT; the signature check authenticates it instead).
+        # Deploying without it would put a JWT gate in front of the webhook and
+        # every Stripe delivery would 401.
+        run: supabase functions deploy --project-ref "$PROJECT_ID"
+
+      - name: Remind that secrets are separate
+        # Deploying code does not set secrets. A function that needs one it has
+        # never been given fails at request time, not at deploy time.
+        run: |
+          echo "::notice title=Function secrets are separate::Deploying code does not change secrets. STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and ENTITLEMENT_SIGNING_KEY are set in the Supabase dashboard and are untouched by this run."
