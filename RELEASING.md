@@ -54,6 +54,42 @@ switching the Supabase secret, or every signed-in customer is downgraded to Free
 for the window in between.
 
 
+## Deploying the backend (migrations + edge functions)
+
+Run the **Deploy Supabase** workflow from the Actions tab
+([`.github/workflows/supabase-deploy.yml`](.github/workflows/supabase-deploy.yml)).
+It needs no local checkout and no database password on anyone's laptop — the
+credentials are repo secrets:
+
+| Secret | Where to find it |
+| --- | --- |
+| `SUPABASE_ACCESS_TOKEN` | Supabase → Account → Access Tokens |
+| `SUPABASE_PROJECT_ID` | the project ref, e.g. `abcdefghijklmnopqrst` |
+| `SUPABASE_DB_PASSWORD` | the database password, used by `db push` |
+
+It is `workflow_dispatch` only. This is the one workflow that writes to the
+production database and replaces live functions, so it never fires on a push.
+
+**Migrations run before functions, and that is enforced by the job graph, not by
+documentation.** The webhook claims every Stripe event id in `stripe_events`
+before doing any work; against a database without that table, every claim errors,
+the handler returns 500, and Stripe retries the same event indefinitely while
+subscriptions silently stop updating. `functions` waits on `migrations`, so a
+failed migration cannot be followed by a deploy.
+
+Start with **dry run** ticked: it lists pending migrations and applies nothing.
+
+> Deploying code does **not** set function secrets. `STRIPE_SECRET_KEY`,
+> `STRIPE_WEBHOOK_SECRET` and `ENTITLEMENT_SIGNING_KEY` live in the Supabase
+> dashboard and are untouched by a deploy — a function missing one fails at
+> request time, not at deploy time.
+
+Every migration in `supabase/migrations/` is written to be safely re-runnable
+(`create table if not exists`, `add column if not exists`, `create or replace
+function`, and `enable row level security`, which is a no-op when already on), so
+a repeated run is not a hazard. Keep it that way when adding one.
+
+
 ## Signing and notarization (removes the install warning)
 
 **This is the highest-impact item in the whole install funnel.** Unsigned builds
