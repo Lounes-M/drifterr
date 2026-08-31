@@ -342,3 +342,40 @@ jobs:
                 --rules CLAUDE.md \
                 --pack security-basics \
                 --warn-only
+
+  # Parse the workflow files themselves.
+  #
+  # This exists because release.yml shipped invalid and nothing noticed. It only
+  # triggers on a tag, so CI never parsed it: the error (`secrets` referenced from
+  # a step-level `if:`, where that context is not available) surfaced for the first
+  # time as a failed release, on the one run where a broken workflow costs the most.
+  #
+  # actionlint parses every file under .github/workflows and checks the things
+  # GitHub only checks at dispatch time — expression syntax, context availability
+  # per position, action inputs, shell quoting. A workflow that never runs on a PR
+  # is exactly the one worth linting on every PR.
+  workflows:
+    name: Workflow files (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint
+        # Pinned rather than floating: a lint that silently changes its rules
+        # between runs turns a green PR red for reasons nobody changed.
+        #
+        # actionlint shells out to `shellcheck` for every `run:` block and skips
+        # that half silently when the binary is absent. GitHub's runners ship it,
+        # so a local run without shellcheck installed is NOT this check — it is
+        # the weaker half of it, and it will tell you a file is clean that CI
+        # then rejects. Install shellcheck before trusting a local pass.
+        run: |
+          set -euo pipefail
+          VERSION=1.7.7
+          curl -sSLo actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz"
+          tar xzf actionlint.tar.gz actionlint
+          # No path argument: actionlint discovers .github/workflows itself. Passing
+          # .github/actions/*/action.yml would be wrong — an action definition is not
+          # a workflow, and actionlint rightly rejects it as one.
+          ./actionlint -color

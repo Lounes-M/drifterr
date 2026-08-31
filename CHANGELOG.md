@@ -110,6 +110,11 @@ told readers a feature was available when it wasn't.
   downloads a binary and runs it, which deserves more than "TLS said it came from
   GitHub". A release without the manifest is refused rather than installed
   unverified.
+- **The workflow files are parsed on every PR** (`actionlint`). `release.yml` had
+  shipped invalid — it referenced `secrets` from a step-level `if:`, where that
+  context is not available — and because it only triggers on a tag, nothing ever
+  parsed it. The error surfaced as a failed release rather than a failed PR, on
+  the one run where a broken workflow costs the most.
 - The self-check CI job checks something real. It was reporting "1 rule checked"
   because of the phantom rule above; with that gone the honest count from
   `CLAUDE.md` is zero, so the job also carries the shipped `security-basics` pack.

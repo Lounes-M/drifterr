@@ -118,9 +118,11 @@ jobs:
           if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then mac=true; fi
           if [ "$mac" = true ] && [ -n "$APPLE_ID" ]; then notarize=true; fi
           if [ -n "$WINDOWS_CERTIFICATE" ]; then win=true; fi
-          echo "mac=$mac" >> "$GITHUB_OUTPUT"
-          echo "notarize=$notarize" >> "$GITHUB_OUTPUT"
-          echo "win=$win" >> "$GITHUB_OUTPUT"
+          {
+            echo "mac=$mac"
+            echo "notarize=$notarize"
+            echo "win=$win"
+          } >> "$GITHUB_OUTPUT"
           echo "macOS signing: $mac (notarize: $notarize) · Windows signing: $win"
 
       - name: Import macOS signing certificate
@@ -245,11 +247,23 @@ jobs:
 
       # Same principle as the unsigned-build warning below: a release that cannot
       # verify entitlements is a deliberate choice, not something nobody noticed.
+      #
+      # The emptiness test is inside the script rather than in `if:` because the
+      # `secrets` context is not available to a step-level condition — GitHub
+      # rejects the whole file with "Unrecognized named-value: 'secrets'", which
+      # is how this shipped broken: release.yml only runs on a tag, so nothing
+      # ever parsed it until the first release attempt. Reading the secret through
+      # `env` is the supported way to get at it here.
       - name: Warn when entitlements are unverified
-        if: ${{ secrets.DRIFTERR_ENTITLEMENT_PUBKEY == '' }}
+        env:
+          ENTITLEMENT_PUBKEY: ${{ secrets.DRIFTERR_ENTITLEMENT_PUBKEY }}
         shell: bash
         run: |
-          echo "::warning title=Unverified entitlements::DRIFTERR_ENTITLEMENT_PUBKEY is unset, so this build accepts whatever plan the panel asserts and reports \"verified\": false. See docs/ACCOUNTS.md."
+          if [ -z "$ENTITLEMENT_PUBKEY" ]; then
+            echo "::warning title=Unverified entitlements::DRIFTERR_ENTITLEMENT_PUBKEY is unset, so this build accepts whatever plan the panel asserts and reports \"verified\": false. See docs/ACCOUNTS.md."
+          else
+            echo "Entitlement verification is compiled in."
+          fi
 
       # Make the "we're unsigned" state loud in the build log, so it's a deliberate
       # choice each release rather than something nobody noticed. The matching
@@ -306,7 +320,10 @@ jobs:
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --clobber
           # Never hash a previous manifest into the new one.
           rm -f SHA256SUMS
-          sha256sum * > SHA256SUMS
+          # `-- *` rather than `./*`: install.sh matches this manifest on the bare
+          # filename (`$2 == n`), so a `./` prefix would be listed under a name it
+          # never looks up and every download would fail verification.
+          sha256sum -- * > SHA256SUMS
           echo "--- SHA256SUMS ---"
           cat SHA256SUMS
           gh release upload "$TAG" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
