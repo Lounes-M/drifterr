@@ -122,6 +122,14 @@ told readers a feature was available when it wasn't.
   the certificates exist, so they are genuinely undefined otherwise. Note that
   `actionlint` cannot catch this one: the file was always valid, it just meant
   something other than intended.
+- The Windows release runner is pinned to `windows-2022`. The `windows-latest`
+  label moved to a Visual Studio 18 image where the app's link fails with
+  `LNK1181: cannot open input file 'bcryptprimitives.lib'`, while nothing in the
+  dependency set changed and v0.2.5 shipped from the older image. Every
+  per-platform condition in the workflow now tests an explicit `matrix.os` rather
+  than the runner label — pinning the image had silently disabled three steps that
+  compared against the literal `windows-latest`, which would have shipped Windows
+  unsigned with no warning.
 - The self-check CI job checks something real. It was reporting "1 rule checked"
   because of the phantom rule above; with that gone the honest count from
   `CLAUDE.md` is zero, so the job also carries the shipped `security-basics` pack.
