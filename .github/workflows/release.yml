@@ -245,11 +245,23 @@ jobs:
 
       # Same principle as the unsigned-build warning below: a release that cannot
       # verify entitlements is a deliberate choice, not something nobody noticed.
+      #
+      # The emptiness test is inside the script rather than in `if:` because the
+      # `secrets` context is not available to a step-level condition — GitHub
+      # rejects the whole file with "Unrecognized named-value: 'secrets'", which
+      # is how this shipped broken: release.yml only runs on a tag, so nothing
+      # ever parsed it until the first release attempt. Reading the secret through
+      # `env` is the supported way to get at it here.
       - name: Warn when entitlements are unverified
-        if: ${{ secrets.DRIFTERR_ENTITLEMENT_PUBKEY == '' }}
+        env:
+          ENTITLEMENT_PUBKEY: ${{ secrets.DRIFTERR_ENTITLEMENT_PUBKEY }}
         shell: bash
         run: |
-          echo "::warning title=Unverified entitlements::DRIFTERR_ENTITLEMENT_PUBKEY is unset, so this build accepts whatever plan the panel asserts and reports \"verified\": false. See docs/ACCOUNTS.md."
+          if [ -z "$ENTITLEMENT_PUBKEY" ]; then
+            echo "::warning title=Unverified entitlements::DRIFTERR_ENTITLEMENT_PUBKEY is unset, so this build accepts whatever plan the panel asserts and reports \"verified\": false. See docs/ACCOUNTS.md."
+          else
+            echo "Entitlement verification is compiled in."
+          fi
 
       # Make the "we're unsigned" state loud in the build log, so it's a deliberate
       # choice each release rather than something nobody noticed. The matching
