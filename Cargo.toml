@@ -19,7 +19,7 @@ exclude = ["apps/desktop/src-tauri"]
 [workspace.package]
 # Single product version — kept in lockstep with the desktop app and the git
 # release tag (see RELEASING.md → Versioning). Bump all three together.
-version = "0.2.5"
+version = "0.3.0"
 edition = "2021"
 license = "LicenseRef-Proprietary"
 # These crates are proprietary (see LICENSE) and must never reach crates.io. Saying

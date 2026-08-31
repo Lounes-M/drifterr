@@ -1046,7 +1046,7 @@ dependencies = [
 
 [[package]]
 name = "drifterr-adapters"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "drifterr-engine",
  "drifterr-tokenizer",
@@ -1057,7 +1057,7 @@ dependencies = [
 
 [[package]]
 name = "drifterr-desktop"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "drifterr-proxy",
  "reqwest 0.12.28",
@@ -1073,7 +1073,7 @@ dependencies = [
 
 [[package]]
 name = "drifterr-embeddings"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "ndarray",
  "ort",
@@ -1082,7 +1082,7 @@ dependencies = [
 
 [[package]]
 name = "drifterr-engine"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "drifterr-embeddings",
  "drifterr-tokenizer",
@@ -1093,7 +1093,7 @@ dependencies = [
 
 [[package]]
 name = "drifterr-intervention"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "drifterr-engine",
  "serde",
@@ -1101,7 +1101,7 @@ dependencies = [
 
 [[package]]
 name = "drifterr-judge"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "drifterr-embeddings",
  "drifterr-engine",
@@ -1112,7 +1112,7 @@ dependencies = [
 
 [[package]]
 name = "drifterr-proxy"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "axum",
  "bytes",
@@ -1134,7 +1134,7 @@ dependencies = [
 
 [[package]]
 name = "drifterr-store"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "drifterr-embeddings",
  "drifterr-engine",
@@ -1146,7 +1146,7 @@ dependencies = [
 
 [[package]]
 name = "drifterr-tokenizer"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "serde",
 ]
