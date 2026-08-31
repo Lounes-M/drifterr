@@ -122,14 +122,17 @@ told readers a feature was available when it wasn't.
   the certificates exist, so they are genuinely undefined otherwise. Note that
   `actionlint` cannot catch this one: the file was always valid, it just meant
   something other than intended.
-- The Windows release runner is pinned to `windows-2022`. The `windows-latest`
-  label moved to a Visual Studio 18 image where the app's link fails with
-  `LNK1181: cannot open input file 'bcryptprimitives.lib'`, while nothing in the
-  dependency set changed and v0.2.5 shipped from the older image. Every
-  per-platform condition in the workflow now tests an explicit `matrix.os` rather
-  than the runner label — pinning the image had silently disabled three steps that
-  compared against the literal `windows-latest`, which would have shipped Windows
-  unsigned with no warning.
+- **The Windows release build links again.** It failed with `LNK1181: cannot open
+  input file 'bcryptprimitives.lib'` — a library the Windows SDK does not ship an
+  import library for, so anything linking it conventionally rather than through
+  `raw-dylib` cannot succeed. The desktop app resolved `getrandom 0.4`, which the
+  workspace does not; pinning `uuid` back to 1.18.1 drops it and leaves the same
+  dependency graph CI already links on Windows. Blaming the runner image first was
+  wrong — the failure reproduced identically on Visual Studio 2022 and 18.
+- Every per-platform condition in the release workflow now tests an explicit
+  `matrix.os` rather than the runner label. Changing that label had silently
+  disabled three steps comparing against the literal `windows-latest`, which would
+  have shipped Windows unsigned with no warning.
 - The self-check CI job checks something real. It was reporting "1 rule checked"
   because of the phantom rule above; with that gone the honest count from
   `CLAUDE.md` is zero, so the job also carries the shipped `security-basics` pack.
