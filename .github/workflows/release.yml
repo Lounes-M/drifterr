@@ -118,9 +118,11 @@ jobs:
           if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then mac=true; fi
           if [ "$mac" = true ] && [ -n "$APPLE_ID" ]; then notarize=true; fi
           if [ -n "$WINDOWS_CERTIFICATE" ]; then win=true; fi
-          echo "mac=$mac" >> "$GITHUB_OUTPUT"
-          echo "notarize=$notarize" >> "$GITHUB_OUTPUT"
-          echo "win=$win" >> "$GITHUB_OUTPUT"
+          {
+            echo "mac=$mac"
+            echo "notarize=$notarize"
+            echo "win=$win"
+          } >> "$GITHUB_OUTPUT"
           echo "macOS signing: $mac (notarize: $notarize) · Windows signing: $win"
 
       - name: Import macOS signing certificate
@@ -318,7 +320,10 @@ jobs:
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --clobber
           # Never hash a previous manifest into the new one.
           rm -f SHA256SUMS
-          sha256sum * > SHA256SUMS
+          # `-- *` rather than `./*`: install.sh matches this manifest on the bare
+          # filename (`$2 == n`), so a `./` prefix would be listed under a name it
+          # never looks up and every download would fail verification.
+          sha256sum -- * > SHA256SUMS
           echo "--- SHA256SUMS ---"
           cat SHA256SUMS
           gh release upload "$TAG" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber

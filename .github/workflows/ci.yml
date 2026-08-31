@@ -363,6 +363,12 @@ jobs:
       - name: Lint
         # Pinned rather than floating: a lint that silently changes its rules
         # between runs turns a green PR red for reasons nobody changed.
+        #
+        # actionlint shells out to `shellcheck` for every `run:` block and skips
+        # that half silently when the binary is absent. GitHub's runners ship it,
+        # so a local run without shellcheck installed is NOT this check — it is
+        # the weaker half of it, and it will tell you a file is clean that CI
+        # then rejects. Install shellcheck before trusting a local pass.
         run: |
           set -euo pipefail
           VERSION=1.7.7
