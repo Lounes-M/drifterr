@@ -64,12 +64,13 @@ jobs:
           - platform: ubuntu-22.04
             os: linux
             args: ""
-          # `windows-latest`, deliberately not pinned. An earlier attempt pinned
-          # windows-2022 on the theory that the image had moved to Visual Studio
-          # 18 and broken the link; that was wrong. `LNK1181: cannot open input
-          # file 'bcryptprimitives.lib'` reproduced identically on VS 2022, so the
-          # image was never the variable. The real cause was a dependency —
-          # see the getrandom note in apps/desktop/src-tauri/Cargo.lock's history.
+          # `windows-latest`, deliberately not pinned. Two earlier theories about
+          # `LNK1181: cannot open input file 'bcryptprimitives.lib'` were wrong and
+          # are recorded here so they are not retried: it is not the runner image
+          # (it reproduced identically on VS 2022 and VS 18), and it is not a
+          # dependency (no crate in the graph declares bcryptprimitives without
+          # `raw-dylib`; a bare cdylib does not request it, nor does one using
+          # getrandom). It tracks the Rust toolchain — hence the pin below.
           - platform: windows-latest
             os: windows
             args: ""
@@ -84,8 +85,10 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
+      # Pinned to match CI's Windows link job — see the note there. A release must
+      # not be the first thing to discover a toolchain change.
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.97.0
         with:
           targets: ${{ matrix.os == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
