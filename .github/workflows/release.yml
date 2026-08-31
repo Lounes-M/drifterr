@@ -49,21 +49,46 @@ jobs:
       # in-app update check failed). Sequential builds merge cleanly. macOS is
       # first in the matrix, so it seeds latest.json before the others append.
       max-parallel: 1
+      # Every per-platform condition below tests `matrix.os`, never the runner
+      # image label. Pinning windows-latest → windows-2022 silently disabled three
+      # steps that compared against the literal 'windows-latest' — Windows signing
+      # and its unsigned-build warning would have become dead code, with a green
+      # build and no signature. The image is an operational choice that will change
+      # again; the OS is what the conditions actually mean.
       matrix:
         include:
           # One universal macOS binary — runs natively on Apple silicon AND Intel.
           - platform: macos-latest
+            os: macos
             args: "--target universal-apple-darwin"
           - platform: ubuntu-22.04
+            os: linux
             args: ""
-          - platform: windows-latest
+          # Pinned, NOT `windows-latest`. That label moved to a Visual Studio 18
+          # image, and the release link then fails with
+          #   LNK1181: cannot open input file 'bcryptprimitives.lib'
+          # while nothing in our dependency set changed and v0.2.5 shipped from
+          # the older image. The library is required by the app's dependency
+          # graph (it shows up right after ole32.lib, so most likely getrandom's
+          # ProcessPrng) and is not resolvable in that image's library path.
+          #
+          # Note this is NOT a blanket SDK breakage: CI's "ONNX embedder (Windows
+          # link check)" job links an executable on `windows-latest` and passes.
+          # It is this dependency set on that image.
+          #
+          # Pinning restores the configuration that demonstrably produced a
+          # working Windows installer. Revisit when the image settles — and if
+          # this label is ever retired, the job fails immediately with a clear
+          # "image not found" rather than a link error nobody can read.
+          - platform: windows-2022
+            os: windows
             args: ""
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.os == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -72,7 +97,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.os == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -100,11 +125,16 @@ jobs:
       # build still succeeds without them (shipping unsigned, exactly as before)
       # so a missing secret can never block a release.
       #
-      # Why we import the macOS certificate ourselves instead of handing
-      # APPLE_CERTIFICATE to tauri-action: tauri-action treats the variable as
-      # "signing requested" if it is merely *defined*, so an empty value made it
-      # run `security import` on nothing and fail the whole macOS build. Doing the
-      # import here means the variable is either a real certificate or absent.
+      # The rule that governs every signing variable below: **absent and empty are
+      # not the same thing.** Tauri reads them with `env::var()`, so a defined-but-
+      # empty variable is `Ok("")` — "signing requested, with the empty identity" —
+      # and the build then dies at bundling with `: no identity found`.
+      #
+      # A step's `env:` block cannot conditionally omit a key: the obvious
+      # `${{ cond && secrets.X || '' }}` sets it to an empty string, which is
+      # exactly the failing case. So the variables are exported from THIS step into
+      # $GITHUB_ENV, and only when the material actually exists. A repo with no
+      # certificates never defines them at all, and tauri ships unsigned.
       - name: Detect signing material
         id: signing
         shell: bash
@@ -112,7 +142,10 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           mac=false; notarize=false; win=false
           if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then mac=true; fi
@@ -123,10 +156,28 @@ jobs:
             echo "notarize=$notarize"
             echo "win=$win"
           } >> "$GITHUB_OUTPUT"
+
+          # Define a signing variable only when its material exists — see the note
+          # above. Everything written here is visible to every later step in this
+          # job; everything not written stays genuinely undefined.
+          if [ "$mac" = true ]; then
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+          fi
+          if [ "$notarize" = true ]; then
+            {
+              echo "APPLE_ID=$APPLE_ID"
+              echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+            } >> "$GITHUB_ENV"
+          fi
+          if [ "$win" = true ]; then
+            echo "WINDOWS_CERTIFICATE_PASSWORD=$WINDOWS_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
+          fi
+
           echo "macOS signing: $mac (notarize: $notarize) · Windows signing: $win"
 
       - name: Import macOS signing certificate
-        if: matrix.platform == 'macos-latest' && steps.signing.outputs.mac == 'true'
+        if: matrix.os == 'macos' && steps.signing.outputs.mac == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -153,7 +204,7 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN"
 
       - name: Stage Windows signing certificate
-        if: matrix.platform == 'windows-latest' && steps.signing.outputs.win == 'true'
+        if: matrix.os == 'windows' && steps.signing.outputs.win == 'true'
         shell: bash
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -174,7 +225,7 @@ jobs:
           # Windows Authenticode is applied during bundling (so the app binary and
           # the installer are both signed) via a config overlay, added only when a
           # certificate is actually available.
-          if [ "${{ matrix.platform }}" = "windows-latest" ] && [ "${{ steps.signing.outputs.win }}" = "true" ]; then
+          if [ "${{ matrix.os }}" = "windows" ] && [ "${{ steps.signing.outputs.win }}" = "true" ]; then
             ARGS="$ARGS --config windows-sign.conf.json"
           fi
           echo "args=$ARGS" >> "$GITHUB_OUTPUT"
@@ -207,17 +258,12 @@ jobs:
           # treats it as "signing requested" whenever it is defined, so an empty
           # value made it `security import` nothing and fail the macOS build.
           #
-          # Every value below resolves to "" when the corresponding secret is
-          # unset, which is how tauri-action is told to skip signing/notarization —
-          # so a repo with no certificates still produces a working (unsigned)
-          # release rather than a failed one.
-          APPLE_SIGNING_IDENTITY: ${{ steps.signing.outputs.mac == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_ID: ${{ steps.signing.outputs.notarize == 'true' && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ steps.signing.outputs.notarize == 'true' && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ steps.signing.outputs.notarize == 'true' && secrets.APPLE_TEAM_ID || '' }}
-          # Consumed by windows-sign.conf.json's signCommand (set by the staging
-          # step above; empty when no Windows certificate is configured).
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID and
+          # WINDOWS_CERTIFICATE_PASSWORD are deliberately NOT listed here. They are
+          # exported by "Detect signing material" only when the certificates exist,
+          # because a key written here would be defined-but-empty on a repo with no
+          # certificates — which tauri reads as "sign with the empty identity" and
+          # fails the whole macOS build at bundling. See the note on that step.
         with:
           projectPath: apps/desktop/src-tauri
           tagName: ${{ inputs.version || github.ref_name }}
@@ -230,7 +276,7 @@ jobs:
       # silently-unsigned release is exactly the failure we're trying to end, and
       # it is invisible until a user reports "damaged and can't be opened".
       - name: Verify macOS signature and notarization
-        if: matrix.platform == 'macos-latest' && steps.signing.outputs.mac == 'true'
+        if: matrix.os == 'macos' && steps.signing.outputs.mac == 'true'
         run: |
           set -euo pipefail
           APP=$(find apps/desktop/src-tauri/target -type d -name "Drifterr.app" -print -quit)
@@ -270,8 +316,8 @@ jobs:
       # warning on drifterr.app/download must stay up while this fires.
       - name: Warn when shipping unsigned
         if: |
-          (matrix.platform == 'macos-latest' && steps.signing.outputs.mac != 'true') ||
-          (matrix.platform == 'windows-latest' && steps.signing.outputs.win != 'true')
+          (matrix.os == 'macos' && steps.signing.outputs.mac != 'true') ||
+          (matrix.os == 'windows' && steps.signing.outputs.win != 'true')
         shell: bash
         run: |
           echo "::warning title=Unsigned build::${{ matrix.platform }} artifacts are UNSIGNED. Users will hit an OS warning on first launch. See RELEASING.md → Signing and notarization for the secrets to add; keep the first-launch notice on drifterr.app/download until this stops appearing."
@@ -284,7 +330,7 @@ jobs:
         shell: bash
         run: |
           rm -f "$RUNNER_TEMP/drifterr.pfx" "$RUNNER_TEMP/cert.p12" || true
-          if [ "${{ matrix.platform }}" = "macos-latest" ]; then
+          if [ "${{ matrix.os }}" = "macos" ]; then
             security delete-keychain "$RUNNER_TEMP/drifterr-signing.keychain-db" 2>/dev/null || true
           fi
 

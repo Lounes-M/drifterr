@@ -115,6 +115,21 @@ told readers a feature was available when it wasn't.
   context is not available — and because it only triggers on a tag, nothing ever
   parsed it. The error surfaced as a failed release rather than a failed PR, on
   the one run where a broken workflow costs the most.
+- The macOS release build no longer fails on a repo with no Apple certificates.
+  The signing variables were set to `""` when the secrets were absent, and Tauri
+  reads them with `env::var()` — so `Ok("")` meant "sign with the empty identity"
+  and bundling died with `: no identity found`. They are now exported only when
+  the certificates exist, so they are genuinely undefined otherwise. Note that
+  `actionlint` cannot catch this one: the file was always valid, it just meant
+  something other than intended.
+- The Windows release runner is pinned to `windows-2022`. The `windows-latest`
+  label moved to a Visual Studio 18 image where the app's link fails with
+  `LNK1181: cannot open input file 'bcryptprimitives.lib'`, while nothing in the
+  dependency set changed and v0.2.5 shipped from the older image. Every
+  per-platform condition in the workflow now tests an explicit `matrix.os` rather
+  than the runner label — pinning the image had silently disabled three steps that
+  compared against the literal `windows-latest`, which would have shipped Windows
+  unsigned with no warning.
 - The self-check CI job checks something real. It was reporting "1 rule checked"
   because of the phantom rule above; with that gone the honest count from
   `CLAUDE.md` is zero, so the job also carries the shipped `security-basics` pack.
