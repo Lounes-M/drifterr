@@ -100,11 +100,16 @@ jobs:
       # build still succeeds without them (shipping unsigned, exactly as before)
       # so a missing secret can never block a release.
       #
-      # Why we import the macOS certificate ourselves instead of handing
-      # APPLE_CERTIFICATE to tauri-action: tauri-action treats the variable as
-      # "signing requested" if it is merely *defined*, so an empty value made it
-      # run `security import` on nothing and fail the whole macOS build. Doing the
-      # import here means the variable is either a real certificate or absent.
+      # The rule that governs every signing variable below: **absent and empty are
+      # not the same thing.** Tauri reads them with `env::var()`, so a defined-but-
+      # empty variable is `Ok("")` — "signing requested, with the empty identity" —
+      # and the build then dies at bundling with `: no identity found`.
+      #
+      # A step's `env:` block cannot conditionally omit a key: the obvious
+      # `${{ cond && secrets.X || '' }}` sets it to an empty string, which is
+      # exactly the failing case. So the variables are exported from THIS step into
+      # $GITHUB_ENV, and only when the material actually exists. A repo with no
+      # certificates never defines them at all, and tauri ships unsigned.
       - name: Detect signing material
         id: signing
         shell: bash
@@ -112,7 +117,10 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           mac=false; notarize=false; win=false
           if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then mac=true; fi
@@ -123,6 +131,24 @@ jobs:
             echo "notarize=$notarize"
             echo "win=$win"
           } >> "$GITHUB_OUTPUT"
+
+          # Define a signing variable only when its material exists — see the note
+          # above. Everything written here is visible to every later step in this
+          # job; everything not written stays genuinely undefined.
+          if [ "$mac" = true ]; then
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+          fi
+          if [ "$notarize" = true ]; then
+            {
+              echo "APPLE_ID=$APPLE_ID"
+              echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+            } >> "$GITHUB_ENV"
+          fi
+          if [ "$win" = true ]; then
+            echo "WINDOWS_CERTIFICATE_PASSWORD=$WINDOWS_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
+          fi
+
           echo "macOS signing: $mac (notarize: $notarize) · Windows signing: $win"
 
       - name: Import macOS signing certificate
@@ -207,17 +233,12 @@ jobs:
           # treats it as "signing requested" whenever it is defined, so an empty
           # value made it `security import` nothing and fail the macOS build.
           #
-          # Every value below resolves to "" when the corresponding secret is
-          # unset, which is how tauri-action is told to skip signing/notarization —
-          # so a repo with no certificates still produces a working (unsigned)
-          # release rather than a failed one.
-          APPLE_SIGNING_IDENTITY: ${{ steps.signing.outputs.mac == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_ID: ${{ steps.signing.outputs.notarize == 'true' && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ steps.signing.outputs.notarize == 'true' && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ steps.signing.outputs.notarize == 'true' && secrets.APPLE_TEAM_ID || '' }}
-          # Consumed by windows-sign.conf.json's signCommand (set by the staging
-          # step above; empty when no Windows certificate is configured).
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID and
+          # WINDOWS_CERTIFICATE_PASSWORD are deliberately NOT listed here. They are
+          # exported by "Detect signing material" only when the certificates exist,
+          # because a key written here would be defined-but-empty on a repo with no
+          # certificates — which tauri reads as "sign with the empty identity" and
+          # fails the whole macOS build at bundling. See the note on that step.
         with:
           projectPath: apps/desktop/src-tauri
           tagName: ${{ inputs.version || github.ref_name }}
